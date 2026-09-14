@@ -13,10 +13,13 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test
     steps:
       - uses: actions/checkout@v4
+      # The kit is consumed via a `link:../vega-media-kit` override until 0.1.0 is on npm; check it out as a sibling and build it.
+      - uses: actions/checkout@v4
+        with: { repository: moiz-lakkadkutta/vega-media-kit, path: ../vega-media-kit }
       - uses: pnpm/action-setup@v4
-        with: { version: 9 }
       - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: pnpm }
+        with: { node-version: 20 }
+      - run: cd ../vega-media-kit && pnpm install --frozen-lockfile && pnpm build
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:generate
       - run: pnpm typecheck
