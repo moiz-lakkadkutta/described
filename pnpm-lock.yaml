@@ -111,6 +111,9 @@ importers:
         specifier: ^6.16.0
         version: 6.19.2(react-native@0.81.0(@babel/core@7.29.7)(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.1.0))(react@19.1.0)
     devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.2
       '@types/react':
         specifier: ^19.0.0
         version: 19.3.0

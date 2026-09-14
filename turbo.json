@@ -1,5 +1,20 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalEnv": [
+    "DATABASE_URL",
+    "AWS_REGION",
+    "BEDROCK_REGION",
+    "S3_BUCKET_MEDIA",
+    "S3_BUCKET_NOVA_INGEST",
+    "CLOUDFRONT_DOMAIN",
+    "NOVA_PRO_MODEL_ID",
+    "NOVA_LITE_MODEL_ID",
+    "ADMIN_TOKEN",
+    "RVS_BASE",
+    "RVS_SECRET",
+    "PHONE_URL",
+    "LOG_LEVEL"
+  ],
   "tasks": {
     "build": {
       "dependsOn": [
