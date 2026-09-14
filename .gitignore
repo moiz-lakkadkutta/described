@@ -1,0 +1,12 @@
+node_modules
+dist
+cdk.out
+coverage
+.env
+.env.*
+!.env.example
+.expo
+*.log
+.DS_Store
+.turbo
+apps/vega/build

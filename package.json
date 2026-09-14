@@ -1,0 +1,35 @@
+{
+  "name": "described",
+  "private": true,
+  "packageManager": "pnpm@9.15.9",
+  "scripts": {
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "dev": "turbo run dev --parallel",
+    "api": "pnpm --filter @described/api dev",
+    "expo": "pnpm --filter @described/expo start",
+    "db:up": "docker compose up -d postgres",
+    "db:migrate": "pnpm --filter @described/api prisma migrate dev",
+    "db:generate": "pnpm --filter @described/api prisma generate",
+    "pipeline": "pnpm --filter @described/pipeline cli",
+    "friction": "node scripts/new-friction.mjs",
+    "lint:words": "node scripts/lint-words.mjs"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.0",
+    "typescript": "^5.6.0",
+    "prettier": "^3.3.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "pnpm": {
+    "overrides": {
+      "react": "19.1.0",
+      "react-dom": "19.1.0",
+      "@moizp/vega-media-kit": "link:../vega-media-kit"
+    }
+  }
+}

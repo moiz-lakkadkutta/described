@@ -1,0 +1,142 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TitleStatus {
+  draft
+  processing
+  published
+  failed
+}
+enum AssetKind {
+  source
+  mezzanine
+  shot
+  narration
+}
+enum RenditionKind {
+  audio_main
+  audio_ad
+}
+enum TextKind {
+  captions
+  sdh
+  descriptions
+}
+model Title {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  year        Int?
+  license     String   // e.g. "CC-BY 3.0"
+  attribution String   // full sentence shown in-app
+  durationS   Float?
+  posterKey   String?
+  heroKey     String?
+  synopsis    String?
+  language    String   @default("en")
+  voice       String   @default("Joanna")
+  status      TitleStatus @default(draft)
+  createdAt   DateTime @default(now())
+  assets      Asset[]
+  shots       Shot[]
+  gaps        Gap[]
+  cues        DescriptionCue[]
+  renditions  Rendition[]
+  tracks      TextTrack[]
+  jobs        Job[]
+  progress    Progress[]
+}
+model Asset {
+  id String @id @default(cuid())
+  titleId String
+  title Title @relation(fields: [titleId], references: [id], onDelete: Cascade)
+  kind AssetKind
+  s3Key String
+  region String
+  bytes Int?
+  durationS Float?
+}
+model Shot {
+  id String @id @default(cuid() )
+  titleId String
+  title Title @relation(fields: [titleId], references: [id], onDelete: Cascade)
+  index Int
+  startMs Int
+  endMs Int
+  description String?
+  sameAsPrev Boolean @default(false)
+  novaTokens Int @default(0)
+  @@unique([titleId, index])
+}
+model Gap {
+  id String @id @default(cuid())
+  titleId String
+  title Title @relation(fields: [titleId], references: [id], onDelete: Cascade)
+  startMs Int
+  endMs Int
+}
+model DescriptionCue {
+  id String @id @default(cuid() )
+  titleId String
+  title Title @relation(fields: [titleId], references: [id], onDelete: Cascade)
+  startMs Int
+  endMs Int
+  text String
+  extended Boolean @default(false)
+  pollyKey String?
+  wordCount Int
+}
+model Rendition {
+  id String @id @default(cuid())
+  titleId String
+  title Title @relation(fields: [titleId], references: [id], onDelete: Cascade)
+  kind RenditionKind
+  language String
+  s3Key String
+}
+model TextTrack {
+  id String @id @default(cuid())
+  titleId String
+  title Title @relation(fields: [titleId], references: [id], onDelete: Cascade)
+  kind TextKind
+  language String
+  s3Key String
+  cueCount Int @default(0)
+}
+model Job {
+  id String @id @default(cuid() )
+  titleId String
+  title Title @relation(fields: [titleId], references: [id], onDelete: Cascade)
+  step String
+  status String @default("queued")
+  startedAt DateTime?
+  finishedAt DateTime?
+  error String?
+  costUsd Float @default(0)
+}
+model Profile {
+  id String @id @default(cuid() )
+  deviceId String @unique
+  adDefault Boolean @default(true)
+  extendedMode Boolean @default(true)
+  voice String @default("Joanna")
+  captionKind String @default("sdh")
+  captionScale Int @default(100)
+  firstRunDone Boolean @default(false)
+  progress Progress[]
+}
+model Progress {
+  profileId String
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  titleId String
+  title Title @relation(fields: [titleId], references: [id], onDelete: Cascade)
+  positionS Float
+  updatedAt DateTime @updatedAt
+  @@id([profileId, titleId])
+}
