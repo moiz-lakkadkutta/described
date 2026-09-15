@@ -41,6 +41,8 @@ export async function sdhWithNovaLite(captions: Cue[], descriptions: FitCue[], l
     messages: [{ role: 'user', content: [{ text: JSON.stringify({ language, captions: captions.map(({ id, start, end, text, speaker }) => ({ id, start, end, text, speaker })), descriptions: descriptions.map((d) => ({ start: d.startMs / 1000, text: d.text })) }) }] }],
     inferenceConfig: { maxTokens: 4000, temperature: 0 },
   }))
-  const parsed = JSON.parse(r.output?.message?.content?.[0]?.text ?? '{"cues":[]}') as { cues: Array<Omit<Cue, 'trackId'>> }
+  const parsed = JSON.parse(stripFence(r.output?.message?.content?.[0]?.text ?? '{"cues":[]}')) as { cues: Array<Omit<Cue, 'trackId'>> }
   return parsed.cues.map((c) => ({ ...c, trackId: 'sdh' }))
 }
+/** Nova Lite sometimes wraps JSON in a ```json fence despite "JSON only". */
+export const stripFence = (t: string) => t.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')

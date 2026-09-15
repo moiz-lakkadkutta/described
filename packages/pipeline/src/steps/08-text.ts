@@ -12,7 +12,8 @@ export async function sdh(ctx: Ctx) {
   const cues = JSON.parse(await readFile(`${ctx.work}/cues.json`, 'utf8')) as FitCue[]
   const captions = segment(words)
   await writeFile(`${ctx.work}/captions.vtt`, serializeVtt(captions))
-  const sdhCues = await sdhWithNovaLite(captions, cues, ctx.language)
+  // No dialogue → nothing for Nova Lite to annotate; write header-only files rather than spend a call on an empty array.
+  const sdhCues = captions.length ? await sdhWithNovaLite(captions, cues, ctx.language) : []
   const problems = lintCues(sdhCues)
   if (problems.length) console.warn('SDH lint', problems)
   await writeFile(`${ctx.work}/sdh.vtt`, serializeVtt(sdhCues))
