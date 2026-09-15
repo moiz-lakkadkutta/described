@@ -1,12 +1,13 @@
 import { BedrockRuntimeClient, ConverseCommand } from '@aws-sdk/client-bedrock-runtime'
-import { execa } from 'execa'
 import { readFile, writeFile } from 'node:fs/promises'
+import { upload } from '../s3'
 import type { Ctx } from './index'
 import type { Shot } from './02-shots'
 import type { Gap } from './03-speech'
 import { describeSystemPrompt, wordBudget } from '../prompts'
 
-export interface Described extends Shot { description: string; sameAsPrev: boolean; tokens: number }
+/** `tokens` = Converse input tokens (the Prisma `novaTokens` column); `outputTokens` is kept alongside for the docs/aws.md run log. */
+export interface Described extends Shot { description: string; sameAsPrev: boolean; tokens: number; outputTokens: number; stopReason?: string }
 
 /**
  * Nova Pro per shot, via the Converse API with the shot clip as an S3 URI (us-east-1 ingest bucket).
@@ -23,7 +24,8 @@ export async function describeShots(ctx: Ctx) {
   const known: string[] = [] // names heard so far — filled from words.json speaker turns in DESC-003
   for (const s of shots) {
     const key = `${ctx.slug}/shot_${s.index}.mp4`
-    await execa('aws', ['s3', 'cp', `${ctx.work}/shot_${s.index}.mp4`, `s3://${ingest}/${key}`, '--region', 'us-east-1', '--content-type', 'video/mp4'], { stdio: 'ignore' })
+    // Nova reads the clip by S3 URI from us-east-1 and needs Content-Type set — https://docs.aws.amazon.com/nova/latest/userguide/modalities-video.html
+    await upload(`${ctx.work}/shot_${s.index}.mp4`, `s3://${ingest}/${key}`, { ContentType: 'video/mp4', region: 'us-east-1' })
     const budget = wordBudget(s, gaps)
     const r = await client.send(new ConverseCommand({
       modelId: process.env.NOVA_PRO_MODEL_ID ?? 'amazon.nova-pro-v1:0',
@@ -36,7 +38,8 @@ export async function describeShots(ctx: Ctx) {
     }))
     const text = (r.output?.message?.content?.[0]?.text ?? '').trim()
     const same = /^SAME\.?$/i.test(text)
-    out.push({ ...s, description: same ? '' : text, sameAsPrev: same, tokens: r.usage?.inputTokens ?? 0 })
+    // usage.inputTokens / outputTokens — https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html
+    out.push({ ...s, description: same ? '' : text, sameAsPrev: same, tokens: r.usage?.inputTokens ?? 0, outputTokens: r.usage?.outputTokens ?? 0, stopReason: r.stopReason })
     if (!same) prev = text
   }
   await writeFile(`${ctx.work}/described.json`, JSON.stringify(out, null, 2))
