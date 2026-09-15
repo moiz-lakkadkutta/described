@@ -15,13 +15,16 @@ export class MediaStack extends Stack {
       cors: [{ allowedMethods: [s3.HttpMethods.GET, s3.HttpMethods.HEAD], allowedOrigins: ['*'], allowedHeaders: ['*'] }],
     })
     // HLS needs Range requests and CORS; Vega/Fire TV fetch manifests and segments over HTTPS only.
+    // Range GETs pass through to S3 unaided (https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/RangeGETs.html);
+    // CORS-With-Preflight answers browser OPTIONS preflights (Vega's Shaka runs in a web runtime) — SimpleCORS only sets Allow-Origin
+    // (https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-response-headers-policies.html).
     const dist = new cloudfront.Distribution(this, 'Cdn', {
       defaultBehavior: {
         origin: origins.S3BucketOrigin.withOriginAccessControl(media),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
         allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
-        responseHeadersPolicy: cloudfront.ResponseHeadersPolicy.CORS_ALLOW_ALL_ORIGINS,
+        responseHeadersPolicy: cloudfront.ResponseHeadersPolicy.CORS_ALLOW_ALL_ORIGINS_WITH_PREFLIGHT,
       },
       priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
     })
@@ -29,9 +32,13 @@ export class MediaStack extends Stack {
     const pipelineRole = new iam.Role(this, 'PipelineRole', { assumedBy: new iam.AccountRootPrincipal(), description: 'described pipeline: media bucket + speech/translate services' })
     media.grantReadWrite(pipelineRole)
     pipelineRole.addToPolicy(new iam.PolicyStatement({ actions: ['transcribe:StartTranscriptionJob', 'transcribe:GetTranscriptionJob', 'polly:SynthesizeSpeech', 'translate:TranslateText'], resources: ['*'] }))
-    pipelineRole.addToPolicy(new iam.PolicyStatement({ actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream', 'bedrock:Converse', 'bedrock:ConverseStream'], resources: ['arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-*', `arn:aws:bedrock:us-east-1:${this.account}:inference-profile/*`] }))
+    // Converse is authorised by bedrock:InvokeModel — https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html
+    pipelineRole.addToPolicy(new iam.PolicyStatement({ actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'], resources: ['arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-*', `arn:aws:bedrock:us-east-1:${this.account}:inference-profile/*`] }))
+    // Nova reads shot clips by S3 URI with the caller's credentials — https://docs.aws.amazon.com/bedrock/latest/userguide/conversation-inference.html
+    pipelineRole.addToPolicy(new iam.PolicyStatement({ actions: ['s3:GetObject'], resources: [`arn:aws:s3:::described-nova-ingest-${props.stage}-${this.account}/*`] }))
     new CfnOutput(this, 'MediaBucket', { value: media.bucketName })
     new CfnOutput(this, 'CdnDomain', { value: dist.distributionDomainName })
+    new CfnOutput(this, 'CdnId', { value: dist.distributionId }) // CLOUDFRONT_DISTRIBUTION_ID, for invalidations on re-runs
     new CfnOutput(this, 'PipelineRoleArn', { value: pipelineRole.roleArn })
     void Duration
   }

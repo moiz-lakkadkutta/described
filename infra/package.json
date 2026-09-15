@@ -5,7 +5,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "synth": "cdk synth",
-    "deploy": "cdk deploy --require-approval never",
+    "deploy:stack": "cdk deploy --require-approval never",
     "diff": "cdk diff"
   },
   "dependencies": {

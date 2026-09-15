@@ -18,7 +18,7 @@ with [Lingo](https://github.com/moiz-lakkadkutta/lingo). MIT. All demo content i
 3. `pnpm expo` — Fire OS app (Expo SDK 54). Connect the stick: `adb connect <ip>`, press `a`.
 4. Vega: see `apps/vega/README.md` (Vega SDK required; run in the Vega Virtual Device).
 5. Process a title: `pnpm pipeline describe --title sintel --source s3://…/sintel.mp4` (needs AWS creds; see `docs/aws.md`).
-6. Infra: `cd infra && pnpm synth` / `pnpm deploy -c stage=dev` (S3 + CloudFront in eu-central-1, Nova ingest bucket in us-east-1).
+6. Infra: `cd infra && pnpm synth` / `cd infra && pnpm run deploy:stack --all -c stage=dev --outputs-file cdk-outputs.json` (S3 + CloudFront in eu-central-1, Nova ingest bucket in us-east-1; copy the outputs into `.env`).
 
 ## Architecture
 ```
