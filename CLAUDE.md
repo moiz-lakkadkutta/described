@@ -10,3 +10,7 @@ Audio description and rich captions for video that has none — Nova describes, 
 - Read the plan first: docs/PLAN.md. Tickets in TASKS.md. Friction → `pnpm friction "<title>"`.
 - Research before writing: cite the doc URL in the PR for any Amazon/AWS API you touch.
 - Wording rules: docs/decisions/0002-wording.md (enforced by `pnpm lint:words`).
+
+## Development style
+
+Orchestrator + sub-agents. The main session only facilitates; planning, implementation and review are done by sub-agents (fable for judgement, opus for well-bounded implementation). Protocol: docs/ORCHESTRATOR.md. Kickoff prompt: docs/KICKOFF.md.
