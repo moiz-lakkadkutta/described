@@ -1,4 +1,4 @@
-import { parseDescription } from '../src/steps/04-describe'
+import { buildDescribeRequest, keyframeArgs, keyframeTimes, parseDescription } from '../src/steps/04-describe'
 import { describeSystemPrompt } from '../src/prompts'
 
 const p = 'Man holds large weapon.'
@@ -38,5 +38,50 @@ describe('describeSystemPrompt', () => {
     expect(t).toContain('Output: one line, at most 8 words, no preamble, no quotes.')
     expect(t).toContain('Reply in English.')
     expect(describeSystemPrompt({ maxWords: 8, knownNames: ['Sintel'], language: 'de' })).toMatch(/Reply in German\.[\s\S]*Known names so far: Sintel\./)
+  })
+})
+
+describe('key frames', () => {
+  it('samples 1 per second, at least 3 and at most 6, inside the shot', () => {
+    for (const [a, b, n] of [[0, 1000, 3], [10000, 12400, 3], [0, 4000, 4], [5000, 10600, 6], [0, 20000, 6]] as const) {
+      const t = keyframeTimes(a, b)
+      expect(t).toHaveLength(n)
+      for (const x of t) { expect(x).toBeGreaterThan(a); expect(x).toBeLessThan(b) }
+      const d = t.slice(1).map((x, i) => x - t[i]!)
+      for (const x of d) expect(Math.abs(x - d[0]!)).toBeLessThanOrEqual(1) // evenly spaced (rounded to whole ms)
+    }
+    expect(keyframeTimes(0, 4100)).toEqual([500, 1500, 2500, 3500]) // (k + 0.5) / n of startMs → endMs − 100, as in the bake-off
+  })
+  // Gate C raters: cuts land ~2 frames late, so the tail of a shot can already show the next one.
+  it('keeps clear of the last 100 ms so frames of the next shot are not sent', () => {
+    for (const [a, b] of [[0, 1000], [0, 1500], [3000, 4600], [0, 8000], [0, 30000]] as const) expect(Math.max(...keyframeTimes(a, b))).toBeLessThan(b - 100)
+  })
+  it('builds a single-frame ffmpeg grab: seek before input, ≤ 1024 wide keeping aspect, JPEG q 3', () => {
+    const args = keyframeArgs('work/x/mezz.mp4', 12.3456, 'work/x/frames/shot_3_0.jpg')
+    const at = (k: string) => args.indexOf(k)
+    expect(at('-ss')).toBeLessThan(at('-i'))
+    expect(args[at('-ss') + 1]).toBe('12.346')
+    expect(args[at('-i') + 1]).toBe('work/x/mezz.mp4')
+    expect(args[at('-frames:v') + 1]).toBe('1')
+    expect(args[at('-vf') + 1]).toBe("scale='min(1024,iw)':-2")
+    expect(args[at('-q:v') + 1]).toBe('3')
+    expect(args).toContain('-y')
+    expect(args.at(-1)).toBe('work/x/frames/shot_3_0.jpg')
+  })
+})
+
+describe('buildDescribeRequest', () => {
+  it('sends JPEG frames in time order, then the task, with temperature 0 and 120 max tokens', () => {
+    const f = [new Uint8Array([1]), new Uint8Array([2]), new Uint8Array([3])]
+    const r = buildDescribeRequest('SYS', f, 'qwen.qwen3-vl-235b-a22b')
+    expect(r.modelId).toBe('qwen.qwen3-vl-235b-a22b')
+    expect(r.system).toEqual([{ text: 'SYS' }])
+    expect(r.messages).toHaveLength(1)
+    const c = r.messages![0]!.content!
+    expect(r.messages![0]!.role).toBe('user')
+    expect(c).toHaveLength(4)
+    c.slice(0, 3).forEach((b, i) => expect(b).toEqual({ image: { format: 'jpeg', source: { bytes: f[i] } } }))
+    expect(c[3]).toEqual({ text: 'These are frames from one shot, in time order. Describe this shot.' })
+    expect(r.inferenceConfig).toEqual({ maxTokens: 120, temperature: 0 })
   })
 })
