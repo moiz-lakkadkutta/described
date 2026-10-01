@@ -3,6 +3,7 @@ import { Animated, StyleSheet, View, type ViewStyle } from 'react-native'
 import { DefaultFocus, SpatialNavigationFocusableView } from 'react-tv-space-navigation'
 import { announceFocus } from '../a11y'
 import { T } from './Text'
+import { strings } from '../strings'
 import { tokens } from '../theme/tokens'
 import { px } from '../theme/scale'
 
@@ -43,7 +44,7 @@ export function Focusable({ children, onPress, onFocus, onBlur, label, hint, rol
     <DefaultFocus enable={!!defaultFocus}>
       <SpatialNavigationFocusableView
         onSelect={onPress}
-        onFocus={() => { focused.current = true; animate(tokens.motion.focusScale); announceFocus(label, hint, () => focused.current); onFocus?.() }}
+        onFocus={() => { focused.current = true; animate(tokens.motion.focusScale); announceFocus(value ? strings.a11y.setting(label, value) : label, hint, () => focused.current); onFocus?.() }}
         onBlur={() => { focused.current = false; animate(1); onBlur?.() }}
         viewProps={{ 'aria-label': label, accessibilityHint: hint, accessibilityState: { selected: !!selected }, testID, ...(role ? { accessibilityRole: role } : {}), ...(value ? { accessibilityValue: { text: value } } : {}) }}
       >

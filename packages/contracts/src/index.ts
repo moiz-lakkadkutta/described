@@ -48,7 +48,7 @@ export const promptText = promptTexts['en-US']
 export const promptTextFor = (voice: z.infer<typeof Voice>, key: z.infer<typeof PromptKey>) => promptTexts[voiceLanguage[voice]][key]
 export const promptAudioKey = (voice: z.infer<typeof Voice>, key: z.infer<typeof PromptKey>) => `prompts/${voice}/${key}.mp3`
 /** Settings → About & licenses: one attribution sentence per published title. */
-export const About = z.object({ titles: z.array(z.object({ name: z.string(), attribution: z.string() })) })
+export const About = z.object({ titles: z.array(z.object({ slug: z.string(), name: z.string(), attribution: z.string() })) })
 export const ProgressPut = z.object({ titleSlug: z.string(), positionS: z.number().min(0) })
 export const DescriptionCueDto = z.object({ startS: z.number(), endS: z.number(), text: z.string(), extended: z.boolean(), audioUrl: z.string().url().nullable() })
 export type CatalogItem = z.infer<typeof CatalogItem>

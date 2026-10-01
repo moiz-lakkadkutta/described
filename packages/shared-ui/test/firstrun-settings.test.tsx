@@ -16,7 +16,7 @@ import { catalog, title } from './fixtures'
 
 const basePrefs: Prefs = { adDefault: true, extendedMode: true, voice: 'Joanna', captionKind: 'sdh', captionScale: 100, captionStyle: 'box', firstRunDone: true }
 const ok = (data: unknown) => Promise.resolve({ json: async () => ({ success: true, data }) } as Response)
-const about = { titles: [{ name: 'Sintel', attribution: title.attribution }] }
+const about = { titles: [{ slug: 'sintel-90-210', name: 'Sintel', attribution: title.attribution }] }
 /** Fetch routed by path; records every PUT /me/prefs body in order. */
 function api(prefs: Partial<Prefs> = {}) {
   const state = { puts: [] as Partial<Prefs>[], aboutDown: false, putDown: false, down: false, served: { ...basePrefs, ...prefs } }
@@ -162,7 +162,7 @@ describe('first run', () => {
     expect(text(r)).toContain(P[0]!.title)
     press(r, 'Next tip'); press(r, 'Next tip'); press(r, 'Keep extended mode on'); await flush()
     expect(s.puts.at(-1)).toEqual({ extendedMode: true, firstRunDone: true })
-    expect(labels(r)).toContain(strings.a11y.setting(strings.settings.voice, 'Joanna'))
+    expect(labels(r)).toContain(strings.settings.voice)
     expect(defaults(r)).toEqual([strings.settings.reset]) // focus memory: back on the row you pressed
   })
 })
@@ -180,7 +180,8 @@ describe('settings', () => {
   it('rows in spec order, first row focused', () => {
     const r = create(<Harness />)
     expect(focusables(r).map((n) => n.props.testID)).toEqual(['adDefault', 'voice', 'hearIt', 'extended', 'capSize', 'capStyle', 'reset', 'about'].map((id) => `settings:${id}`))
-    expect(defaults(r)).toEqual([`${S.adDefault}: On`])
+    expect(defaults(r)).toEqual([S.adDefault])
+    expect(value(r, 'adDefault')).toBe('On')
   })
 
   it.each([
@@ -203,10 +204,25 @@ describe('settings', () => {
     expect(value(r, id)).toBe(seq.at(-2))
   })
 
-  it('Select steps forward too; the label carries the new value', () => {
+  it('focus says the row name and its value, then the hint', async () => {
+    _setScreenReader(true)
     const r = create(<Harness />)
-    press(r, `${S.capSize}:`)
-    expect(labels(r)).toContain(`${S.capSize}: 125%`)
+    focus(r, S.voice); await spoken()
+    expect(a11yCalls.at(-1)).toBe(`${S.voice}: Joanna. ${strings.a11y.settingHint}`)
+  })
+
+  it('two presses before a re-render still step twice', () => {
+    const onChange = vi.fn()
+    const r = create(<Settings prefs={basePrefs} onChange={onChange} onHearVoice={() => {}} onResetFirstRun={() => {}} onAbout={() => {}} />)
+    focus(r, S.capSize)
+    act(() => { interceptKey('right'); interceptKey('right') }) // prefs prop never updates here
+    expect(onChange.mock.calls.map((c) => c[0])).toEqual([{ captionScale: 125 }, { captionScale: 150 }])
+  })
+
+  it('Select steps forward too; the value carries the change', () => {
+    const r = create(<Harness />)
+    press(r, S.capSize)
+    expect(value(r, 'capSize')).toBe('125%')
     expect(a11yCalls.at(-1)).toBe(`${S.capSize}: 125%`)
   })
 
@@ -214,7 +230,7 @@ describe('settings', () => {
     const onChange = vi.fn()
     const r = create(<Harness onChange={onChange} />)
     expect(key('left')).toBe(false) // nothing focused yet: ◄ may open the rail
-    focus(r, `${S.voice}:`)
+    focus(r, S.voice)
     key('right'); expect(key('right', true)).toBe(true)
     expect(onChange).toHaveBeenCalledTimes(1)
     focus(r, strings.a11y.hearVoice('Daniel'))
@@ -226,14 +242,14 @@ describe('settings', () => {
   it('Hear it plays the selected voice', () => {
     const onHearVoice = vi.fn()
     const r = create(<Harness onHearVoice={onHearVoice} />)
-    focus(r, `${S.voice}:`); key('left')
+    focus(r, S.voice); key('left')
     press(r, strings.a11y.hearVoice('Vicki'))
     expect(onHearVoice).toHaveBeenCalledWith('Vicki')
   })
 
   it('stops taking keys when it unmounts', () => {
     const r = create(<Harness />)
-    focus(r, `${S.voice}:`)
+    focus(r, S.voice)
     act(() => r.unmount()); mounted.pop()
     expect(key('right')).toBe(false)
   })
@@ -243,7 +259,7 @@ describe('settings in Root: saved and spoken', () => {
   it('◄► changes apply at once; PUTs go one at a time and the last one carries the latest value', async () => {
     const s = api(); const r = await mount()
     press(r, 'Go to Settings')
-    focus(r, `${S.capSize}:`)
+    focus(r, S.capSize)
     key('right'); key('right'); key('left')
     await flush()
     expect(s.puts.at(-1)).toEqual({ captionScale: 125 })
@@ -256,13 +272,13 @@ describe('settings in Root: saved and spoken', () => {
     const s = api(); const r = await mount()
     press(r, 'Go to Settings')
     s.putDown = true
-    focus(r, `${S.capSize}:`); key('right'); await flush()
+    focus(r, S.capSize); key('right'); await flush()
     expect(a11yCalls.filter((c) => c === strings.a11y.notSaved)).toHaveLength(1)
-    focus(r, `${S.capStyle}:`); key('right'); await flush()
+    focus(r, S.capStyle); key('right'); await flush()
     expect(a11yCalls.filter((c) => c === strings.a11y.notSaved)).toHaveLength(1) // once per outage
     expect(value(r, 'capSize')).toBe('125%') // the screen keeps your change
     s.putDown = false
-    focus(r, `${S.voice}:`); key('right'); await flush()
+    focus(r, S.voice); key('right'); await flush()
     expect(s.puts).toEqual([{ captionScale: 125, captionStyle: 'shadow', voice: 'Daniel' }])
     key('right'); await flush()
     expect(s.puts.at(-1)).toEqual({ voice: 'Matthew' }) // saved changes are not sent again
@@ -272,7 +288,7 @@ describe('settings in Root: saved and spoken', () => {
     const s = api(); const r = await mount()
     press(r, 'Go to Settings')
     s.putDown = true
-    focus(r, `${S.capSize}:`); key('right'); await flush()
+    focus(r, S.capSize); key('right'); await flush()
     s.putDown = false
     press(r, 'Go to Home'); press(r, 'Open Sintel'); await flush() // GET /titles succeeds
     expect(s.puts).toEqual([{ captionScale: 125 }])
@@ -282,7 +298,7 @@ describe('settings in Root: saved and spoken', () => {
     const s = api(); const r = await mount()
     press(r, 'Go to Settings')
     s.down = true
-    focus(r, `${S.capStyle}:`); key('right'); await flush()
+    focus(r, S.capStyle); key('right'); await flush()
     press(r, 'Go to Home'); press(r, 'Open Sintel'); await flush() // offline screen
     s.down = false
     press(r, strings.a11y.retry); await flush()
@@ -294,7 +310,7 @@ describe('settings in Root: saved and spoken', () => {
   it('Hear it speaks the voice preview clip', async () => {
     api(); const speak = vi.fn(async () => {}); const r = await mount({ speak })
     press(r, 'Go to Settings')
-    focus(r, `${S.voice}:`); key('right')
+    focus(r, S.voice); key('right')
     press(r, strings.a11y.hearVoice('Daniel'))
     expect(speak).toHaveBeenCalledWith('http://api/prompts/Daniel/voicePreview.mp3')
   })
@@ -303,7 +319,7 @@ describe('settings in Root: saved and spoken', () => {
     api(); const r = await mount()
     expect(defaults(r)).toEqual(['Play Sintel with audio description'])
     press(r, 'Go to Settings')
-    press(r, `${S.adDefault}:`); await flush()
+    press(r, S.adDefault); await flush()
     press(r, 'Go to Home')
     expect(defaults(r)).toEqual(['Play Sintel without description'])
   })
@@ -351,7 +367,8 @@ describe('every focusable on First run, Settings and About states its purpose an
       expect(['button', 'adjustable', 'text'], label(n)).toContain(n.props.accessibilityRole)
       if (n.props.accessibilityRole === 'adjustable') {
         expect(n.props.accessibilityHint, label(n)).toBe(strings.a11y.settingHint)
-        expect(label(n)).toContain(n.props.accessibilityValue.text)
+        expect(n.props.accessibilityValue.text, label(n)).toBeTruthy() // label is the row name; the value is separate
+        expect(label(n)).not.toContain(':')
       }
     }
     return f

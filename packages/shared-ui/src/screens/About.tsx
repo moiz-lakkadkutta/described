@@ -14,12 +14,12 @@ const A = strings.about
  * `about`: null while loading, 'offline' when the list could not be fetched (the licenses still show).
  */
 export function About({ about, onClose }: { about: AboutData | null | 'offline'; onClose: () => void }) {
-  const line = (text: string, first = false) => (
-    <Focusable key={text} label={text} role="text" defaultFocus={first} style={{ paddingVertical: px(12), paddingHorizontal: px(24) }} focusedStyle={{ backgroundColor: tokens.color.surface2 }}>
+  const line = (key: string, text: string, first = false) => (
+    <Focusable key={key} label={text} role="text" defaultFocus={first} style={{ paddingVertical: px(12), paddingHorizontal: px(24) }} focusedStyle={{ backgroundColor: tokens.color.surface2 }}>
       <T variant="body">{text}</T>
     </Focusable>
   )
-  const films = about && about !== 'offline' ? about.titles.map((t) => t.attribution) : []
+  const films = about && about !== 'offline' ? about.titles : []
   const status = about === null ? A.loading : about === 'offline' ? A.unavailable : null
   return (
     <SpatialNavigationScrollView useNativeScroll offsetFromStart={px(tokens.layout.safeY)}>
@@ -29,9 +29,9 @@ export function About({ about, onClose }: { about: AboutData | null | 'offline';
         {status ? <View accessibilityLiveRegion="polite"><T variant="body" color={tokens.color.textSecondary} style={{ paddingHorizontal: px(24) }}>{status}</T></View> : null}
         {/* Nothing focusable while loading (Root locks the D-pad), so focus lands once, on the first line. */}
         {about === null ? null : <>
-          {films.map((f, i) => line(f, i === 0))}
+          {films.map((f, i) => line(`film:${f.slug}`, f.attribution, i === 0))}
           <T variant="label" color={tokens.color.textSecondary} style={{ marginTop: px(24) }}>{A.software.toUpperCase()}</T>
-          {A.licenses.map((l, i) => line(l, !films.length && i === 0))}
+          {A.licenses.map((l, i) => line(`license:${i}`, l, !films.length && i === 0))}
           <Focusable label={strings.a11y.closeAbout} role="button" onPress={onClose} style={{ alignSelf: 'flex-start', marginTop: px(24), backgroundColor: tokens.color.surface2, paddingHorizontal: px(28), paddingVertical: px(12) }} focusedStyle={{ backgroundColor: tokens.color.surface3 }}>
             <T variant="body">{A.close}</T>
           </Focusable>

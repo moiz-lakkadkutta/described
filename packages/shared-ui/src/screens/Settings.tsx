@@ -24,7 +24,7 @@ export interface SettingsProps {
 /** Rows in screen order. Values wrap in both directions, so ◄ and ► always do something. */
 export function settingsRows({ prefs, onHearVoice, onResetFirstRun, onAbout }: Omit<SettingsProps, 'onChange'>): SettingRow[] {
   const value = (id: string, name: string, v: string, next: (dir: 1 | -1) => Partial<Prefs>): SettingRow =>
-    ({ id, name, value: v, label: strings.a11y.setting(name, v), hint: strings.a11y.settingHint, step: next })
+    ({ id, name, value: v, label: name, hint: strings.a11y.settingHint, step: next }) // the value is accessibilityValue; Focusable says both
   return [
     value('adDefault', S.adDefault, onOff(prefs.adDefault), () => ({ adDefault: !prefs.adDefault })),
     value('voice', S.voice, prefs.voice, (d) => ({ voice: step(Voice.options, prefs.voice, d) })),
@@ -48,10 +48,14 @@ export function Settings(props: SettingsProps) {
   const { remember, lastId } = useFocusMemory('settings', useCallback(() => {}, []))
   const initial = pickInitialFocus(lastId.current, rows.map((r) => r.id), 'adDefault')
   const focused = useRef<string | null>(null)
+  // Steps start from the latest prefs, including changes not yet rendered (two quick presses must step twice).
+  const latest = useRef(props.prefs)
+  latest.current = props.prefs
   const change = (r: SettingRow, dir: 1 | -1) => {
-    const p = r.step!(dir)
+    const p = settingsRows({ ...props, prefs: latest.current }).find((x) => x.id === r.id)!.step!(dir)
+    latest.current = { ...latest.current, ...p }
     onChange(p)
-    const after = settingsRows({ ...props, prefs: { ...props.prefs, ...p } }).find((x) => x.id === r.id)!
+    const after = settingsRows({ ...props, prefs: latest.current }).find((x) => x.id === r.id)!
     AccessibilityInfo.announceForAccessibility(strings.a11y.setting(after.name, after.value))
   }
   useKeyHandler((key, repeat) => {

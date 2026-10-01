@@ -23,9 +23,9 @@ describe('PUT /me/prefs', () => {
 
 describe('GET /about', () => {
   it('lists the attribution sentence of every published title', async () => {
-    findMany.mockResolvedValueOnce([{ name: 'Sintel', attribution: 'Sintel © Blender Foundation, CC-BY 3.0. Described by Described.' }])
+    findMany.mockResolvedValueOnce([{ slug: 'sintel-90-210', name: 'Sintel', attribution: 'Sintel © Blender Foundation, CC-BY 3.0. Described by Described.' }])
     const res = await request(createApp()).get('/about')
-    expect(res.body.data.titles).toEqual([{ name: 'Sintel', attribution: 'Sintel © Blender Foundation, CC-BY 3.0. Described by Described.' }])
+    expect(res.body.data.titles).toEqual([{ slug: 'sintel-90-210', name: 'Sintel', attribution: 'Sintel © Blender Foundation, CC-BY 3.0. Described by Described.' }])
     expect(findMany.mock.calls[0]![0].where).toEqual({ status: 'published' })
   })
 })
