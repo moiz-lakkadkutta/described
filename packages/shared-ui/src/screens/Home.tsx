@@ -18,13 +18,13 @@ const bands = scrimBands()
  * rows are skeletons of the same size and nothing is focusable; focus lands once, on the restored element.
  * Focus memory: the kit's useFocusMemory keeps the last focused id per screen across visits to Title.
  */
-export function Home({ catalog, myList, onOpen, onPlay, onToggleList }: {
-  catalog: Catalog | null; myList: ReadonlySet<string>
+export function Home({ catalog, myList, adDefault = true, onOpen, onPlay, onToggleList }: {
+  catalog: Catalog | null; myList: ReadonlySet<string>; adDefault?: boolean
   onOpen: (slug: string) => void; onPlay: (slug: string, withAd: boolean) => void; onToggleList: (slug: string) => void
 }) {
-  const m = homeModel(catalog, myList)
+  const m = homeModel(catalog, myList, adDefault)
   const { remember, lastId } = useFocusMemory('home', useCallback(() => {}, []))
-  const initial = pickInitialFocus(lastId.current, m.ids, 'hero:playAd')
+  const initial = pickInitialFocus(lastId.current, m.ids, m.primary)
   const hero = m.hero
   const press = (a: Action) => () => {
     if (!hero) return

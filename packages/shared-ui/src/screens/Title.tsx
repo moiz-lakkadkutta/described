@@ -12,7 +12,7 @@ import { px } from '../theme/scale'
 
 const L = tokens.layout
 export interface TitleProps {
-  title: TitleDetail | null; captionKind: Prefs['captionKind']; inList: boolean; sample: SampleState
+  title: TitleDetail | null; captionKind: Prefs['captionKind']; inList: boolean; sample: SampleState; adDefault?: boolean
   onPlay: (withAd: boolean) => void; onSample: () => void; onCaptions: () => void; onToggleList: () => void; onMore: () => void
 }
 
@@ -20,11 +20,11 @@ export interface TitleProps {
 export function Title(p: TitleProps) {
   return p.title ? <TitleBody {...p} title={p.title} /> : <TitleSkeleton />
 }
-function TitleBody({ title, captionKind, inList, sample, onPlay, onSample, onCaptions, onToggleList, onMore }: TitleProps & { title: TitleDetail }) {
+function TitleBody({ title, captionKind, inList, sample, adDefault, onPlay, onSample, onCaptions, onToggleList, onMore }: TitleProps & { title: TitleDetail }) {
   const { remember, lastId } = useFocusMemory(`title:${title.slug}`, useCallback(() => {}, []))
   const [synopsisLines, setSynopsisLines] = useState(0)
-  const m = titleModel(title, { sample, inList, captionKind, synopsisLines })
-  const initial = pickInitialFocus(lastId.current, [...m.actions.map((a) => a.id), ...(m.more ? ['more'] : [])], m.actions[0]?.id ?? 'more')
+  const m = titleModel(title, { sample, inList, captionKind, synopsisLines, adDefault })
+  const initial = pickInitialFocus(lastId.current, [...m.actions.map((a) => a.id), ...(m.more ? ['more'] : [])], (m.actions.find((a) => a.primary) ?? m.actions[0])?.id ?? 'more')
   const run: Record<string, () => void> = { playAd: () => onPlay(true), play: () => onPlay(false), sample: onSample, captions: onCaptions, list: onToggleList, more: onMore }
   const button = (a: Action) => (
     <Focusable key={a.id} label={a.label} hint={a.hint} selected={a.selected} defaultFocus={a.id === initial} onFocus={() => remember(a.id)} onPress={run[a.id]}
