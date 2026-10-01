@@ -27,3 +27,10 @@ Environment: Apple Silicon Mac, Darwin 25.2 (macOS 26); AWS CLI 2.x; @aws-sdk v3
 Free plan, upgraded to the Paid plan on 2026-10-01. Pipeline run on Sintel 1:30–2:30. Observed 2026-10-01.
 Links: https://docs.aws.amazon.com/nova/latest/userguide/concept-chapter-servicename.html ;
 https://docs.aws.amazon.com/bedrock/latest/userguide/structured-output.html
+
+## Update 2026-10-01
+Forced tool verified: `toolConfig` with an `emit_sdh` tool plus `toolChoice: {tool: {name: 'emit_sdh'}}` returned
+`stopReason: "tool_use"`, one `toolUse` block with schema-shaped cues, and no echoed envelope.
+Shape is solved, quality is not: even under the schema the model duplicated a caption and emitted non-sounds
+(`[rock formation]`, `[words appear]`) next to real ones (`[fire crackles]`). A deterministic merge filter (captions taken
+from the input by id, sound cues kept only if short, non-overlapping and audible) is still needed.

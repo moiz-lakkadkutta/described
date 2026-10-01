@@ -23,3 +23,14 @@ explicit "no text visible" signal, would let callers drop unsupported claims.
 Environment: Apple Silicon Mac, Darwin 25.2 (macOS 26); AWS CLI 2.x; @aws-sdk v3 (core 3.978.0); Node 22.19; AWS account on the
 Free plan, upgraded to the Paid plan on 2026-10-01. Pipeline run on Sintel 1:30–2:30. Observed 2026-10-01.
 Links: https://docs.aws.amazon.com/nova/latest/userguide/modalities-video.html
+
+## Update 2026-10-01
+Cause confirmed: the prompt's unconditional rule "Read on-screen text verbatim, introduced with "Words appear:"" invited
+invention. Reproducible: re-running the same near-black shot with the unchanged prompt produced a third, different
+invented sentence (`Words appear: "The only way out is through"`).
+Fix verified on video input at temperature 0: the text rule is now conditioned on legibility ("only if letters are
+clearly legible in the frames … Never invent text") and the prompt has an explicit darkness rule. The black shot became
+"Darkness. A faint red glow." and the real "SINTEL" title card was still read ("Words appear: "SINTEL". …").
+Decision record: docs/decisions/0003-gate-c.md. The suggestion to Amazon stands: document that Nova video understanding
+can invent on-screen text when a prompt asks for it unconditionally, recommend the conditioned pattern, and provide an
+OCR-confidence or "no text visible" signal so callers can drop unsupported text.
