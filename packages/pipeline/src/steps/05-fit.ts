@@ -60,14 +60,27 @@ async function capExtended(text: string, shorten: (text: string, maxWords: numbe
  */
 export const introducesNew = (description: string) => /\b(words appear|night\.|day\.|a (man|woman|girl|boy)|rooftop|room|street)\b/i.test(description)
 
-/** Words a shortening may add without changing a fact. */
-const STOPWORDS = new Set(['a', 'an', 'the', 'and', 'or', 'of', 'in', 'on', 'at', 'to', 'into', 'onto', 'by', 'with', 'from', 'for', 'as', 'is', 'are', 'it', 'its', 'his', 'her', 'their', 'they', 'he', 'she', 'them', 'him', 'this', 'that', 'then'])
+/** Words a shortening may add without changing a fact. No pronouns: an added "her" or "he" can name the wrong person. */
+const STOPWORDS = new Set(['a', 'an', 'the', 'and', 'or', 'of', 'in', 'on', 'at', 'to', 'into', 'onto', 'by', 'with', 'from', 'for', 'as', 'is', 'are', 'its', 'this', 'that', 'then'])
+/** Dropping any of these flips the meaning, so a shortening must keep every one the original has. */
+const NEGATIONS = new Set(['not', 'no', 'never', 'without', 'nobody', 'nothing', 'none', 'neither', 'nor', "n't", "don't", "doesn't", "isn't", "aren't", "can't", "won't"])
 const tokens = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}\s'-]/gu, ' ').split(/\s+/).filter(Boolean)
 
-/** Every content word of the shortened text appears verbatim in the original (case-insensitive, punctuation stripped). "wing" → "wings" fails. */
+/**
+ * A shortening keeps the facts when its content words appear in the original in the same order (exact tokens, case-insensitive,
+ * punctuation stripped — "wing" → "wings" fails, "dog chases cat" → "cat chases dog" fails), only STOPWORDS are added, and every
+ * negation of the original survives.
+ */
 export function preservesFacts(original: string, shortened: string): boolean {
-  const have = new Set(tokens(original))
-  return tokens(shortened).every((w) => have.has(w) || STOPWORDS.has(w))
+  const orig = tokens(original), short = tokens(shortened)
+  if (orig.some((w) => NEGATIONS.has(w) && !short.includes(w))) return false
+  let i = 0
+  for (const w of short) {
+    const at = orig.indexOf(w, i)
+    if (at >= 0) i = at + 1
+    else if (!STOPWORDS.has(w)) return false
+  }
+  return true
 }
 
 /** Size, shape, age and manner words dropped first. Colours stay: they are facts the prompt asks for. */

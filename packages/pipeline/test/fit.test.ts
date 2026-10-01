@@ -145,6 +145,17 @@ describe('shortening', () => {
     expect(preservesFacts('Woman holds bowl.', 'The woman holds the bowl.')).toBe(true) // stopwords may be added
     expect(preservesFacts('Woman holds bowl.', 'Woman holds cup.')).toBe(false)
   })
+  it('rejects dropped negations, swapped roles and added pronouns', () => {
+    expect(preservesFacts('The girl does not open the door.', 'Girl opens door.')).toBe(false)
+    expect(preservesFacts('A man walks away without his sword.', 'Man walks away with sword.')).toBe(false)
+    expect(preservesFacts('Nobody answers the door.', 'Answers door.')).toBe(false)
+    expect(preservesFacts('The girl does not open the door.', 'Girl does not open door.')).toBe(true)
+    expect(preservesFacts('The dragon chases the girl.', 'The girl chases the dragon.')).toBe(false)
+    expect(preservesFacts('A woman hands a man a cup.', 'A man hands a woman a cup.')).toBe(false)
+    expect(preservesFacts('A woman hands a man a cup.', 'Woman hands man cup.')).toBe(true)
+    expect(preservesFacts('A woman hands a man a cup.', 'Woman hands him cup.')).toBe(false)
+    expect(preservesFacts('A woman lifts a cup.', 'She lifts cup.')).toBe(false)
+  })
   it('falls back to deterministic shortening when the model changes a fact or does not fit', async () => {
     expect(await safeShorten('A dragon with a bloodied wing lands, then roars.', 7, () => 'Dragon with bloodied wings lands.')).toBe('A dragon with a bloodied wing lands.')
     expect(await safeShorten('A dragon with a bloodied wing lands, then roars.', 7, () => 'Dragon with bloodied wing lands.')).toBe('Dragon with bloodied wing lands.')
