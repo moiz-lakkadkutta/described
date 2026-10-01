@@ -1,10 +1,13 @@
-import { BedrockRuntimeClient, ConverseCommand, type ConverseCommandInput, type ConverseOutput } from '@aws-sdk/client-bedrock-runtime'
+import { BedrockRuntimeClient, ConverseCommand, type ConverseCommandInput, type ConverseCommandOutput, type ConverseOutput } from '@aws-sdk/client-bedrock-runtime'
+import { createHash } from 'node:crypto'
 import { execa } from 'execa'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { dirname } from 'node:path'
 import type { Ctx } from './index'
 import type { Shot } from './02-shots'
-import type { Gap } from './03-speech'
+import type { Gap, Word } from './03-speech'
 import { describeSystemPrompt, wordBudget } from '../prompts'
+import { meter } from '../cost'
 
 /** `tokens` = Converse input tokens (the Prisma `novaTokens` column); `outputTokens` is kept alongside for the docs/aws.md run log. */
 export interface Described extends Shot { description: string; sameAsPrev: boolean; tokens: number; outputTokens: number; stopReason?: string }
@@ -19,25 +22,97 @@ export const DEFAULT_DESCRIBE_MODEL_ID = 'qwen.qwen3-vl-235b-a22b'
  * Qwen3 VL 235B A22B — input Text + Image, Converse supported, bedrock-runtime id `qwen.qwen3-vl-235b-a22b`, in-Region us-east-1:
  * https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-qwen-qwen3-vl-235b-a22b.html
  * (conversation-inference-supported-models-features.html now redirects to the "Models at a glance" index, which links that card.)
- * Called directly per shot, no agent layer (docs/decisions/0005-describe-direct-bedrock.md).
+ * Called directly per shot, no agent layer (docs/decisions/0005-describe-direct-bedrock.md); shots run DESCRIBE_CONCURRENCY at a time,
+ * replies are cached per shot (cachedDescribe), and the "nothing new" dedupe runs afterwards in time order (dedupe).
  */
-export async function describeShots(ctx: Ctx) {
+export async function describeShots(ctx: Ctx, send: Converse = bedrockConverse()) {
   const shots = JSON.parse(await readFile(`${ctx.work}/shots.json`, 'utf8')) as Shot[]
   const gaps = JSON.parse(await readFile(`${ctx.work}/gaps.json`, 'utf8')) as Gap[]
-  const client = new BedrockRuntimeClient({ region: process.env.BEDROCK_REGION ?? 'us-east-1' })
+  const words = JSON.parse(await readFile(`${ctx.work}/words.json`, 'utf8').catch(() => '[]')) as Word[]
   const modelId = process.env.DESCRIBE_MODEL_ID ?? DEFAULT_DESCRIBE_MODEL_ID
-  const out: Described[] = []
+  const replies = await mapLimit(shots, describeConcurrency(), async (s) => {
+    const system = describeSystemPrompt({ maxWords: wordBudget(s, gaps), knownNames: knownNames(words, s.startMs, ctx.language), language: ctx.language })
+    return cachedDescribe(ctx.work, modelId, system, await keyframes(ctx.work, s), send)
+  })
+  console.log(`describe: ${shots.length} shots, ${replies.filter((r) => r.cached).length} from cache`)
+  await writeFile(`${ctx.work}/described.json`, JSON.stringify(dedupe(shots, replies), null, 2))
+}
+
+/** Converse via the SDK; tests inject their own. */
+export type Converse = (input: ConverseCommandInput) => Promise<Pick<ConverseCommandOutput, 'output' | 'usage' | 'stopReason'>>
+export const bedrockConverse = (): Converse => { const c = new BedrockRuntimeClient({ region: process.env.BEDROCK_REGION ?? 'us-east-1' }); return (i) => c.send(new ConverseCommand(i)) }
+
+/** Shots described at once (DESCRIBE_CONCURRENCY, default 4) — Converse quotas are per minute, so keep this small. */
+export const describeConcurrency = () => Math.max(1, Number(process.env.DESCRIBE_CONCURRENCY) || 4)
+
+/** Like Promise.all(items.map(fn)) with at most n in flight; results keep the input order. */
+export async function mapLimit<T, R>(items: T[], n: number, fn: (t: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length)
+  let next = 0
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => { while (next < items.length) { const i = next++; out[i] = await fn(items[i]!) } }))
+  return out
+}
+
+/** One shot's raw reply as read from Bedrock or the cache. */
+export interface RawReply { text: string; usage: { inputTokens: number; outputTokens: number }; stopReason?: string; cached?: boolean }
+
+/** sha256(model id + system prompt + key-frame bytes): the request's only inputs (the user text and inferenceConfig are fixed). */
+export function describeCacheKey(modelId: string, system: string, frames: Uint8Array[]): string {
+  const h = createHash('sha256').update(modelId).update('\0').update(system)
+  for (const f of frames) h.update('\0').update(f)
+  return h.digest('hex')
+}
+
+/**
+ * Raw reply for one shot from {work}/cache/describe/{key}.json, else one Converse call whose reply + usage is stored there.
+ * A cache hit costs nothing; a miss adds its usage to the job's meter.
+ */
+export async function cachedDescribe(work: string, modelId: string, system: string, frames: Uint8Array[], send: Converse): Promise<RawReply> {
+  const file = `${work}/cache/describe/${describeCacheKey(modelId, system, frames)}.json`
+  const hit = await readFile(file, 'utf8').then((t) => JSON.parse(t) as RawReply, () => undefined)
+  if (hit) return { ...hit, cached: true }
+  const r = await send(buildDescribeRequest(system, frames, modelId))
+  // usage.inputTokens / outputTokens — https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html
+  const reply: RawReply = { text: replyText(r.output), usage: { inputTokens: r.usage?.inputTokens ?? 0, outputTokens: r.usage?.outputTokens ?? 0 }, stopReason: r.stopReason }
+  meter()?.bedrock(modelId, reply.usage)
+  await mkdir(dirname(file), { recursive: true })
+  await writeFile(file, JSON.stringify(reply))
+  return reply
+}
+
+/** Second, sequential pass: parseDescription compares each reply with the previous voiced description in time order. */
+export function dedupe(shots: Shot[], replies: RawReply[]): Described[] {
   let prev = ''
-  const known: string[] = [] // names heard so far — filled from words.json speaker turns in DESC-003
-  for (const s of shots) {
-    const system = describeSystemPrompt({ maxWords: wordBudget(s, gaps), knownNames: known, language: ctx.language })
-    const r = await client.send(new ConverseCommand(buildDescribeRequest(system, await keyframes(ctx.work, s), modelId)))
-    const { description, sameAsPrev } = parseDescription(replyText(r.output), prev)
-    // usage.inputTokens / outputTokens — https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html
-    out.push({ ...s, description, sameAsPrev, tokens: r.usage?.inputTokens ?? 0, outputTokens: r.usage?.outputTokens ?? 0, stopReason: r.stopReason })
+  return shots.map((s, i) => {
+    const r = replies[i]!
+    const { description, sameAsPrev } = parseDescription(r.text, prev)
     if (!sameAsPrev && description) prev = description
-  }
-  await writeFile(`${ctx.work}/described.json`, JSON.stringify(out, null, 2))
+    return { ...s, description, sameAsPrev, tokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens, stopReason: r.stopReason }
+  })
+}
+
+/** Capitalised words that are not names when Transcribe writes them mid-sentence ("So, What brings you…"). */
+const NOT_NAMES = new Set(['i', "i'm", "i'll", "i've", "i'd", 'ok', 'okay', 'what', 'who', 'where', 'when', 'why', 'how', 'the', 'a', 'an', 'and', 'but', 'or', 'so', 'yes', 'no', 'oh', 'hey', 'god', 'mr', 'mrs', 'ms', 'dr', 'sir', 'miss', 'mister', 'lady', 'lord', 'king', 'queen', 'captain', 'mom', 'dad', 'mum'])
+const HONORIFIC = /^(mr|mrs|ms|dr|st)\.$/i
+
+/**
+ * Names spoken before beforeMs, in the order first heard: a capitalised word that does not open a sentence or a speaker turn,
+ * is not a common capitalised word, and never appears lowercase in the transcript. English only — German capitalises every noun.
+ */
+export function knownNames(words: Word[], beforeMs: number, language: 'en' | 'de'): string[] {
+  if (language !== 'en') return []
+  const bare = (t: string) => t.replace(/[^\p{L}\p{N}'-]/gu, '').replace(/'s$/i, '')
+  const lower = new Set(words.map((w) => bare(w.text)).filter((t) => /^\p{Ll}/u.test(t)).map((t) => t.toLowerCase()))
+  const out: string[] = []
+  words.forEach((w, i) => {
+    if (w.end * 1000 > beforeMs) return
+    const p = words[i - 1]
+    const opens = !p || p.speaker !== w.speaker || (/[.?!]$/.test(p.text) && !HONORIFIC.test(p.text))
+    const t = bare(w.text)
+    if (opens || !/^\p{Lu}\p{Ll}/u.test(t) || NOT_NAMES.has(t.toLowerCase()) || lower.has(t.toLowerCase()) || out.includes(t)) return
+    out.push(t)
+  })
+  return out
 }
 
 /** The reply text: every text block joined, non-text blocks (e.g. reasoning) skipped — as the Gate C bake-off read it. */
