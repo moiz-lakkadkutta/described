@@ -9,7 +9,6 @@
 | Amazon Polly (neural) | eu-central-1 | Narration voice (Vicki de-DE, Joanna en-US) | cents per title |
 | Amazon Transcribe | eu-central-1 | Word-level dialogue timing → gap map; captions | ~$0.024/min → ~$0.30 per title |
 | Amazon S3 + CloudFront | eu-central-1 (+ us-east-1 ingest) | Sources, renditions, HLS delivery to Fire TV | cents |
-| Strands Agents (TypeScript) | — | Orchestrates the describe → fit → voice steps | — |
 | AWS CDK | — | Infra as code (`infra/`) | — |
 
         Infra as code: `infra/` (AWS CDK, TypeScript). Dev tooling: Claude Code, Kiro Crew, Amazon Devices Builder Tools MCP.

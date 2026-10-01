@@ -14,7 +14,7 @@ It is the demo, it unblocks DESC-006–009, and it needs no pipeline work: Sinte
   - Vega: `apps/vega` stays a template; built only if the Vega SDK is installed and kit KIT-010 lands
 - [ ] DESC-003 · week 1 · Pipeline steps 1–5 as pg-boss jobs (probe, shots, speech map, describe, fit) + fit fixtures
   - one job per step (`worker.ts` runs the whole pipeline as one `describe` job today); cost recorded per job
-  - open: describe = Qwen3-VL on key frames (0003). Keep the Strands agent (`src/agent/strands.ts`) or call Bedrock directly? Record in docs/decisions/
+  - describe calls Qwen3-VL on Bedrock directly, no Strands agent (decision 0005); no paid runs without the human
   - per-shot describe cache; Nova Lite shortener must not change facts ("wing" → "wings")
 - [ ] DESC-004 · week 1 · Pipeline steps 6–10 (Polly, mix, SDH, package, publish); manifest validated with the kit's HLS and VTT parsers (decision 0004)
   - buildPackagerArgs(language, hasCaptions, hasSdh) — hasSdh added in DESC-001 Gate C (omit Rich captions when SDH degraded)

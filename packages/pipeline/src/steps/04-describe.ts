@@ -19,7 +19,7 @@ export const DEFAULT_DESCRIBE_MODEL_ID = 'qwen.qwen3-vl-235b-a22b'
  * Qwen3 VL 235B A22B — input Text + Image, Converse supported, bedrock-runtime id `qwen.qwen3-vl-235b-a22b`, in-Region us-east-1:
  * https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-qwen-qwen3-vl-235b-a22b.html
  * (conversation-inference-supported-models-features.html now redirects to the "Models at a glance" index, which links that card.)
- * Orchestration note: this is the function the Strands agent calls as a tool (see ../agent).
+ * Called directly per shot, no agent layer (docs/decisions/0005-describe-direct-bedrock.md).
  */
 export async function describeShots(ctx: Ctx) {
   const shots = JSON.parse(await readFile(`${ctx.work}/shots.json`, 'utf8')) as Shot[]
