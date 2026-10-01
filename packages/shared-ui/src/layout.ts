@@ -10,6 +10,8 @@ export const cardBox = { w: L.cardW, h: L.cardH + 10 + tokens.type.body.line + t
 /** Room kept around every focusable for the outline (4 px + 3 px offset) and 1.04 growth, so focus never clips. */
 export const focusBleed = (w: number) => Math.ceil(tokens.focus.width + tokens.focus.offset + (w * (tokens.motion.focusScale - 1)) / 2)
 export const rowPad = focusBleed(L.cardW)
+/** Total space above and below the cards inside a row's scroll view (it clips): outline + growth of the whole card box. */
+export const rowPadY = focusBleed(cardBox.h)
 
 export interface Slot { id: string; skeleton: boolean; w: number; h: number }
 /** Card slots for a row: the items when loaded, `skeletonCount` placeholders while loading. Same box either way. */

@@ -57,10 +57,10 @@ export function homeModel(catalog: Catalog | null, myList: ReadonlySet<string>) 
 export type SampleState = 'idle' | 'playing'
 const captionNames: Record<Prefs['captionKind'], string> = { off: strings.tracks.off, captions: strings.tracks.plain, sdh: strings.tracks.rich, descriptions: strings.tracks.descText }
 export const nextCaptionKind = (k: Prefs['captionKind']): Prefs['captionKind'] => (['off', 'captions', 'sdh', 'descriptions'] as const)[(['off', 'captions', 'sdh', 'descriptions'].indexOf(k) + 1) % 4]!
-/** A synopsis longer than this is cut at 4 lines on the Title screen (~68 characters a line at 32 px), so it gets "More". */
-export const SYNOPSIS_MORE_CHARS = 240
+/** The Title screen shows this many synopsis lines; a longer synopsis gets "More". */
+export const SYNOPSIS_LINES = 4
 
-export function titleModel(t: TitleDetail, o: { sample: SampleState; inList: boolean; captionKind: Prefs['captionKind'] }) {
+export function titleModel(t: TitleDetail, o: { sample: SampleState; inList: boolean; captionKind: Prefs['captionKind']; synopsisLines?: number }) {
   const badges = [
     ...(t.badges.includes('ad') ? [{ text: strings.badge.ad, ad: true }] : []),
     ...(t.badges.includes('sdh') ? [{ text: strings.badge.sdh, ad: false }] : []),
@@ -76,7 +76,7 @@ export function titleModel(t: TitleDetail, o: { sample: SampleState; inList: boo
     { id: 'captions', text: strings.title.captions(caption), label: strings.a11y.captions(caption), hint: strings.a11y.captionsHint },
     listAction(t, o.inList),
   ]
-  const more: Action | null = (t.synopsis?.length ?? 0) > SYNOPSIS_MORE_CHARS ? { id: 'more', text: strings.title.more, label: strings.a11y.more(t.name) } : null
+  const more: Action | null = t.synopsis && (o.synopsisLines ?? 0) > SYNOPSIS_LINES ? { id: 'more', text: strings.title.more, label: strings.a11y.more(t.name) } : null
   return {
     meta: [t.year, minutes(t.durationS) && strings.minutes(minutes(t.durationS)!)].filter(Boolean).join(' · '),
     badges,

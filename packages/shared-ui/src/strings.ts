@@ -11,7 +11,7 @@ export const strings = {
     processing: (min: number) => `We're still describing this film — about ${min} minutes left.`, more: 'More', close: 'Close',
     captions: (kind: string) => `Captions: ${kind} ▾`,
   },
-  badge: { ad: 'AD', sdh: 'Rich captions', extended: (n: number) => `Extended: ${n} pauses` },
+  badge: { ad: 'AD', sdh: 'Rich captions', extended: (n: number) => `Extended: ${n} ${n === 1 ? 'pause' : 'pauses'}` },
   minutes: (n: number) => `${n} min`,
   /** Spoken labels (aria-label): the purpose of each focusable, not its role. */
   a11y: {

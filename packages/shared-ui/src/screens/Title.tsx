@@ -1,11 +1,11 @@
-import React, { useCallback, useEffect, useRef } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Animated, Image, View } from 'react-native'
 import { SpatialNavigationNode } from 'react-tv-space-navigation'
 import { useFocusMemory } from '@moizp/vega-media-kit/focus'
 import type { Prefs, TitleDetail } from '@described/contracts'
 import { AdBadge, Focusable, T } from '../components'
 import { pickInitialFocus } from '../focus/memory'
-import { titleModel, type Action, type SampleState } from '../models'
+import { SYNOPSIS_LINES, titleModel, type Action, type SampleState } from '../models'
 import { strings } from '../strings'
 import { tokens } from '../theme/tokens'
 import { px } from '../theme/scale'
@@ -22,7 +22,8 @@ export function Title(p: TitleProps) {
 }
 function TitleBody({ title, captionKind, inList, sample, onPlay, onSample, onCaptions, onToggleList, onMore }: TitleProps & { title: TitleDetail }) {
   const { remember, lastId } = useFocusMemory(`title:${title.slug}`, useCallback(() => {}, []))
-  const m = titleModel(title, { sample, inList, captionKind })
+  const [synopsisLines, setSynopsisLines] = useState(0)
+  const m = titleModel(title, { sample, inList, captionKind, synopsisLines })
   const initial = pickInitialFocus(lastId.current, [...m.actions.map((a) => a.id), ...(m.more ? ['more'] : [])], m.actions[0]?.id ?? 'more')
   const run: Record<string, () => void> = { playAd: () => onPlay(true), play: () => onPlay(false), sample: onSample, captions: onCaptions, list: onToggleList, more: onMore }
   const button = (a: Action) => (
@@ -34,7 +35,7 @@ function TitleBody({ title, captionKind, inList, sample, onPlay, onSample, onCap
   )
   return (
     <View style={{ flex: 1, flexDirection: 'row', gap: px(48) }}>
-      <View style={{ width: px(L.posterW), height: px(L.posterH), borderRadius: 6, overflow: 'hidden', backgroundColor: tokens.color.surface2 }}>
+      <View style={{ width: px(L.posterW), height: px(L.posterH), borderRadius: px(tokens.radius.card), overflow: 'hidden', backgroundColor: tokens.color.surface2 }}>
         {title.posterUrl ? <Image source={{ uri: title.posterUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" accessibilityIgnoresInvertColors /> : null}
         {sample === 'playing' ? <SampleIndicator /> : null}
       </View>
@@ -44,11 +45,19 @@ function TitleBody({ title, captionKind, inList, sample, onPlay, onSample, onCap
           <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: px(12) }}>
             {m.meta ? <T variant="body" color={tokens.color.textSecondary}>{m.meta}{m.badges.length ? ' ·' : ''}</T> : null}
             {m.badges.map((b) => b.ad ? <AdBadge key={b.text} inline /> : (
-              <View key={b.text} style={{ backgroundColor: tokens.color.surface2, paddingHorizontal: px(10), paddingVertical: px(2), borderRadius: 3 }}><T variant="label">{b.text.toUpperCase()}</T></View>
+              <View key={b.text} style={{ backgroundColor: tokens.color.surface2, paddingHorizontal: px(10), paddingVertical: px(2), borderRadius: px(tokens.radius.badge) }}><T variant="label">{b.text.toUpperCase()}</T></View>
             ))}
           </View>
-          {title.synopsis ? <T variant="body" numberOfLines={4} style={{ maxWidth: px(1100) }}>{title.synopsis}</T> : null}
-          {m.more ? button(m.more) : null}
+          {title.synopsis ? (
+            <View style={{ maxWidth: px(1100) }}>
+              <T variant="body" numberOfLines={SYNOPSIS_LINES}>{title.synopsis}</T>
+              {/* Unclipped, invisible copy at the same width: its line count decides "More" (a clipped Text reports only visible lines on Android). */}
+              <T variant="body" testID="synopsis-measure" onTextLayout={(e) => setSynopsisLines(e.nativeEvent.lines.length)} accessibilityElementsHidden importantForAccessibility="no-hide-descendants"
+                style={{ position: 'absolute', top: 0, left: 0, right: 0, opacity: 0 }}>{title.synopsis}</T>
+            </View>
+          ) : null}
+          {/* Always mounted so More keeps its place in LRUD order when it appears after layout. */}
+          <SpatialNavigationNode orientation="vertical">{m.more ? button(m.more) : <View />}</SpatialNavigationNode>
           {m.processing ? (
             <View accessibilityLiveRegion="polite" style={{ marginTop: px(12), flexDirection: 'row', alignItems: 'center', gap: px(16) }}>
               <Pulse /><T variant="heading">{m.processing}</T>
@@ -96,7 +105,7 @@ function useLoop(delay: number, ms: number) {
 }
 function Bar({ delay }: { delay: number }) {
   const v = useLoop(delay, 300)
-  return <Animated.View style={{ width: px(8), height: px(40), borderRadius: 2, backgroundColor: tokens.color.badge, transform: [{ scaleY: v.interpolate({ inputRange: [0, 1], outputRange: [0.25, 1] }) }] }} />
+  return <Animated.View style={{ width: px(8), height: px(40), borderRadius: px(tokens.radius.badge), backgroundColor: tokens.color.badge, transform: [{ scaleY: v.interpolate({ inputRange: [0, 1], outputRange: [0.25, 1] }) }] }} />
 }
 /** Never a spinner alone: the processing line always carries words; this is only a slow pulse beside them. */
 function Pulse() {
@@ -104,10 +113,10 @@ function Pulse() {
   return <Animated.View style={{ width: px(20), height: px(20), borderRadius: px(10), backgroundColor: tokens.color.textSecondary, opacity: v.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] }) }} />
 }
 function TitleSkeleton() {
-  const bar = (w: number, h: number) => <View style={{ width: px(w), height: px(h), borderRadius: 3, backgroundColor: tokens.color.surface1 }} />
+  const bar = (w: number, h: number) => <View style={{ width: px(w), height: px(h), borderRadius: px(tokens.radius.badge), backgroundColor: tokens.color.surface1 }} />
   return (
     <View style={{ flex: 1, flexDirection: 'row', gap: px(48) }} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      <View style={{ width: px(L.posterW), height: px(L.posterH), borderRadius: 6, backgroundColor: tokens.color.surface1 }} />
+      <View style={{ width: px(L.posterW), height: px(L.posterH), borderRadius: px(tokens.radius.card), backgroundColor: tokens.color.surface1 }} />
       <View style={{ flex: 1, gap: px(16) }}>{bar(640, tokens.type.display.line)}{bar(420, tokens.type.body.line)}{bar(1000, tokens.type.body.line * 4)}{bar(420, 68)}{bar(360, 68)}</View>
     </View>
   )
