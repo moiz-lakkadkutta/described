@@ -22,8 +22,14 @@ export async function speechMap(ctx: Ctx) {
   await writeFile(`${ctx.work}/gaps.json`, JSON.stringify(gapsFromWords(words, Math.round(parseFloat(probe.format.duration) * 1000)), null, 2))
 }
 
+/** Transcribe emits punctuation as untimed items of its own; it is appended to the previous word so segment() sees sentence ends. */
 export function wordsFromTranscribe(t: { results: { items: Array<{ type: string; start_time?: string; end_time?: string; alternatives: Array<{ content: string }>; speaker_label?: string }> } }): Word[] {
-  return t.results.items.filter((i) => i.type === 'pronunciation').map((i) => ({ start: parseFloat(i.start_time!), end: parseFloat(i.end_time!), text: i.alternatives[0]!.content, speaker: i.speaker_label }))
+  const out: Word[] = []
+  for (const i of t.results.items) {
+    if (i.type === 'pronunciation') out.push({ start: parseFloat(i.start_time!), end: parseFloat(i.end_time!), text: i.alternatives[0]!.content, speaker: i.speaker_label })
+    else if (i.type === 'punctuation' && out.length) out.at(-1)!.text += i.alternatives[0]!.content
+  }
+  return out
 }
 
 /** Gaps between dialogue; narration may speak over music/effects but never over words. */

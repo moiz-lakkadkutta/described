@@ -1,0 +1,102 @@
+[
+  {
+    "index": 0,
+    "startMs": 0,
+    "endMs": 8000,
+    "description": "Words appear: SINTEL. A person stands in the snow, holding a sword.",
+    "sameAsPrev": false,
+    "tokens": 2505,
+    "outputTokens": 18,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 1,
+    "startMs": 8000,
+    "endMs": 11208,
+    "description": "A large white rock formation with snow on top and sides.",
+    "sameAsPrev": false,
+    "tokens": 2518,
+    "outputTokens": 13,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 2,
+    "startMs": 11208,
+    "endMs": 19208,
+    "description": "A person stands in front of a fire in a dark room.",
+    "sameAsPrev": false,
+    "tokens": 2513,
+    "outputTokens": 14,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 3,
+    "startMs": 19208,
+    "endMs": 27208,
+    "description": "Man holds large weapon.",
+    "sameAsPrev": false,
+    "tokens": 2513,
+    "outputTokens": 6,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 4,
+    "startMs": 27208,
+    "endMs": 35208,
+    "description": "Woman drinks from bowl.",
+    "sameAsPrev": false,
+    "tokens": 2505,
+    "outputTokens": 6,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 5,
+    "startMs": 35208,
+    "endMs": 43208,
+    "description": "SAME. Woman holds bowl.",
+    "sameAsPrev": false,
+    "tokens": 2505,
+    "outputTokens": 7,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 6,
+    "startMs": 43208,
+    "endMs": 44042,
+    "description": "Hands hold bowl in front of woman.",
+    "sameAsPrev": false,
+    "tokens": 2507,
+    "outputTokens": 9,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 7,
+    "startMs": 44042,
+    "endMs": 48125,
+    "description": "Words appear: The milk is good.",
+    "sameAsPrev": false,
+    "tokens": 2509,
+    "outputTokens": 9,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 8,
+    "startMs": 48125,
+    "endMs": 56125,
+    "description": "Woman with red hair looks around.",
+    "sameAsPrev": false,
+    "tokens": 2508,
+    "outputTokens": 8,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 9,
+    "startMs": 56125,
+    "endMs": 60000,
+    "description": "Words appear: You have no idea what you're dealing with.",
+    "sameAsPrev": false,
+    "tokens": 2507,
+    "outputTokens": 15,
+    "stopReason": "end_turn"
+  }
+]

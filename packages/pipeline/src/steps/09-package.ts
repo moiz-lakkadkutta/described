@@ -9,7 +9,9 @@ import type { Ctx } from './index'
  */
 export async function pack(ctx: Ctx) {
   const hasCaptions = /-->/.test(await readFile(`${ctx.work}/captions.vtt`, 'utf8'))
-  await execa('packager', buildPackagerArgs(ctx.language, hasCaptions), { cwd: ctx.work, stdio: 'inherit' })
+  // no sdh.json (a work dir from before the text step wrote it) → treat as degraded rather than advertise Rich captions
+  const { degraded } = JSON.parse(await readFile(`${ctx.work}/sdh.json`, 'utf8').catch((e: NodeJS.ErrnoException) => { if (e.code === 'ENOENT') return '{"degraded":true}'; throw e })) as { degraded: boolean }
+  await execa('packager', buildPackagerArgs(ctx.language, hasCaptions, hasCaptions && !degraded), { cwd: ctx.work, stdio: 'inherit' })
 }
 
 /**
@@ -18,12 +20,14 @@ export async function pack(ctx: Ctx) {
  * them with `,` in the playlist. `roles=description` is the DASH Role alias; the HLS AD signal is the characteristic.
  * Packager v3.9.3 rejects a zero-cue WebVTT input (`Packaging Error: 6 (END_OF_STREAM)`, DESC-001 dry run), so when the clip
  * has no dialogue (`hasCaptions=false`) the captions and SDH descriptors are omitted; the whole-file VTTs are still published.
+ * `hasSdh=false` (the SDH step degraded to plain captions, work/sdh.json) omits only the "Rich captions" descriptor, so the
+ * manifest never claims describes-music-and-sound for a track that has none.
  */
-export function buildPackagerArgs(language: 'en' | 'de', hasCaptions: boolean): string[] {
-  const captions = hasCaptions ? [
-    `in=captions.vtt,stream=text,segment_template=hls/captions/$Number$.vtt,playlist_name=captions.m3u8,hls_group_id=text,hls_name=Captions,language=${language}`,
-    `in=sdh.vtt,stream=text,segment_template=hls/sdh/$Number$.vtt,playlist_name=sdh.m3u8,hls_group_id=text,hls_name=Rich captions,language=${language},hls_characteristics=public.accessibility.transcribes-spoken-dialog;public.accessibility.describes-music-and-sound`,
-  ] : []
+export function buildPackagerArgs(language: 'en' | 'de', hasCaptions: boolean, hasSdh: boolean): string[] {
+  const captions = [
+    ...(hasCaptions ? [`in=captions.vtt,stream=text,segment_template=hls/captions/$Number$.vtt,playlist_name=captions.m3u8,hls_group_id=text,hls_name=Captions,language=${language}`] : []),
+    ...(hasCaptions && hasSdh ? [`in=sdh.vtt,stream=text,segment_template=hls/sdh/$Number$.vtt,playlist_name=sdh.m3u8,hls_group_id=text,hls_name=Rich captions,language=${language},hls_characteristics=public.accessibility.transcribes-spoken-dialog;public.accessibility.describes-music-and-sound`] : []),
+  ]
   return [
     'in=mezz.mp4,stream=video,segment_template=hls/video/$Number$.m4s,init_segment=hls/video/init.mp4,playlist_name=video.m3u8',
     `in=mezz.mp4,stream=audio,segment_template=hls/audio_main/$Number$.m4s,init_segment=hls/audio_main/init.mp4,playlist_name=audio_main.m3u8,hls_group_id=audio,hls_name=Original,language=${language}`,

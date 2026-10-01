@@ -6,21 +6,25 @@ import type { Word } from './03-speech'
 import type { FitCue } from './05-fit'
 import { sdhWithNovaLite } from '../prompts'
 
-/** captions.vtt (Transcribe, segmented), sdh.vtt (Nova Lite adds [sounds] and [Speaker] IDs), descriptions.vtt (the AD script with {extended} meta). */
+/**
+ * captions.vtt (Transcribe, segmented), sdh.vtt (Nova Lite adds [sounds] and [Speaker] IDs), descriptions.vtt (the AD script with {extended} meta),
+ * sdh.json { degraded } — true when sdh.vtt fell back to the plain captions, so 09-package does not advertise it as Rich captions.
+ */
 export async function sdh(ctx: Ctx) {
   const words = JSON.parse(await readFile(`${ctx.work}/words.json`, 'utf8')) as Word[]
   const cues = JSON.parse(await readFile(`${ctx.work}/cues.json`, 'utf8')) as FitCue[]
   const captions = segment(words)
   await writeFile(`${ctx.work}/captions.vtt`, serializeVtt(captions))
   // No dialogue → nothing for Nova Lite to annotate; write header-only files rather than spend a call on an empty array.
-  const sdhCues = captions.length ? await sdhWithNovaLite(captions, cues, ctx.language) : []
+  const { cues: sdhCues, degraded } = captions.length ? await sdhWithNovaLite(captions, cues, ctx.language) : { cues: [], degraded: false }
   const problems = lintCues(sdhCues)
   if (problems.length) console.warn('SDH lint', problems)
   await writeFile(`${ctx.work}/sdh.vtt`, serializeVtt(sdhCues))
+  await writeFile(`${ctx.work}/sdh.json`, JSON.stringify({ degraded }))
   await writeFile(`${ctx.work}/descriptions.vtt`, serializeVtt(cues.map((c, i) => ({ trackId: 'desc', id: `d${i + 1}`, start: c.startMs / 1000, end: Math.max(c.endMs, c.startMs + 833) / 1000, text: c.text, ...(c.extended ? { meta: { extended: '1', words: String(c.wordCount) } } : {}) }))))
 }
 
-/** Sentence/clause segmentation to ≤ 42 chars × 2 lines, 1–7 s, ≤ 20 cps. */
+/** Sentence/clause segmentation to ≤ 42 chars × 2 lines, 1–7 s, ≤ 20 cps. An overlong sentence breaks after its last `,;:` word. */
 export function segment(words: Word[], maxChars = 42, maxLines = 2, maxS = 7): Cue[] {
   const out: Cue[] = []
   let buf: Word[] = []
@@ -30,19 +34,32 @@ export function segment(words: Word[], maxChars = 42, maxLines = 2, maxS = 7): C
     out.push({ trackId: 'captions', id: `c${out.length + 1}`, start: buf[0]!.start, end: Math.max(buf.at(-1)!.end, buf[0]!.start + 1), text, ...(buf[0]!.speaker ? { speaker: buf[0]!.speaker } : {}) })
     buf = []
   }
+  const len = () => buf.map((x) => x.text).join(' ').length
   for (const w of words) {
-    const nextLen = buf.map((x) => x.text).join(' ').length + w.text.length + 1
-    const dur = w.end - (buf[0]?.start ?? w.start)
-    if (buf.length && (nextLen > maxChars * maxLines || dur > maxS || (buf[0]!.speaker && w.speaker !== buf[0]!.speaker))) flush()
+    // overflow: flush up to the last clause boundary and re-test the carried rest; no boundary → flush everything
+    while (buf.length && len() + w.text.length + 1 > maxChars * maxLines) { const j = lastClause(buf); if (j < 0) { flush(); break } const rest = buf.slice(j + 1); buf = buf.slice(0, j + 1); flush(); buf = rest }
+    if (buf.length && (w.end - buf[0]!.start > maxS || (buf[0]!.speaker && w.speaker !== buf[0]!.speaker))) flush()
     buf.push(w)
     if (/[.!?]$/.test(w.text)) flush()
   }
   flush()
   return out
 }
+/** Index of the last word ending a clause (`,;:`), ignoring the first quarter of the buffer (a lone "No," opener would be a 1 s cue); -1 when none. */
+const lastClause = (buf: Word[]) => { for (let j = buf.length - 2; j >= Math.max(1, Math.ceil(buf.length / 4) - 1); j--) if (/[,;:]$/.test(buf[j]!.text)) return j; return -1 }
+/** Greedy wrap, but a first line ending at a clause boundary (≥ half a line long) wins when the rest still fits the remaining lines. */
 export function wrap(text: string, maxChars: number, maxLines: number): string {
-  const wordsArr = text.split(' '); const lines: string[] = []; let cur = ''
-  for (const w of wordsArr) { if ((cur + ' ' + w).trim().length > maxChars && cur) { lines.push(cur); cur = w } else cur = (cur + ' ' + w).trim() }
-  if (cur) lines.push(cur)
+  const greedy = (t: string) => { const lines: string[] = []; let cur = ''; for (const w of t.split(' ')) { if ((cur + ' ' + w).trim().length > maxChars && cur) { lines.push(cur); cur = w } else cur = (cur + ' ' + w).trim() } if (cur) lines.push(cur); return lines }
+  const lines = greedy(text)
+  if (lines.length > 1) {
+    const ws = text.split(' ')
+    for (let k = ws.length - 1; k > 0; k--) {
+      const head = ws.slice(0, k).join(' ')
+      if (head.length > maxChars || !/[,;:]$/.test(head)) continue
+      const rest = greedy(ws.slice(k).join(' '))
+      if (head.length >= maxChars / 2 && rest.length <= maxLines - 1) return [head, ...rest].join('\n')
+      break
+    }
+  }
   return lines.slice(0, maxLines).join('\n')
 }
