@@ -21,7 +21,8 @@ Stream under test: `https://dco7qa0c4m1pw.cloudfront.net/published/sintel-90-210
 
 - [ ] Home → Sintel → **▶ Play with description**. The film starts; until it plays the bottom-left line reads **Loading…**.
 - [ ] Chrome while starting: the name top-left over a dark band, a bar with elapsed time left and length right
-      (`0:00 … 14:48`-style), and the status line under it: **Description on · Joanna · Rich captions** (28 px, grey).
+      (`0:00 … 14:48`-style), and the status line under it: **Description on · Joanna · Rich captions** (28 px, on a dark pill).
+      Until the caption track is chosen it may read **… · Captions off** for a moment — it names what is really on screen.
 - [ ] The narration is heard over the film (AD rendition chosen by role, not by position in the playlist).
 - [ ] Rich captions show bottom-centre: 44 px off-white text in a dark box, sound cues in brackets, ≤ 2 lines. While the
       chrome shows, captions sit above the bar, not under it.
@@ -29,8 +30,9 @@ Stream under test: `https://dco7qa0c4m1pw.cloudfront.net/published/sintel-90-210
 
 ## 2. Auto-hide
 
-- [ ] With the film playing and no key pressed, the chrome and status line vanish after **4 s** (time it with a stopwatch: 3.5–4.5 s).
-- [ ] Any key (▼ is the safest) brings them back and starts the 4 s again. Pressing ▼ every 3 s keeps them up.
+- [ ] With the film playing and no key pressed, the name, bar and times vanish after **4 s** (time it with a stopwatch: 3.5–4.5 s).
+- [ ] The **status line stays** bottom-left the whole time (persistent, so "Description on" can be checked at a glance); it stays readable over bright scenes.
+- [ ] Any key (▼ is the safest) brings the chrome back and starts the 4 s again. Pressing ▼ every 3 s keeps it up.
 - [ ] Pause: chrome stays up for as long as the film is paused.
 
 ## 3. Play, pause, seek
@@ -38,10 +40,12 @@ Stream under test: `https://dco7qa0c4m1pw.cloudfront.net/published/sintel-90-210
 - [ ] **Select** pauses; **Select** again plays. Same with the remote's **Play/Pause** key.
 - [ ] **►** once: the time jumps +10 s on the bar at once; the picture follows within ~0.3 s (presses within 0.3 s gather into one seek).
 - [ ] **◄** three quick presses: −30 s, one seek.
-- [ ] **◄** at `0:05`: stops at `0:00`, no error. **►** near the end stops at the length.
+- [ ] **◄** at `0:05`: stops at `0:00`, no error. **►** near the end stops 1 s before the end (the film does not end by seeking).
+- [ ] **►**, wait ~0.5 s (while it is still loading the new place), **►** again: the second press lands +20 s from the start, not +10.
 - [ ] Hold **►** for ~6 s: the time moves by 10 s steps at first, then faster (30 s, then 60 s steps); release → one seek, playback continues there.
       Note how long the picture takes to resume after release: ________ s.
 - [ ] Fast-forward / rewind keys (if the remote has them) behave like ► / ◄.
+- [ ] Let the film end: status reads **The end. Press Select to watch again, Back for the title.** **Select** (or Play/Pause) plays again from `0:00`.
 
 ## 4. Track sheet
 
@@ -72,16 +76,18 @@ Stream under test: `https://dco7qa0c4m1pw.cloudfront.net/published/sintel-90-210
 
 ## 5. Back saves, Play resumes
 
+- [ ] Start a title never played, press **Back** at once: no `PUT /me/progress` (nothing to resume).
 - [ ] Play to about `3:00`, press **Back**: Title appears with **Play with description** focused.
 - [ ] API log shows `PUT /me/progress` with `positionS` ≈ 180; `psql` / Prisma Studio `Progress` row matches.
 - [ ] **Play with description** again: playback starts at ≈ `3:00` (Fire OS seeks once the stream is up — the first frame may show `0:00` for a moment; note it: ________).
 - [ ] Force-stop and relaunch the app, open Sintel, Play: still resumes at ≈ `3:00` (resume point comes from `GET /titles/:slug` → `resumeS`).
 - [ ] Home: **Continue watching** lists Sintel after a relaunch (the row is not refreshed in-session yet).
-- [ ] While watching, the API log shows a `PUT /me/progress` about every 10 s of playback — not several per second.
+- [ ] While watching, the API log shows a `PUT /me/progress` about every 10 s of playback — not several per second, and in order (each later than the last).
 - [ ] Seek to the last 20 s, let it end, press **Back**, Play: starts from `0:00`.
 
 ## 6. Buffering and errors
 
+- [ ] A deep link / transport seek (DESC-008, once it lands) during loading is not undone by the resume point.
 - [ ] Throttle the stick's network (Mac hotspot with Network Link Conditioner "Very Bad Network", or pull the router uplink briefly):
       status line reads **Loading…** and the chrome stays up while it stalls.
 - [ ] Turn the API/CDN path off mid-play (airplane the hotspot ~20 s): once ExoPlayer gives up the status line reads
@@ -93,10 +99,12 @@ Stream under test: `https://dco7qa0c4m1pw.cloudfront.net/published/sintel-90-210
 Turn on: Settings → Accessibility → VoiceView → On.
 
 - [ ] On entering the player: "Play or pause Sintel. Left and right skip 10 seconds. Menu changes audio and captions."
-- [ ] A stall longer than 2 s is announced once: "Loading…" (a short one says nothing; a long one is not repeated).
-- [ ] Track sheet items read their purpose: "Play the original audio", "Play audio description, voice Joanna", "Turn captions off",
-      "Show captions", "Show rich captions, with sounds and music", "Show the description as text", "Extended mode is on. Press to turn it off".
-      Selected items are also read as selected.
+- [ ] A stall longer than 2 s is announced once: "Loading…" (a short one says nothing; a long one, or loading → buffering, is not repeated).
+- [ ] The end is announced ("The end. Press Select to watch again, Back for the title.").
+- [ ] Opening the track sheet says "Audio & captions"; items name their section and purpose: "Audio: Original, no description",
+      "Audio: Audio description, voice Joanna", "Captions off", "Captions: Captions, dialogue only", "Captions: Rich captions, with sounds and music",
+      "Captions: Description text", "Extended mode is on. Press to turn it off". Selected items are also read as selected; each ✓ shows once.
+- [ ] Focusing the player reads the status line with it (e.g. "Play or pause Sintel. Description on · Joanna · Rich captions. Left and right …").
 - [ ] Switching audio announces **"Description off"** / **"Description on"** (never "disabled"/"enabled").
 - [ ] The error state is announced with the same sentence as on screen.
 - [ ] Turn VoiceView off again.
