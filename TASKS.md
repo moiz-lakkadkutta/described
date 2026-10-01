@@ -1,7 +1,7 @@
 # Tickets (build order) — see docs/PLAN.md §10
 
 - [x] DESC-001 · week 0 · Three narrated shots end to end (Sintel 0:00–1:00) → decides Gate A
-  - part 2: deployed, paid run published, Gate A passed on Fire OS (Vega deferred), Gate C fixes in review → rerun sintel-90-210
+  - part 2: deployed, paid run published, Gate A passed on Fire OS (Vega deferred), Gate C passed with Qwen3-VL 235B (72.4 %, decision 0003)
 - [ ] DESC-002 · week 1 · Monorepo + CDK + API skeleton (this scaffold; wire Prisma migrate, deploy dev stacks)
 - [ ] DESC-003 · week 1 · Pipeline steps 1–5 as pg-boss jobs (probe, shots, speech map, describe, fit) + fit fixtures
 - [ ] DESC-004 · week 1 · Pipeline steps 6–10 (Polly, mix, SDH, package, publish) + manifest validation
