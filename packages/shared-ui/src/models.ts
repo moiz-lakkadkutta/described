@@ -56,6 +56,8 @@ export function homeModel(catalog: Catalog | null, myList: ReadonlySet<string>) 
 
 export type SampleState = 'idle' | 'playing'
 const captionNames: Record<Prefs['captionKind'], string> = { off: strings.tracks.off, captions: strings.tracks.plain, sdh: strings.tracks.rich, descriptions: strings.tracks.descText }
+/** The caption choice as the viewer reads it ("Rich captions"). */
+export const captionName = (k: Prefs['captionKind']) => captionNames[k]
 export const nextCaptionKind = (k: Prefs['captionKind']): Prefs['captionKind'] => (['off', 'captions', 'sdh', 'descriptions'] as const)[(['off', 'captions', 'sdh', 'descriptions'].indexOf(k) + 1) % 4]!
 /** The Title screen shows this many synopsis lines; a longer synopsis gets "More". */
 export const SYNOPSIS_LINES = 4
