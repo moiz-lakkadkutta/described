@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import TestRenderer, { act, type ReactTestInstance } from 'react-test-renderer'
 import { promptText, type Prefs } from '@described/contracts'
 import { Root } from '../src/index'
-import { _setScreenReader } from '../src/a11y'
+import { ANNOUNCE_DEBOUNCE_MS, _setScreenReader } from '../src/a11y'
 import { interceptKey } from '../src/focus/keys'
 import { About } from '../src/screens/About'
 import { FirstRun } from '../src/screens/FirstRun'
@@ -36,6 +36,9 @@ function api(prefs: Partial<Prefs> = {}) {
   return state
 }
 const flush = () => act(async () => { for (let i = 0; i < 8; i++) await Promise.resolve() })
+/** Lets the debounced focus announcement fire. */
+const spoken = () => act(() => new Promise<void>((res) => setTimeout(res, ANNOUNCE_DEBOUNCE_MS + 20)))
+const noDot = (x: string) => x.replace(/[.\s]+$/, '')
 const focusables = (r: TestRenderer.ReactTestRenderer) => r.root.findAll((n) => (n.type as unknown) === 'FocusableView')
 const label = (n: ReactTestInstance) => n.props['aria-label'] as string
 const labels = (r: TestRenderer.ReactTestRenderer) => focusables(r).map(label)
@@ -61,17 +64,37 @@ afterEach(() => { mounted.splice(0).forEach((r) => act(() => r.unmount())); vi.u
 const P = strings.firstRun.panels
 
 describe('first run', () => {
-  it('shows for a new profile; each panel is spoken in the app voice and announced', async () => {
+  it('shows for a new profile; each panel plays in the app voice', async () => {
     api({ firstRunDone: false }); const speak = vi.fn(async () => {})
     const r = await mount({ speak })
     expect(text(r)).toContain(P[0]!.title)
     expect(labels(r)).toEqual(['Next tip'])
     expect(speak).toHaveBeenLastCalledWith('http://api/prompts/Joanna/firstRun1.mp3')
-    expect(a11yCalls).toContain(promptText.firstRun1)
     press(r, 'Next tip')
     expect(text(r)).toContain(promptText.firstRun2)
     expect(speak).toHaveBeenLastCalledWith('http://api/prompts/Joanna/firstRun2.mp3')
-    expect(a11yCalls.at(-1)).toBe(`${promptText.firstRun2} Next tip. ${P[1]!.hint}`)
+  })
+
+  it('VoiceView: each panel is one utterance — prompt, then the button label and hint', async () => {
+    _setScreenReader(true)
+    const r = create(<FirstRun speakPrompt={() => {}} onDone={() => {}} onSkip={() => {}} />)
+    act(() => find(r, 'Next tip').props.onFocus()) // DefaultFocus focusing the button on mount
+    await spoken()
+    expect(a11yCalls).toEqual([`${noDot(promptText.firstRun1)}. Next tip. ${noDot(P[0]!.hint)}`])
+    press(r, 'Next tip'); await spoken()
+    expect(a11yCalls).toEqual([a11yCalls[0], `${noDot(promptText.firstRun2)}. Next tip. ${noDot(P[1]!.hint)}`])
+  })
+
+  it('VoiceView: Back from panel 3 while Turn off has focus is announced once', async () => {
+    _setScreenReader(true)
+    const r = create(<FirstRun speakPrompt={() => {}} onDone={() => {}} onSkip={() => {}} />)
+    press(r, 'Next tip'); press(r, 'Next tip')
+    act(() => find(r, 'Turn extended mode off').props.onFocus()); await spoken()
+    a11yCalls.length = 0
+    act(() => { back.press() })
+    act(() => find(r, 'Next tip').props.onFocus()) // focus falls back to the remaining button
+    await spoken()
+    expect(a11yCalls).toEqual([`${noDot(promptText.firstRun2)}. Next tip. ${noDot(P[1]!.hint)}`])
   })
 
   it('panel text on screen is exactly the spoken prompt', () => {
@@ -92,7 +115,8 @@ describe('first run', () => {
     const s = api({ firstRunDone: false }); const r = await mount()
     act(() => { back.press() })
     expect(text(r)).toContain(strings.firstRun.skipArmed)
-    expect(a11yCalls).toContain(strings.firstRun.skipArmed)
+    expect(a11yCalls.filter((c) => c === strings.firstRun.skipArmed)).toHaveLength(1)
+    expect(r.root.findAll((n) => n.props.accessibilityLiveRegion && JSON.stringify(n.props.children ?? '').includes('skip'))).toHaveLength(0)
     expect(s.puts).toEqual([])
     act(() => { back.press() }); await flush()
     expect(s.puts).toEqual([{ firstRunDone: true }])
@@ -125,8 +149,8 @@ describe('first run', () => {
   it('with VoiceView on the text is announced and no clip plays over it', async () => {
     _setScreenReader(true)
     api({ firstRunDone: false }); const speak = vi.fn(async () => {})
-    await mount({ speak })
-    expect(a11yCalls).toContain(promptText.firstRun1)
+    await mount({ speak }); await spoken()
+    expect(a11yCalls.some((c) => c.startsWith(noDot(promptText.firstRun1)))).toBe(true)
     expect(speak).not.toHaveBeenCalled()
   })
 

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { AccessibilityInfo, BackHandler, View } from 'react-native'
 import { promptText, type PromptKey } from '@described/contracts'
 import { Focusable, T } from '../components'
+import { announceFocus, setFocusContext } from '../a11y'
 import { strings } from '../strings'
 import { tokens } from '../theme/tokens'
 import { px } from '../theme/scale'
@@ -25,12 +26,13 @@ export function FirstRun({ speakPrompt, onDone, onSkip }: FirstRunProps) {
   const [i, setI] = useState(0)
   const [armed, setArmed] = useState(false)
   const p = panels[i]!
-  const mounted = useRef(false)
   useEffect(() => {
     speakPrompt(p.key)
-    // On mount the focused button announces its own label and hint; on later panels the button stays focused, so say it here.
-    AccessibilityInfo.announceForAccessibility(mounted.current ? `${promptText[p.key]} ${p.label}. ${p.hint}` : promptText[p.key])
-    mounted.current = true
+    // One utterance, prompt first: the prompt is focus context and the focused button's announcement carries it. The
+    // focus announcement is debounced on one timer, so this call and a Focusable's own (on mount, or when Back from
+    // panel 3 moves focus off Turn off) collapse into a single announcement.
+    setFocusContext(promptText[p.key])
+    announceFocus(p.label, p.hint, () => true)
   }, [p, speakPrompt])
 
   const state = useRef({ i, armed, onSkip })
@@ -64,7 +66,8 @@ export function FirstRun({ speakPrompt, onDone, onSkip }: FirstRunProps) {
           </Focusable>
         ) : null}
       </View>
-      <View accessibilityLiveRegion="polite" style={{ minHeight: px(tokens.type.body.line) }}>
+      {/* Announced once by the Back handler; no live region, so it isn't said twice. */}
+      <View style={{ minHeight: px(tokens.type.body.line) }}>
         {armed ? <T variant="body" color={tokens.color.textSecondary}>{strings.firstRun.skipArmed}</T> : null}
       </View>
     </View>

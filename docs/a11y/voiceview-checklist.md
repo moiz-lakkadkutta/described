@@ -26,16 +26,16 @@ VoiceView. With VoiceView on, the app skips the clip on purpose so two voices ne
 
 Launch the app. Each panel: the text is announced when it appears; Select advances; Back goes back.
 
-- [ ] Panel 1. Spoken: "Described plays every film with audio description. It's on now." then
-      "Next tip. Tip 1 of 3. Press Back twice to skip the introduction."
-      (If the button label cuts the panel text off, note it: both are announcements, VoiceView may interrupt.)
+- [ ] Panel 1. Spoken as one announcement: "Described plays every film with audio description. It's on now. Next tip. Tip 1 of 3. Press Back twice to skip the introduction."
+      Nothing is said twice.
 - [ ] Select → panel 2. Spoken: "Press Menu while watching to change voice, captions or turn it off. Next tip. Tip 2 of 3. Back goes to the previous tip."
 - [ ] Back → panel 1 again (panel 1 text spoken again). Select → panel 2, Select → panel 3.
 - [ ] Panel 3. Spoken: "Extended mode pauses the film when there's a lot to describe. Keep it on? Keep extended mode on. Tip 3 of 3. Finishes the introduction."
 - [ ] ► → "Turn extended mode off. Finishes the introduction. You can turn it on again in Settings." ◄ → back to Keep on.
 - [ ] Select on **Turn off** → Home. (Check later in Settings: Extended mode: Off.)
+- [ ] Back from panel 3 while **Turn off** has focus: panel 2 is spoken once (not twice).
 - [ ] Skip: Settings → Show the introduction again → on panel 1 press **Back**: "Press Back again to skip the introduction."
-      (also shown on screen). Press **Back** again → Settings, focus on "Show the introduction again".
+      (also shown on screen), said once. Press **Back** again → Settings, focus on "Show the introduction again".
 - [ ] Back never leaves the app from any panel. No panel times out.
 - [ ] Relaunch the app (`adb shell am force-stop dev.moizp.described && adb shell monkey -p dev.moizp.described 1`): first run does **not** show again.
 
