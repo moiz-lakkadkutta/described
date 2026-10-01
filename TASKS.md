@@ -36,6 +36,9 @@ It is the demo, it unblocks DESC-006–009, and it needs no pipeline work: Sinte
 - [ ] DESC-010 · week 3 · Five titles processed; physical 4K Select; TTFF < 2 s (Vega build deferred, decision 0004)
   - `build:tv` (EAS) cannot work while the kit comes from the `link:../vega-media-kit` override: EAS uploads only this repo; publish the kit (0.1.0) or vendor it first. Build locally with `expo run:android --variant release` until then
   - re-check hardware decode on the stick with the 1920×818 L4.0 rendition
+  - generate the app-voice prompt clips with Polly in each voice's language: per voice × PromptKey, `LanguageCode = voiceLanguage[voice]`,
+    `Text = promptTextFor(voice, key)` (packages/contracts; de-DE for Vicki and Daniel), neural mp3, upload to `prompts/<voice>/<key>.mp3`
+  - the Settings Voice changes only the app's own prompts (first run, Hear it); description tracks keep the title's voice (`Title.voice`, chosen per title in the pipeline)
 - [ ] DESC-011 · week 4 · Polish, docs/screens, README, docs/aws.md, feedback, feature requests, ≥ 8 friction logs · freeze Oct 15
   - rail: Described (described titles grid) and My list screens + a My list API; both rail items open Home today (DESC-005)
 - [ ] DESC-012 · week 5 · Video + submission (Oct 22)
