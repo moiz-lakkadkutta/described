@@ -21,7 +21,7 @@ export type { KeySource } from './focus'
 
 type Route = { name: 'home' } | { name: 'title'; slug: string } | { name: 'reading'; slug: string } | { name: 'player'; slug: string; withAd: boolean } | { name: 'settings' } | { name: 'firstRun' }
 const noSpeech = async () => {}
-const defaultPrefs: Prefs = { adDefault: true, extendedMode: true, voice: 'Joanna', captionKind: 'sdh', captionScale: 100, firstRunDone: false }
+const defaultPrefs: Prefs = { adDefault: true, extendedMode: true, voice: 'Joanna', captionKind: 'sdh', captionScale: 100, captionStyle: 'box', firstRunDone: false }
 const routeKey = (r: Route) => ('slug' in r ? `${r.name}:${r.slug}` : r.name)
 /** RN Android's own fetch timeout is about 2 minutes; the offline screen should come much sooner. */
 export const FETCH_TIMEOUT_MS = 10_000
