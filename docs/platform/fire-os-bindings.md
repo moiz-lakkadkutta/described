@@ -61,7 +61,10 @@ human's Amazon developer account). Amazon provides the upload channel (historica
 **Plain Android deep links — implemented.** `scheme: "described"` in `apps/expo/app.json` makes Expo prebuild add
 `<intent-filter>` VIEW / DEFAULT / BROWSABLE with `android:scheme="described"` to MainActivity, which Expo makes
 `singleTask` (checked with `npx expo config --type introspect`; both present). React Native's `Linking` delivers the
-URL: `getInitialURL()` on a cold start, a `url` event while running (https://reactnative.dev/docs/linking).
+URL: `getInitialURL()` for the link that started the activity, a `url` event while running
+(https://reactnative.dev/docs/linking). `getInitialURL()` is read on every subscribe: Back on Home finishes the
+activity but keeps the JS process, so a later link starts a new activity that must be handled even if it is the same
+URL. It is de-duplicated per activity (same URL with no trip to the background → not replayed).
 
 - Format (packages/contracts/src/deepLink.ts, shared by API and app):
   `described://title/{slug}` → Title; `described://play/{slug}` → Player at saved progress;
@@ -69,7 +72,8 @@ URL: `getInitialURL()` on a cold start, a `url` event while running (https://rea
   schemes); bad slugs, other schemes and hosts are ignored.
 - Routing (packages/shared-ui/src/platform/launch.ts): Root holds the link until the catalog has loaded and first run
   is done, then navigates. A title missing from the catalog leaves the viewer on Home (never the offline screen).
-  Play links start with description per `prefs.adDefault`.
+  Play links start with description per `prefs.adDefault`. `?t=` is clamped to [0, duration − 1] and reaches Player as
+  its resume point, so Player's rule for a resume point near the end (DESC-006) applies to it too.
 - Test on the stick: `adb shell am start -a android.intent.action.VIEW -d "described://title/sintel-90-210"`.
   The Fire TV launcher's ADB test page uses the same `am start` form —
   https://developer.amazon.com/docs/catalog/test-launcher-integration-with-adb.html
@@ -134,10 +138,15 @@ uses the framework `android.media.session` API, API 21+):
 - The session **only reports**: `onPlay / onPause / onStop / onFastForward / onRewind / onSeekTo` become `onTransport`
   events; JS (`fromNative` → shared-ui `transportAction` → `applyAction`) calls the kit player's `play / pause / seek`
   — the same calls as the remote. Stop pauses (leaving is the viewer's Back, which saves progress). ±10 s seek step.
-- **Media buttons are swallowed** (`onMediaButtonEvent` returns true, logs `control=button`). MainActivity already
-  forwards the remote's ⏯ ⏪ ⏩ to JS as key events (plugins/withKeyEvent.js does not consume them), and Android hands an
-  unconsumed media key to the active session too — two toggles = none. JS can opt in with
-  `createMediaSession(native, { acceptButtons: true })` if the device check shows Alexa arriving as a button.
+- **Media buttons.** Alexa may arrive as media key events. `MEDIA_PLAY`, `MEDIA_PAUSE` and `MEDIA_STOP` take the
+  framework's default mapping (→ `onPlay / onPause / onStop` → JS); they are idempotent, so the same key also reaching
+  JS through MainActivity's key forwarding (plugins/withKeyEvent.js) cannot double-toggle. `PLAY_PAUSE`,
+  `FAST_FORWARD` and `REWIND` are relative — handled on both paths they would toggle or seek twice — so the session
+  swallows them (logs `control=button`) and the remote key path owns them. JS can opt in to those with
+  `createMediaSession(native, { acceptButtons: true })` if the device check shows Alexa sending them.
+- **Background.** The session goes inactive when the activity leaves the foreground (`OnActivityEntersBackground`) and
+  active again on return (`OnActivityEntersForeground`) if the Player still holds it, so Alexa never controls a hidden
+  app. A `destroyed` flag stops queued work and late callbacks after the module is torn down.
 - If the module is missing from a build, `requireOptionalNativeModule` returns null and the binding is a no-op.
 
 **Risk and fallback.** The Kotlin was **not compiled** here (no Android SDK in this environment). If the release build
@@ -151,6 +160,8 @@ fails on it, exclude it — the app works as before, without Alexa transport:
 **Remote media keys.** Already reach JS (`onKeyDown` 85/126/127/89/90 → kit `mapKey`). Mapping them to player actions
 is DESC-006's Player work; it should use the same path: `toTransport(key)` (kit) → `fromKitControl` → `transportAction`
 → `applyAction` (shared-ui `platform`), so remote and voice cannot drift.
+
+A buffering player counts as playing, so "pause" and toggle pause it.
 
 **Known gaps (device check):** near-field Alexa overlay should pause or duck (audio focus — RNV requests focus by
 default; behaviour unverified); "Alexa, resume" during an extended-description pause resumes video over narration.
