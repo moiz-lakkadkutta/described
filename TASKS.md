@@ -1,11 +1,11 @@
 # Tickets (build order) — see docs/PLAN.md §10
 
-- [x] DESC-001 · week 0 · Three narrated shots end to end (Sintel 0:00–1:00) (run on 1:30–2:30 / 1:30–3:30, see 0003) → decides Gate A
+- [x] DESC-001 · week 0 · Three narrated shots end to end (Sintel 0:00–1:00; run on 1:30–2:30 and 1:30–3:30, see 0003) → decides Gate A
   - part 2: deployed, paid run published, Gate A passed on Fire OS (Vega deferred), Gate C passed with Qwen3-VL 235B (72.4 %, decision 0003)
 - [ ] DESC-002 · week 1 · Monorepo + CDK + API skeleton (this scaffold; wire Prisma migrate, deploy dev stacks)
 - [ ] DESC-003 · week 1 · Pipeline steps 1–5 as pg-boss jobs (probe, shots, speech map, describe, fit) + fit fixtures
 - [ ] DESC-004 · week 1 · Pipeline steps 6–10 (Polly, mix, SDH, package, publish) + manifest validation
-  - buildPackagerArgs(language, hasCaptions, hasSdh) — hasSdh added in DESC-001 Gate C (omit Rich captions when SDH degraded)
+  - buildPackagerArgs(language, hasCaptions, hasSdh, hasDescriptions) — hasSdh/hasDescriptions added in DESC-001 (omit a text track that is degraded or empty)
 - [ ] DESC-005 · week 1 · Home + Title screens with tokens, Atkinson Hyperlegible via expo-font, skeletons, focus memory
 - [ ] DESC-006 · week 2 · Player + track sheet: chrome auto-hide, status line, seek, crossfade, Back saves progress
 - [ ] DESC-007 · week 2 · Extended mode: per-cue Polly audio, prefetch 10 s, pause–speak–resume, ochre bar, setting
