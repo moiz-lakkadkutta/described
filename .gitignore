@@ -10,3 +10,5 @@ coverage
 .DS_Store
 .turbo
 apps/vega/build
+packages/pipeline/work
+infra/cdk-outputs.json

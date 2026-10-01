@@ -1,7 +1,7 @@
 # Described
 
 **Audio description and rich captions for video that has none — on Fire TV.**
-Amazon Nova describes each shot, Nova fits the words into the gaps between dialogue, Polly speaks them, ffmpeg ducks the
+Qwen3-VL on Amazon Bedrock describes each shot, Nova Lite fits the words into the gaps between dialogue, Polly speaks them, ffmpeg ducks the
 soundtrack, and the narration arrives through Fire TV's own audio-track selector as a second audio rendition. Extended mode
 pauses the film when there's more to say than the gap allows (WCAG 1.2.7). Description is **on by default**.
 
@@ -18,7 +18,7 @@ with [Lingo](https://github.com/moiz-lakkadkutta/lingo). MIT. All demo content i
 3. `pnpm expo` — Fire OS app (Expo SDK 54). Connect the stick: `adb connect <ip>`, press `a`.
 4. Vega: see `apps/vega/README.md` (Vega SDK required; run in the Vega Virtual Device).
 5. Process a title: `pnpm pipeline describe --title sintel --source s3://…/sintel.mp4` (needs AWS creds; see `docs/aws.md`).
-6. Infra: `cd infra && pnpm synth` / `pnpm deploy -c stage=dev` (S3 + CloudFront in eu-central-1, Nova ingest bucket in us-east-1).
+6. Infra: `cd infra && pnpm synth` / `cd infra && pnpm run deploy:stack --all -c stage=dev --outputs-file cdk-outputs.json` (S3 + CloudFront in eu-central-1, Nova ingest bucket in us-east-1; copy the outputs into `.env`).
 
 ## Architecture
 ```
@@ -28,7 +28,7 @@ apps/vega · apps/expo ─▶ packages/shared-ui ─▶ @moizp/vega-media-kit (K
                   apps/api (Express, Prisma, pg-boss)   S3 /published/{title}/master.m3u8
                                 │ 'describe' job                  audio: main + AD · text: captions, sdh, descriptions
                                 ▼
-                  packages/pipeline: probe → shots → speech map → describe (Nova Pro) → fit (Nova Lite)
+                  packages/pipeline: probe → shots → speech map → describe (Qwen3-VL, Bedrock) → fit (Nova Lite)
                                     → voice (Polly) → mix (ffmpeg duck) → text (SDH) → package (Shaka Packager) → publish
 ```
 Full plan: [docs/PLAN.md](docs/PLAN.md). Tickets: [TASKS.md](TASKS.md). AWS usage: [docs/aws.md](docs/aws.md). Friction logs: [docs/friction](docs/friction).
