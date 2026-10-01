@@ -13,7 +13,8 @@ titles.get('/:slug', async (req, res, next) => {
     const sample = t.cues[0]
     ok(res, {
       slug: t.slug, name: t.name, year: t.year, durationS: t.durationS, posterUrl: t.posterKey ? cdn(t.posterKey) : null,
-      badges: ['ad', 'sdh'], extendedCount: t._count.cues, // cues above is the first extended cue only (the sample) resumeS: null, synopsis: t.synopsis, attribution: t.attribution, voice: t.voice,
+      badges: ['ad', 'sdh'], extendedCount: t._count.cues, // cues above is the first extended cue only (the sample)
+      resumeS: null, synopsis: t.synopsis, attribution: t.attribution, voice: t.voice,
       manifestUrl: cdn(`published/${t.slug}/master.m3u8`),
       tracks: {
         audio: t.renditions.map((r: (typeof t.renditions)[number]) => ({ id: r.kind, language: r.language, role: r.kind === 'audio_ad' ? 'description' : 'main', label: r.kind === 'audio_ad' ? `${r.language} – Audio description (${t.voice})` : `${r.language} – Original` })),

@@ -15,3 +15,11 @@ describe('GET /titles/:slug', () => {
     expect(findUnique.mock.calls[0]![0].include._count).toEqual({ select: { cues: { where: { extended: true } } } })
   })
 })
+
+describe('GET /titles/:slug detail fields', () => {
+  it('returns synopsis, attribution and voice (the Title screen and About list read them)', async () => {
+    findUnique.mockResolvedValueOnce({ ...row, synopsis: 'A girl and a dragon.', attribution: 'Sintel © Blender Foundation, CC-BY 3.0. Described by Described.', voice: 'Vicki' })
+    const res = await request(createApp()).get('/titles/sintel-90-210')
+    expect(res.body.data).toMatchObject({ resumeS: null, synopsis: 'A girl and a dragon.', attribution: 'Sintel © Blender Foundation, CC-BY 3.0. Described by Described.', voice: 'Vicki' })
+  })
+})
