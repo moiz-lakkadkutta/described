@@ -141,8 +141,8 @@ describe('Root', () => {
     it('Back saves the position (PUT /me/progress) and returns to Title; Play again resumes there', async () => {
       const s = api(); const r = await mount()
       await toPlayer(r)
-      act(() => kitPlayer(r).props.onPosition(321.4)); kit.ref.getPosition.mockReturnValue(321.4)
-      act(() => { back.press() })
+      act(() => kitPlayer(r).props.onPosition(321.4))
+      act(() => { back.press() }); await flush()
       expect(s.puts).toContainEqual({ path: '/me/progress', body: { titleSlug: 'sintel-90-210', positionS: 321 } })
       expect(text(r)).toContain(strings.title.playWithout)
       press(r, 'Play Sintel with audio description'); await flush()
@@ -152,7 +152,33 @@ describe('Root', () => {
       const s = api(); const r = await mount()
       await toPlayer(r)
       for (const p of [0, 0.25, 0.5, 5, 9.75, 10, 10.25, 15, 20.1]) act(() => kitPlayer(r).props.onPosition(p))
+      await flush()
       expect(s.puts.filter((x) => x.path === '/me/progress').map((x) => (x.body as { positionS: number }).positionS)).toEqual([10, 20])
+    })
+    it('progress PUTs go one at a time, in order: an older position never lands after a newer one', async () => {
+      const s = api(); const r = await mount()
+      await toPlayer(r)
+      const sent: number[] = []
+      let release!: () => void
+      const gate = new Promise<void>((res) => { release = res })
+      vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+        const pos = JSON.parse(String(init?.body)).positionS as number
+        if (pos === 10) await gate // the first save is slow
+        sent.push(pos)
+        return { json: async () => ({ success: true, data: {} }) } as Response
+      }))
+      void s
+      for (const p of [0, 10, 20]) act(() => kitPlayer(r).props.onPosition(p))
+      await flush()
+      expect(sent).toEqual([])
+      release(); await flush()
+      expect(sent).toEqual([10, 20])
+    })
+    it('Back at 0:00 with nothing saved writes no progress row', async () => {
+      const s = api(); const r = await mount()
+      await toPlayer(r)
+      act(() => { back.press() }); await flush()
+      expect(s.puts.filter((x) => x.path === '/me/progress')).toEqual([])
     })
     it('a caption choice in the track sheet is saved to /me/prefs', async () => {
       const s = api(); const r = await mount()

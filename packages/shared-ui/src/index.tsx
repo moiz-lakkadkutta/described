@@ -20,10 +20,11 @@ export { configureRemote } from './focus'
 export type { KeySource } from './focus'
 export type { PlayerSession } from './screens/Player'
 
-type Route = { name: 'home' } | { name: 'title'; slug: string } | { name: 'reading'; slug: string } | { name: 'player'; slug: string; withAd: boolean } | { name: 'settings' } | { name: 'firstRun' }
+type Route = { name: 'home' } | { name: 'title'; slug: string } | { name: 'reading'; slug: string } | { name: 'player'; slug: string; withAd: boolean; startAtS?: number } | { name: 'settings' } | { name: 'firstRun' }
 const noSpeech = async () => {}
 const defaultPrefs: Prefs = { adDefault: true, extendedMode: true, voice: 'Joanna', captionKind: 'sdh', captionScale: 100, firstRunDone: false }
-const routeKey = (r: Route) => ('slug' in r ? `${r.name}:${r.slug}` : r.name)
+// A player route keys on its audio and start too, so a new deep link to the same title remounts the Player.
+const routeKey = (r: Route) => (r.name === 'player' ? `player:${r.slug}:${r.withAd ? 'ad' : 'main'}:${r.startAtS ?? ''}` : 'slug' in r ? `${r.name}:${r.slug}` : r.name)
 /** RN Android's own fetch timeout is about 2 minutes; the offline screen should come much sooner. */
 export const FETCH_TIMEOUT_MS = 10_000
 /** While playing, the position is saved after it has moved this far (and always on Back). */
@@ -116,13 +117,18 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   // Progress: PUT /me/progress every PROGRESS_SAVE_S of movement while playing, and on Back (then back to Title,
   // whose cached detail takes the new resume point so Play resumes there without a refetch).
   const savedAt = useRef<number | null>(null)
-  useEffect(() => { savedAt.current = null }, [key])
+  const savedThisPlay = useRef(false)
+  useEffect(() => { savedAt.current = null; savedThisPlay.current = false }, [key])
+  // One PUT at a time, in order, so an older position can never land after a newer one.
+  const progressQueue = useRef<Promise<unknown>>(Promise.resolve())
   const saveProgress = (slug: string, positionS: number) => {
-    savedAt.current = positionS
-    void api('/me/progress', { method: 'PUT', body: JSON.stringify({ titleSlug: slug, positionS: Math.max(0, Math.round(positionS)) }) }).catch(() => {})
+    savedAt.current = positionS; savedThisPlay.current = true
+    const body = JSON.stringify({ titleSlug: slug, positionS: Math.max(0, Math.round(positionS)) })
+    progressQueue.current = progressQueue.current.then(() => api('/me/progress', { method: 'PUT', body })).catch(() => {})
   }
   const leavePlayer = (t: TitleDetail, positionS: number) => {
-    saveProgress(t.slug, positionS)
+    // Nothing watched and nothing saved before: no row (it would only say "0 s").
+    if (!(positionS < 1 && !t.resumeS && !savedThisPlay.current)) saveProgress(t.slug, positionS)
     setTitle({ ...t, resumeS: positionS })
     setRoute({ name: 'title', slug: t.slug })
   }
@@ -155,7 +161,7 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
       )
       // TODO(DESC-007): pass `speak` once extended cues carry their own audio; today Player would play the sample clip.
       case 'player': return current ? (
-        <Player title={current} prefs={prefs} withAd={route.withAd} scale={scale} speak={noSpeech} onPrefs={savePrefs} onNowPlaying={onNowPlaying}
+        <Player title={current} prefs={prefs} withAd={route.withAd} startAtS={route.startAtS} scale={scale} speak={noSpeech} onPrefs={savePrefs} onNowPlaying={onNowPlaying}
           onProgress={(s) => { if (savedAt.current === null) savedAt.current = s; else if (Math.abs(s - savedAt.current) >= PROGRESS_SAVE_S) saveProgress(current.slug, s) }}
           onBack={(s) => leavePlayer(current, s)} />
       ) : <Screen><T variant="body">{strings.player.loading}</T></Screen>
