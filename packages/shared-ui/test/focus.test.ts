@@ -15,9 +15,10 @@ describe('remote → spatial navigation', () => {
     expect(['up', 'down', 'left', 'right', 'select', 'back', 'menu', 'playPause'].map((k) => toDirection(k as never, () => true)))
       .toEqual(['up', 'down', 'left', 'right', 'enter', null, null, null])
   })
-  it('the D-pad gate throttles moves, never Select', () => {
+  it('the D-pad gate throttles moves; a held Select fires once', () => {
     expect(toDirection('right', () => false)).toBeNull()
     expect(toDirection('select', () => false)).toBe('enter')
+    expect(toDirection('select', () => true, true)).toBeNull()
   })
   it('configureRemote subscribes the platform source and unsubscribes with its own handle', () => {
     let emit: (k: never) => void = () => {}

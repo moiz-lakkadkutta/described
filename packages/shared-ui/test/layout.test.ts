@@ -1,5 +1,5 @@
 import { homeModel, titleModel } from '../src/models'
-import { cardBox, rowSlots, rowViewportW, skeletonCount } from '../src/layout'
+import { cardBox, focusBleed, rowPad, rowPadY, rowSlots, rowViewportW, skeletonCount } from '../src/layout'
 import { tokens } from '../src/theme/tokens'
 import { textStyle } from '../src/theme/typography'
 import { catalog, title } from './fixtures'
@@ -7,6 +7,12 @@ import { catalog, title } from './fixtures'
 describe('grid geometry', () => {
   it('a row shows 3 cards, 3 gutters and a 40 px peek', () => expect(rowViewportW).toBe(3 * 412 + 3 * 24 + 40))
   it('skeletons fill what a loaded row shows', () => expect(skeletonCount).toBe(4))
+  it('row padding leaves room for the outline and 1.04 growth on every side', () => {
+    const grow = (n: number) => (n * (tokens.motion.focusScale - 1)) / 2 + tokens.focus.width + tokens.focus.offset
+    expect(rowPad).toBeGreaterThanOrEqual(grow(cardBox.w))
+    expect(rowPadY).toBeGreaterThanOrEqual(grow(cardBox.h))
+    expect(rowPadY).toBe(focusBleed(cardBox.h))
+  })
   it('skeleton and loaded slots share one box, so focus geometry never jumps', () => {
     const loading = homeModel(null, new Set()), loaded = homeModel(catalog, new Set())
     const boxes = (m: typeof loading) => new Set(m.rows.flatMap((r) => r.cards.map((c) => `${c.w}x${c.h}`)))
@@ -40,9 +46,13 @@ describe('type', () => {
 })
 
 describe('Title model', () => {
-  const m = titleModel(title, { sample: 'idle', inList: false, captionKind: 'sdh' })
+  const m = titleModel(title, { sample: 'idle', inList: false, captionKind: 'sdh', synopsisLines: 6 })
   it('badges: AD (ochre), Rich captions, Extended pauses', () => expect(m.badges).toEqual([{ text: 'AD', ad: true }, { text: 'Rich captions', ad: false }, { text: 'Extended: 3 pauses', ad: false }]))
   it('year · duration', () => expect(m.meta).toBe('2010 · 15 min'))
-  it('long synopsis gets More', () => expect(m.more?.id).toBe('more'))
+  it('More only past 4 laid-out lines', () => {
+    expect(m.more?.id).toBe('more')
+    expect(titleModel(title, { sample: 'idle', inList: false, captionKind: 'sdh', synopsisLines: 4 }).more).toBeNull()
+  })
+  it('Extended badge is singular for one pause', () => expect(titleModel({ ...title, extendedCount: 1 }, { sample: 'idle', inList: false, captionKind: 'sdh' }).badges.at(-1)!.text).toBe('Extended: 1 pause'))
   it('no sample cue → no Hear a sample', () => expect(titleModel({ ...title, sampleCue: null }, { sample: 'idle', inList: false, captionKind: 'sdh' }).actions.map((a) => a.id)).not.toContain('sample'))
 })

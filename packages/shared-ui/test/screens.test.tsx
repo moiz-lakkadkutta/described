@@ -3,12 +3,11 @@ import TestRenderer, { act, type ReactTestInstance } from 'react-test-renderer'
 import { Home } from '../src/screens/Home'
 import { Reading, Title } from '../src/screens/Title'
 import { skeletonCount } from '../src/layout'
+import { tokens } from '../src/theme/tokens'
+import { animCalls } from './stubs/react-native'
+import { stub } from './stubs/space-navigation'
 import { catalog, title } from './fixtures'
 
-;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
-const error = console.error
-beforeAll(() => { console.error = (...a: unknown[]) => { if (!String(a[0]).includes('react-test-renderer is deprecated')) error(...a) } })
-afterAll(() => { console.error = error })
 const noop = () => {}
 function render(el: React.ReactElement) {
   let r!: TestRenderer.ReactTestRenderer
@@ -35,7 +34,9 @@ describe('every focusable states its purpose', () => {
     expect(focusables(render(home())).map(label)).toContain('Play Sintel with audio description')
   })
   it('Title: actions in spec order, sample hint present', () => {
-    const f = focusables(render(titleEl()))
+    const r = render(titleEl())
+    act(() => r.root.findByProps({ testID: 'synopsis-measure' }).props.onTextLayout({ nativeEvent: { lines: [1, 2, 3, 4, 5] } }))
+    const f = focusables(r)
     expect(f.map(label)).toEqual([
       'Read the full synopsis of Sintel', 'Play Sintel with audio description', 'Play Sintel without description',
       'Hear a sample of the description voice for Sintel', 'Captions: Rich captions', 'Add Sintel to My list',
@@ -46,6 +47,40 @@ describe('every focusable states its purpose', () => {
     const r = render(<Title title={{ ...title, processingMinutesLeft: 12 }} captionKind="sdh" inList={false} sample="idle" onPlay={noop} onSample={noop} onCaptions={noop} onToggleList={noop} onMore={noop} />)
     expect(focusables(r).map(label)).not.toContain('Play Sintel with audio description')
     expect(JSON.stringify(r.toJSON())).toContain('about 12 minutes left')
+  })
+})
+
+describe('More', () => {
+  const more = (lines: number) => {
+    const r = render(titleEl())
+    act(() => r.root.findByProps({ testID: 'synopsis-measure' }).props.onTextLayout({ nativeEvent: { lines: Array(lines).fill(0) } }))
+    return focusables(r).some((n) => label(n)?.startsWith('Read the full synopsis'))
+  }
+  it('appears only when the laid-out synopsis runs past 4 lines', () => {
+    expect(more(4)).toBe(false)
+    expect(more(5)).toBe(true)
+  })
+})
+
+describe('focus visuals', () => {
+  const styles = (n: ReactTestInstance) => n.findAll((x) => (x.type as unknown) === 'View').map((x) => Object.assign({}, ...[x.props.style].flat(3).filter(Boolean)))
+  it('focused: off-white outline outside the element, scale 1.04 over 150 ms', () => {
+    stub.focused = 'Play Sintel with audio description'
+    const r = render(home())
+    const f = focusables(r).find((n) => label(n) === stub.focused)!
+    const outline = styles(f).find((s) => s.borderColor === tokens.color.focus)
+    expect(outline).toMatchObject({ position: 'absolute', borderWidth: tokens.focus.width }) // stub screen is 1920 wide → scale 1
+    expect(outline!.top).toBe(-(tokens.focus.width + tokens.focus.offset))
+    act(() => f.props.onFocus())
+    expect(animCalls).toContainEqual(expect.objectContaining({ toValue: tokens.motion.focusScale, duration: tokens.motion.focusMs }))
+    expect(focusables(r).filter((n) => styles(n).some((s) => s.borderColor === tokens.color.focus))).toHaveLength(1)
+  })
+  it('selected: teal inset ring and a check', () => {
+    const r = render(<Home catalog={catalog} myList={new Set(['sintel-90-210'])} onOpen={noop} onPlay={noop} onToggleList={noop} />)
+    const list = focusables(r).find((n) => label(n) === 'Remove Sintel from My list')!
+    expect(styles(list).some((s) => s.borderColor === tokens.color.interactive)).toBe(true)
+    expect(JSON.stringify(list.findAll((x) => (x.type as unknown) === 'Text').map((t) => t.props.children))).toContain('✓')
+    expect(list.props.accessibilityState).toEqual({ selected: true })
   })
 })
 
@@ -84,6 +119,7 @@ describe('loading', () => {
     const json = JSON.stringify(r.toJSON())
     expect(json).not.toContain('Continue') // hidden until known non-empty
     const rows = r.root.findAll((n) => (n.type as unknown) === 'ScrollView').slice(1) // [0] is the page
+    expect(r.root.findAll((n) => (n.type as unknown) === 'Node' && n.props.orientation === 'horizontal').length).toBeGreaterThanOrEqual(3) // hero node mounted while loading
     expect(rows).toHaveLength(2)
     for (const row of rows) expect(row.findAll((n) => (n.type as unknown) === 'View' && n.props.accessibilityElementsHidden === true)).toHaveLength(skeletonCount)
   })
