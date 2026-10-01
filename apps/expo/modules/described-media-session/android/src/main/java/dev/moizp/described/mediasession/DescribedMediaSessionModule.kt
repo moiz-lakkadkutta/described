@@ -20,13 +20,20 @@ import expo.modules.kotlin.modules.ModuleDefinition
  * The session only reports: every request goes to JS as an `onTransport` event and JS drives the kit's player, the
  * same calls the remote makes. The session never touches ExoPlayer, so the kit's paused/playing state stays the truth.
  *
- * Media buttons (the remote's ⏯ ⏪ ⏩) are swallowed and reported as control "button": MainActivity already forwards
- * those keys to JS (plugins/withKeyEvent.js), and Android would otherwise also hand the unconsumed key to this session
- * (a double toggle). JS ignores "button" unless a device check shows Alexa arrives that way.
- * Logcat: `adb logcat -s DescribedMediaSession`.
+ * Media buttons: Alexa may arrive as MEDIA_PLAY / MEDIA_PAUSE / MEDIA_STOP key events. Those go through the default
+ * mapping (super → onPlay / onPause / onStop): they are idempotent, so the same key also reaching JS through
+ * MainActivity (plugins/withKeyEvent.js) cannot double-toggle. PLAY_PAUSE, FAST_FORWARD and REWIND are relative —
+ * handling them here and on the key path would toggle twice or seek twice — so they are swallowed and reported as
+ * control "button" (JS ignores those unless `acceptButtons`); the remote key path owns them.
+ *
+ * Background: the session goes inactive when the activity leaves the foreground (Alexa must not "pause" a hidden app)
+ * and active again on return if the Player still holds it. Logcat: `adb logcat -s DescribedMediaSession`.
  */
 class DescribedMediaSessionModule : Module() {
   private var session: MediaSession? = null
+  /** True once OnDestroy ran: queued main-thread work and late callbacks must not touch the session or emit. */
+  @Volatile private var destroyed = false
+  @Volatile private var foreground = true
   private val main = Handler(Looper.getMainLooper())
 
   override fun definition() = ModuleDefinition {
@@ -42,20 +49,33 @@ class DescribedMediaSessionModule : Module() {
       main.post { release() }
       Unit
     }
-    OnDestroy { main.post { release() } }
+    OnActivityEntersBackground {
+      foreground = false
+      main.post { session?.let { if (it.isActive) { it.isActive = false; Log.d(TAG, "session inactive (background)") } } }
+    }
+    OnActivityEntersForeground {
+      foreground = true
+      main.post { if (!destroyed) session?.let { if (!it.isActive) { it.isActive = true; Log.d(TAG, "session active (foreground)") } } }
+    }
+    OnDestroy {
+      destroyed = true
+      main.post { release() }
+    }
   }
 
   private fun emit(control: String, positionS: Double? = null, keyCode: Int? = null) {
+    if (destroyed) return
     Log.d(TAG, "transport control=$control positionS=$positionS keyCode=$keyCode")
     val body = mutableMapOf<String, Any?>("control" to control)
     if (positionS != null) body["positionS"] = positionS
     if (keyCode != null) body["keyCode"] = keyCode
-    sendEvent("onTransport", body)
+    runCatching { sendEvent("onTransport", body) }.onFailure { Log.w(TAG, "transport dropped: ${it.message}") }
   }
 
   private fun ensure(): MediaSession? {
     session?.let { return it }
-    val context = appContext.reactContext ?: return null
+    if (destroyed) return null
+    val context = runCatching { appContext.reactContext }.getOrNull() ?: return null
     val s = MediaSession(context, TAG)
     @Suppress("DEPRECATION") // flags are always on from API 26; Fire OS 6 (API 25) still reads them
     s.setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS or MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS)
@@ -69,7 +89,12 @@ class DescribedMediaSessionModule : Module() {
       override fun onMediaButtonEvent(mediaButtonIntent: Intent): Boolean {
         @Suppress("DEPRECATION")
         val key: KeyEvent? = mediaButtonIntent.getParcelableExtra(Intent.EXTRA_KEY_EVENT)
-        if (key != null && key.action == KeyEvent.ACTION_DOWN && key.repeatCount == 0) emit("button", keyCode = key.keyCode)
+        if (key == null) return super.onMediaButtonEvent(mediaButtonIntent)
+        if (key.keyCode in DEFAULT_MAPPED) {
+          Log.d(TAG, "media button ${key.keyCode} action=${key.action} → default mapping")
+          return super.onMediaButtonEvent(mediaButtonIntent)
+        }
+        if (key.action == KeyEvent.ACTION_DOWN && key.repeatCount == 0) emit("button", keyCode = key.keyCode)
         return true
       }
     }, main)
@@ -79,6 +104,7 @@ class DescribedMediaSessionModule : Module() {
   }
 
   private fun update(title: String, durationS: Double, positionS: Double, playing: Boolean) {
+    if (destroyed) return
     val s = ensure() ?: return
     val meta = MediaMetadata.Builder().putString(MediaMetadata.METADATA_KEY_TITLE, title)
     if (durationS > 0) meta.putLong(MediaMetadata.METADATA_KEY_DURATION, (durationS * 1000).toLong())
@@ -94,7 +120,7 @@ class DescribedMediaSessionModule : Module() {
         )
         .build(),
     )
-    if (!s.isActive) {
+    if (foreground && !s.isActive) {
       s.isActive = true
       Log.d(TAG, "session active: $title")
     }
@@ -110,6 +136,8 @@ class DescribedMediaSessionModule : Module() {
 
   companion object {
     private const val TAG = "DescribedMediaSession"
+    /** Idempotent keys (Alexa may send these): the framework maps them to onPlay / onPause / onStop. */
+    private val DEFAULT_MAPPED = setOf(KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE, KeyEvent.KEYCODE_MEDIA_STOP)
     private val ACTIONS: Long = PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_PLAY_PAUSE or
       PlaybackState.ACTION_STOP or PlaybackState.ACTION_FAST_FORWARD or PlaybackState.ACTION_REWIND or PlaybackState.ACTION_SEEK_TO
   }

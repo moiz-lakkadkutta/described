@@ -14,9 +14,10 @@ export interface NativeMediaSession {
 }
 export interface MediaSessionOptions {
   /**
-   * Media buttons that reach the session. Off by default: MainActivity already forwards the remote's media keys to JS
-   * as key events, so taking them here too would toggle twice. Turn on only if the device check shows Alexa voice
-   * commands arriving as `control=button` in `adb logcat -s DescribedMediaSession`.
+   * Relative media buttons (PLAY_PAUSE, FAST_FORWARD, REWIND) that reach the session; the native side already maps
+   * PLAY / PAUSE / STOP to play / pause / stop. Off by default: MainActivity forwards the remote's media keys to JS as
+   * key events, so taking the relative ones here too would toggle or seek twice. Turn on only if the device check shows
+   * Alexa voice commands arriving as `control=button` in `adb logcat -s DescribedMediaSession`.
    */
   acceptButtons?: boolean
 }
