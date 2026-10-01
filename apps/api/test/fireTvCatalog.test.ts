@@ -39,6 +39,10 @@ describe('renderFireTvCatalog', () => {
     expect(x).toContain('<Title locale="en-GB">')
     expect(x).toContain('<Territories>GB IE</Territories>')
   })
+  it('ReleaseDate always has a 4-digit year; impossible years are left out', () => {
+    expect(renderFireTvCatalog([{ ...bare, year: 999 }])).toContain('<ReleaseDate>0999-01-01T00:00:00</ReleaseDate>')
+    expect(renderFireTvCatalog([{ ...bare, year: 12345 }])).not.toContain('ReleaseDate')
+  })
   it('an empty catalog is still well-formed', () => {
     expect(renderFireTvCatalog([])).toContain('<Works>\n  </Works>')
   })

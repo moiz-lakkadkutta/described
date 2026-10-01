@@ -52,7 +52,7 @@ function movie(t: FeedTitle, o: Required<FeedOptions>): string {
     `      </Offers>`,
   ]
   if (t.synopsis) lines.push(`      <Synopsis>${escapeXml(t.synopsis)}</Synopsis>`)
-  if (t.year) lines.push(`      <ReleaseDate>${t.year}-01-01T00:00:00</ReleaseDate>`)
+  if (t.year && t.year > 0 && t.year <= 9999) lines.push(`      <ReleaseDate>${String(t.year).padStart(4, '0')}-01-01T00:00:00</ReleaseDate>`) // xs:dateTime needs a 4-digit year
   if (t.durationS) lines.push(`      <RuntimeMinutes>${Math.max(1, Math.round(t.durationS / 60))}</RuntimeMinutes>`)
   if (t.posterUrl) lines.push(`      <ImageUrl>${escapeXml(t.posterUrl)}</ImageUrl>`)
   lines.push(`    </Movie>`)

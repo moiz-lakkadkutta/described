@@ -16,6 +16,12 @@ describe('routeForLaunch', () => {
     expect(routeForLaunch({ kind: 'play', slug: 'sintel-90-210' }, catalog, false)).toEqual({ name: 'player', slug: 'sintel-90-210', withAd: false })
     expect(routeForLaunch({ kind: 'play', slug: 'tears-of-steel', startAtS: 60 }, catalog, true)).toEqual({ name: 'player', slug: 'tears-of-steel', withAd: true, startAtS: 60 })
   })
+  it('?t= is clamped to the title (sintel is 888 s in the fixture)', () => {
+    expect(routeForLaunch({ kind: 'play', slug: 'sintel-90-210', startAtS: 5000 }, catalog, true)).toMatchObject({ startAtS: 887 })
+    expect(routeForLaunch({ kind: 'play', slug: 'sintel-90-210', startAtS: 887.5 }, catalog, true)).toMatchObject({ startAtS: 887 })
+    const unknownLength = { ...catalog, all: catalog.all.map((t) => ({ ...t, durationS: null })) }
+    expect(routeForLaunch({ kind: 'play', slug: 'sintel-90-210', startAtS: 5000 }, unknownLength, true)).toMatchObject({ startAtS: 5000 })
+  })
   it('a title that is not in the catalog goes nowhere', () => {
     expect(routeForLaunch({ kind: 'play', slug: 'gone' }, catalog, true)).toBeNull()
   })
@@ -94,6 +100,14 @@ describe('usePlatformPlayback', () => {
     s.send({ kind: 'seekBy', s: -SEEK_STEP_S }); expect(s.player.seek).toHaveBeenLastCalledWith(32)
     expect(s.now.at(-1)).toMatchObject({ positionS: 32 })
     s.send({ kind: 'seekTo', s: 600 }); expect(s.player.seek).toHaveBeenLastCalledWith(600)
+    act(() => s.r.unmount())
+  })
+  it('while buffering, pause and toggle pause (buffering is stalled playing)', () => {
+    const s = setup()
+    act(() => s.r.update(<s.Probe state="buffering" />))
+    s.send({ kind: 'pause' }); expect(s.player.pause).toHaveBeenCalledTimes(1)
+    s.send({ kind: 'toggle' }); expect(s.player.pause).toHaveBeenCalledTimes(2)
+    s.send({ kind: 'play' }); expect(s.player.play).not.toHaveBeenCalled()
     act(() => s.r.unmount())
   })
   it('without platform bindings it does nothing', () => {

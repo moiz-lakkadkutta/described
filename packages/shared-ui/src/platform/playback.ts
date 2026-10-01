@@ -74,7 +74,8 @@ export function usePlatformPlayback(ref: { readonly current: PlayerControls | nu
   const { slug, name, durationS, state } = o
   const playing = state === 'playing'
   const live = useRef({ playing, positionS: 0 })
-  live.current.playing = playing
+  // Buffering is playing that has stalled: "Alexa, pause" while it buffers must pause, and toggle must pause too.
+  live.current.playing = playing || state === 'buffering'
   const position = () => { const r = ref.current; if (r) live.current.positionS = r.getPosition(); return live.current.positionS }
 
   useEffect(() => {

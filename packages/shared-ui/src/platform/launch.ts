@@ -13,13 +13,20 @@ export type LaunchRoute = { name: 'title'; slug: string } | { name: 'player'; sl
 /**
  * Where a deep link goes. Unknown titles go nowhere (Home stays), so a stale catalog entry or a mistyped adb command
  * never lands on the offline screen. A play link starts with description per the profile's default.
+ *
+ * `?t=` is clamped to [0, duration − 1] of the catalog item (the same bound as transport seeks), so a link past the
+ * end opens on the last second rather than an ended player. It then reaches Player exactly like a saved resume point
+ * (Root passes it as `resumeS`), so whatever rule Player applies to a resume point near the end (DESC-006) applies to
+ * `?t=` too. Without a known duration, `?t=` is passed through.
  */
 export function routeForLaunch(target: LaunchTarget, catalog: Catalog, adDefault: boolean): LaunchRoute | null {
-  if (!catalog.all.some((t) => t.slug === target.slug)) return null
+  const item = catalog.all.find((t) => t.slug === target.slug)
+  if (!item) return null
   if (target.kind === 'title') return { name: 'title', slug: target.slug }
-  return target.startAtS !== undefined
-    ? { name: 'player', slug: target.slug, withAd: adDefault, startAtS: target.startAtS }
-    : { name: 'player', slug: target.slug, withAd: adDefault }
+  if (target.startAtS === undefined) return { name: 'player', slug: target.slug, withAd: adDefault }
+  const d = item.durationS
+  const startAtS = Math.max(0, d && d > 0 ? Math.min(target.startAtS, Math.max(0, d - 1)) : target.startAtS)
+  return { name: 'player', slug: target.slug, withAd: adDefault, startAtS }
 }
 
 /**
