@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { fit, LATE_MS, WPS } from '../src/steps/05-fit'
+import { EXTENDED_WORDS, fit, introducesNew, LATE_MS, preservesFacts, safeShorten, shortenDeterministic, WPS } from '../src/steps/05-fit'
 import type { Described } from '../src/steps/04-describe'
 import { mezzanineArgs } from '../src/steps/01-probe'
 import { shotsFromCuts, sceneFilter } from '../src/steps/02-shots'
@@ -109,6 +109,61 @@ describe('fit', () => {
   })
   it('allows a start exactly LATE_MS after the shot ends', async () => {
     expect((await fit([shot(0, 0, 1000, 'Snow falls on the hills.')], [{ startMs: 2000, endMs: 5000 }], shorten)).map((c) => c.startMs)).toEqual([2000])
+  })
+  it('no gaps at all: new information becomes extended, the rest is dropped', async () => {
+    const cues = await fit([shot(0, 0, 4000, 'Night. A rooftop.'), shot(1, 4000, 8000, 'Snow falls.'), shot(2, 8000, 9000, 'Words appear: North.')], [], shorten)
+    expect(cues.map((c) => [c.shotIndex, c.startMs, c.extended])).toEqual([[0, 0, true], [2, 8000, true]])
+  })
+  it('overlapping shots compete for one gap: the second gets only what the first left', async () => {
+    const cues = await fit([shot(0, 0, 2000, 'Snow falls on hills.'), shot(1, 500, 2500, 'Smoke rises from chimney.')], [{ startMs: 0, endMs: 3000 }], shorten)
+    expect(cues).toEqual([expect.objectContaining({ shotIndex: 0, startMs: 0, extended: false })]) // 1950 → 3000 is 2 words: dropped, not new
+  })
+  it('long dialogue across several shots: new information extended, plain action dropped, the next shot placed after the dialogue', async () => {
+    const cues = await fit([shot(0, 2000, 6000, 'A woman enters the room.'), shot(1, 6000, 10000, 'She sits.'), shot(2, 15000, 19500, 'He nods slowly.')], [{ startMs: 0, endMs: 1000 }, { startMs: 20000, endMs: 25000 }], shorten)
+    expect(cues.map((c) => [c.shotIndex, c.startMs, c.extended])).toEqual([[0, 2000, true], [2, 20000, false]])
+  })
+  it('places a shot that starts inside a gap at the shot start, never before the action', async () => {
+    expect((await fit([shot(0, 4000, 6000, 'A kettle boils.')], [{ startMs: 0, endMs: 10000 }], shorten)).map((c) => c.startMs)).toEqual([4000])
+  })
+  it('caps extended cues at 25 words', async () => {
+    const long = `Words appear: North. ${'snow '.repeat(30).trim()}.`
+    const [c] = await fit([shot(0, 0, 4000, long)], [], shorten)
+    expect(c).toMatchObject({ extended: true, wordCount: EXTENDED_WORDS })
+  })
+  it('rejects a shortening that changes a fact and places the deterministic one', async () => {
+    const model = vi.fn(() => 'Dragon spreads bloodied wings, roars.')
+    const cues = await fit([shot(26, 0, 3000, 'The dragon spreads its bloodied wing, then roars.')], [{ startMs: 0, endMs: 2300 }], (t, n) => safeShorten(t, n, model))
+    expect(model).toHaveBeenCalledWith('The dragon spreads its bloodied wing, then roars.', 6)
+    expect(cues.map((c) => c.text)).toEqual(['The dragon spreads its bloodied wing.'])
+  })
+})
+describe('shortening', () => {
+  // Gate C confirmation run, shot 26: Qwen wrote "wing", the Nova Lite shortener voiced "bloodied wings".
+  it('accepts only shortenings whose content words all appear in the original', () => {
+    expect(preservesFacts('A dragon with a bloodied wing lands.', 'Dragon with bloodied wings lands.')).toBe(false)
+    expect(preservesFacts('A dragon with a bloodied wing lands.', 'Dragon, bloodied wing, lands.')).toBe(true)
+    expect(preservesFacts('Woman holds bowl.', 'The woman holds the bowl.')).toBe(true) // stopwords may be added
+    expect(preservesFacts('Woman holds bowl.', 'Woman holds cup.')).toBe(false)
+  })
+  it('falls back to deterministic shortening when the model changes a fact or does not fit', async () => {
+    expect(await safeShorten('A dragon with a bloodied wing lands, then roars.', 7, () => 'Dragon with bloodied wings lands.')).toBe('A dragon with a bloodied wing lands.')
+    expect(await safeShorten('A dragon with a bloodied wing lands, then roars.', 7, () => 'Dragon with bloodied wing lands.')).toBe('Dragon with bloodied wing lands.')
+    expect(await safeShorten('A dragon with a bloodied wing lands, then roars.', 3, () => 'Dragon with bloodied wing lands.')).toBe('A dragon with a bloodied wing lands.') // still too long; fit() moves on
+  })
+  it('drops adjectives first, then clauses from the end, and only ever removes words', () => {
+    expect(shortenDeterministic('A large white rock formation with snow on top and sides.', 10)).toBe('A white rock formation with snow on top and sides.')
+    expect(shortenDeterministic('A large white rock formation with snow on top and sides.', 8)).toBe('A white rock formation with snow on top.')
+    expect(shortenDeterministic('Large white snowy rock.', 2)).toBe('White rock.')
+    expect(shortenDeterministic('The dragon slowly spreads its wing, then roars.', 6)).toBe('The dragon spreads its wing.')
+    expect(shortenDeterministic('The sky is dark and the wind is cold.', 4)).toBe('The sky is dark.')
+    expect(shortenDeterministic('Snow falls.', 4)).toBe('Snow falls.')
+    for (const t of ['Night. A rooftop. A tall man in an olive coat leans over the railing and looks down at the empty street.', 'A woman in a red coat, holding a lantern, crosses the bridge.']) {
+      for (const n of [3, 5, 8, 12]) expect(preservesFacts(t, shortenDeterministic(t, n))).toBe(true)
+    }
+  })
+  it('flags new characters, locations and on-screen text as new information', () => {
+    for (const t of ['Words appear: North.', 'Night. A rooftop.', 'A woman enters.']) expect(introducesNew(t)).toBe(true)
+    for (const t of ['She sits.', 'Snow falls on the hills.']) expect(introducesNew(t)).toBe(false)
   })
 })
 describe('word budget', () => {
