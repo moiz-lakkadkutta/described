@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { DEEP_LINK_SCHEME } from '@described/contracts'
 
-import { linking } from './stubs/react-native'
+import { appState, linking } from './stubs/react-native'
 const { launchSource, _resetLaunch } = await import('../src/platform/launch')
 const { createMediaSession, fromNative } = await import('../src/platform/mediaSession')
 const flush = async () => { for (let i = 0; i < 3; i++) await Promise.resolve() }
@@ -14,16 +14,40 @@ describe('app.json', () => {
 
 describe('launch source (Android VIEW intents via Linking)', () => {
   beforeEach(() => { _resetLaunch(); linking.initial = null; linking.listeners.clear(); vi.spyOn(console, 'log').mockImplementation(() => {}) })
-  it('delivers the cold-start link once per process, then each warm link', async () => {
+  it('delivers the start link, then each warm link', async () => {
     linking.initial = 'described://title/sintel-90-210'
     const got: unknown[] = []
     const off = launchSource((t) => got.push(t)); await flush()
     expect(got).toEqual([{ kind: 'title', slug: 'sintel-90-210' }])
-    off(); expect(linking.listeners.size).toBe(0)
-    launchSource((t) => got.push(t)); await flush() // a remounted Root must not replay the cold-start link
-    expect(got).toHaveLength(1)
     for (const l of linking.listeners) l({ url: 'described://play/sintel-90-210?t=754' })
     expect(got[1]).toEqual({ kind: 'play', slug: 'sintel-90-210', startAtS: 754 })
+    off(); expect(linking.listeners.size).toBe(0)
+  })
+  it('a second subscribe in the same activity does not replay the start link', async () => {
+    linking.initial = 'described://title/sintel-90-210'
+    const cb = vi.fn()
+    const off = launchSource(cb); await flush(); off()
+    expect(cb).toHaveBeenCalledTimes(1)
+    launchSource(cb); await flush()
+    expect(cb).toHaveBeenCalledTimes(1)
+  })
+  it('after Back exits (background), a new activity with the same link is handled again', async () => {
+    linking.initial = 'described://title/sintel-90-210'
+    const cb = vi.fn()
+    const off = launchSource(cb); await flush(); off()
+    expect(cb).toHaveBeenCalledTimes(1)
+    appState.emit('background') // Back on Home: the activity finishes, the JS context lives on
+    launchSource(cb); await flush() // the new activity mounts a new Root
+    expect(cb).toHaveBeenCalledTimes(2)
+    linking.initial = 'described://play/tears-of-steel' // or a different link, without any background in between
+    launchSource(cb); await flush()
+    expect(cb).toHaveBeenLastCalledWith({ kind: 'play', slug: 'tears-of-steel' })
+  })
+  it('an unsubscribed source does not deliver a late start link', async () => {
+    linking.initial = 'described://title/sintel-90-210'
+    const cb = vi.fn()
+    launchSource(cb)(); await flush()
+    expect(cb).not.toHaveBeenCalled()
   })
   it('ignores links that are not ours', async () => {
     linking.initial = 'https://example.com/title/x'
