@@ -1,6 +1,6 @@
 # 0003 — Gate C: description prompt, timing bound, evaluation
 
-Status: approved by the human 2026-10-01; score pending the rerun
+Status: approvals 2026-10-01; rerun scored 41 % → Gate C triggered; replacement model pending the human
 Ticket: DESC-001 part 2 · Gate definition: hackathon runbook §6 (Gate C: < 70 % usable in a 20-shot sample → swap model)
 
 ## Evidence (Sintel 1:30–2:30, first paid run)
@@ -26,6 +26,23 @@ Planner diagnosis and prompt probes (≈ $0.04, 17 Nova Pro calls): `gate-c-plan
 Docs: https://docs.aws.amazon.com/nova/latest/userguide/modalities-video.html ·
 https://docs.aws.amazon.com/nova/latest/userguide/prompting-structured-output.html
 
-## Result
+## Result (2026-10-01, `sintel-90-210`, commit 25973b0)
 
-(pending)
+29 shots, 0 same-as-previous, 23 voiced (3 extended), 6 unplaced. Two independent Fable raters against frame contact sheets;
+a shot counts as usable only when both rated it usable.
+
+| | Rater 1 | Rater 2 | Both |
+|---|---|---|---|
+| Usable | 14 | 14 | **12** (2, 4, 8, 9, 11, 12, 15, 16, 17, 18, 24, 26) |
+| Strict score | 48.3 % | 48.3 % | **41.4 %** |
+| Lenient reading | 58.6–65.5 % | 58.6 % | — |
+
+**Gate C is triggered under every reading (< 70 %).** Timing, overlap, word budget and leakage had zero failures — the
+pipeline fixes hold. Every failure is faithfulness: invented people, objects and events (6 "another woman approaches",
+13 "hit by a fireball", 14 "person runs through city", 20 "paints a dragon model", 28 "red dress … repairing armor"), wrong
+colours (22, 27 dragons; hair), weak verbs ("stands" for walking/crouching), plus emotion words in unplaced text.
+Two pipeline amplifiers: the `isNew` heuristic turned 2 of the worst inventions into extended (pause) cues; shot cuts
+land ~2 frames late, so clips end on the next shot's frames and Nova sometimes describes those.
+Cost: ≈ $0.15 (Nova Pro 74,253 input tokens).
+
+Decision on the replacement model: pending the human.
