@@ -1,0 +1,18 @@
+// Local Expo module, autolinked from apps/expo/modules (expo-modules-autolinking `nativeModulesDir`).
+// Same shape as expo-application's build.gradle (Expo SDK 54). No extra dependencies: it uses the framework
+// android.media.session API (API 21+), not androidx.media / Media3.
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'dev.moizp.described'
+version = '0.1.0'
+
+android {
+  namespace "dev.moizp.described.mediasession"
+  defaultConfig {
+    versionCode 1
+    versionName '0.1.0'
+  }
+}
