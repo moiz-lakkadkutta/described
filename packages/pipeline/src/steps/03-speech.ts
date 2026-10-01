@@ -2,6 +2,7 @@ import { StartTranscriptionJobCommand, GetTranscriptionJobCommand, TranscribeCli
 import { readFile, writeFile } from 'node:fs/promises'
 import { download, upload } from '../s3'
 import type { Ctx } from './index'
+import { meter, transcribeUsd } from '../cost'
 export interface Word { start: number; end: number; text: string; speaker?: string }
 export interface Gap { startMs: number; endMs: number }
 
@@ -17,6 +18,7 @@ export async function speechMap(ctx: Ctx) {
   await download(`s3://${bucket}/work/${ctx.slug}/transcript.json`, `${ctx.work}/transcript.json`)
   const words = wordsFromTranscribe(JSON.parse(await readFile(`${ctx.work}/transcript.json`, 'utf8')))
   const probe = JSON.parse(await readFile(`${ctx.work}/probe.json`, 'utf8')) as { format: { duration: string } }
+  meter()?.add(transcribeUsd(parseFloat(probe.format.duration)))
   if (words.length === 0) console.warn('no speech in clip — the whole duration is one gap') // no dialogue (e.g. Sintel 0:00–1:00): words.json = [], gaps = whole clip
   await writeFile(`${ctx.work}/words.json`, JSON.stringify(words))
   await writeFile(`${ctx.work}/gaps.json`, JSON.stringify(gapsFromWords(words, Math.round(parseFloat(probe.format.duration) * 1000)), null, 2))
