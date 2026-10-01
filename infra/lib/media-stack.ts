@@ -18,12 +18,18 @@ export class MediaStack extends Stack {
     // Range GETs pass through to S3 unaided (https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/RangeGETs.html);
     // CORS-With-Preflight answers browser OPTIONS preflights (Vega's Shaka runs in a web runtime) — SimpleCORS only sets Allow-Origin
     // (https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-response-headers-policies.html).
+    // Without an origin request policy CloudFront strips Origin / Access-Control-Request-* before S3, so S3 refuses the
+    // OPTIONS preflight with 403. CORS-S3Origin forwards Origin, Access-Control-Request-Headers and Access-Control-Request-Method
+    // (https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-origin-request-policies.html);
+    // OPTIONS is cached alongside GET/HEAD so preflights don't hit S3 every time.
     const dist = new cloudfront.Distribution(this, 'Cdn', {
       defaultBehavior: {
         origin: origins.S3BucketOrigin.withOriginAccessControl(media),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
         allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
+        cachedMethods: cloudfront.CachedMethods.CACHE_GET_HEAD_OPTIONS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+        originRequestPolicy: cloudfront.OriginRequestPolicy.CORS_S3_ORIGIN,
         responseHeadersPolicy: cloudfront.ResponseHeadersPolicy.CORS_ALLOW_ALL_ORIGINS_WITH_PREFLIGHT,
       },
       priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
