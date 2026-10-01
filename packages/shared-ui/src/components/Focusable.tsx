@@ -10,6 +10,7 @@ export interface FocusableProps {
   children: React.ReactNode | ((s: { focused: boolean }) => React.ReactNode)
   onPress?: () => void
   onFocus?: () => void
+  onBlur?: () => void
   label: string // aria-label: purpose, not "button"
   hint?: string
   selected?: boolean
@@ -29,7 +30,7 @@ const radius = tokens.radius.card
  * Selected is a teal inset ring + check. Never colour alone. Focus comes from react-tv-space-navigation
  * (native Pressable focus never moves on the stick — friction 2026-09-26 D-pad).
  */
-export function Focusable({ children, onPress, onFocus, label, hint, selected, style, focusedStyle, defaultFocus, check = true, testID }: FocusableProps) {
+export function Focusable({ children, onPress, onFocus, onBlur, label, hint, selected, style, focusedStyle, defaultFocus, check = true, testID }: FocusableProps) {
   const scale = useRef(new Animated.Value(1)).current
   const focused = useRef(false)
   const animate = (to: number) => Animated.timing(scale, { toValue: to, duration: tokens.motion.focusMs, useNativeDriver: true }).start()
@@ -39,7 +40,7 @@ export function Focusable({ children, onPress, onFocus, label, hint, selected, s
       <SpatialNavigationFocusableView
         onSelect={onPress}
         onFocus={() => { focused.current = true; animate(tokens.motion.focusScale); announceFocus(label, hint, () => focused.current); onFocus?.() }}
-        onBlur={() => { focused.current = false; animate(1) }}
+        onBlur={() => { focused.current = false; animate(1); onBlur?.() }}
         viewProps={{ 'aria-label': label, accessibilityHint: hint, accessibilityState: { selected: !!selected }, testID }}
       >
         {({ isFocused }) => (

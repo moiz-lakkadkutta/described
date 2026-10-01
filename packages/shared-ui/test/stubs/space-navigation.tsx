@@ -6,8 +6,8 @@ type Fn = () => void
 type State = { isFocused: boolean; isActive: boolean; isRootActive: boolean }
 export const stub: { focused?: string; locks: number } = { locks: 0 }
 const render = (c: React.ReactNode | ((s: State) => React.ReactNode), isFocused = false) => (typeof c === 'function' ? c({ isFocused, isActive: false, isRootActive: true }) : c)
-export const SpatialNavigationFocusableView = ({ children, viewProps, onSelect, onFocus }: { children: React.ReactNode | ((s: State) => React.ReactNode); viewProps?: { 'aria-label'?: string }; onSelect?: Fn; onFocus?: Fn }) =>
-  React.createElement('FocusableView', { ...viewProps, onSelect, onFocus }, render(children, !!stub.focused && viewProps?.['aria-label'] === stub.focused))
+export const SpatialNavigationFocusableView = ({ children, viewProps, onSelect, onFocus, onBlur }: { children: React.ReactNode | ((s: State) => React.ReactNode); viewProps?: { 'aria-label'?: string }; onSelect?: Fn; onFocus?: Fn; onBlur?: Fn }) =>
+  React.createElement('FocusableView', { ...viewProps, onSelect, onFocus, onBlur }, render(children, !!stub.focused && viewProps?.['aria-label'] === stub.focused))
 export const SpatialNavigationNode = ({ children, orientation }: { children: React.ReactNode | ((s: State) => React.ReactNode); orientation?: string }) =>
   React.createElement('Node', { orientation }, render(children))
 export const SpatialNavigationScrollView = ({ children }: { children: React.ReactNode }) => React.createElement('ScrollView', null, children)

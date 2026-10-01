@@ -1,5 +1,6 @@
 import { pickInitialFocus } from '../src/focus/memory'
 import { configureRemote, setDpadGate, toDirection } from '../src/focus/remote'
+import { addKeyHandler } from '../src/focus/keys'
 import { remote } from './stubs/space-navigation'
 
 describe('pickInitialFocus', () => {
@@ -31,5 +32,32 @@ describe('remote → spatial navigation', () => {
     expect(moves).toEqual(['left', 'enter'])
     remote.config!.remoteControlUnsubscriber(handle)
     expect(unsubscribe).toHaveBeenCalledOnce()
+  })
+})
+
+describe('key handlers (Settings ◄►)', () => {
+  it('a handler that consumes a key keeps it from spatial navigation; removing it restores moves', () => {
+    let emit: (k: never, repeat?: boolean) => void = () => {}
+    configureRemote((onKey) => { emit = onKey as never; return () => {} })
+    const moves: (string | null)[] = []
+    remote.config!.remoteControlSubscriber((d) => moves.push(d))
+    setDpadGate(() => true)
+    const seen: [string, boolean][] = []
+    const remove = addKeyHandler((k, repeat) => { seen.push([k, repeat]); return k === 'left' || k === 'right' })
+    emit('right' as never); emit('right' as never, true); emit('down' as never)
+    expect(moves).toEqual(['down'])
+    expect(seen).toEqual([['right', false], ['right', true], ['down', false]])
+    remove()
+    emit('right' as never)
+    expect(moves).toEqual(['down', 'right'])
+  })
+  it('the newest handler runs first', () => {
+    const order: string[] = []
+    const a = addKeyHandler(() => { order.push('a'); return false })
+    const b = addKeyHandler(() => { order.push('b'); return true })
+    configureRemote((onKey) => { onKey('left'); return () => {} })
+    remote.config!.remoteControlSubscriber(() => {})
+    expect(order).toEqual(['b'])
+    a(); b()
   })
 })

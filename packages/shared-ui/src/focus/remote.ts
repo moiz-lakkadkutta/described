@@ -1,5 +1,6 @@
 import { SpatialNavigation } from 'react-tv-space-navigation'
 import type { RemoteKey } from '@moizp/vega-media-kit/platform'
+import { interceptKey } from './keys'
 
 /**
  * Platform key source: call `onKey` per key-down (`repeat` while the key is held), return an unsubscribe.
@@ -23,7 +24,7 @@ export function toDirection(key: RemoteKey, allowMove: () => boolean = gate, rep
 /** Wire a platform key source into react-tv-space-navigation. Call once, before the first SpatialNavigationRoot mounts. */
 export function configureRemote(source: KeySource) {
   SpatialNavigation.configureRemoteControl({
-    remoteControlSubscriber: (move) => source((k, repeat) => { const d = toDirection(k, gate, repeat); if (d) move(d) }),
+    remoteControlSubscriber: (move) => source((k, repeat) => { if (interceptKey(k, !!repeat)) return; const d = toDirection(k, gate, repeat); if (d) move(d) }),
     remoteControlUnsubscriber: (unsubscribe: () => void) => unsubscribe(),
   })
 }
