@@ -1,4 +1,5 @@
 import { BedrockRuntimeClient, ConverseCommand } from '@aws-sdk/client-bedrock-runtime'
+import { z } from 'zod'
 import type { Cue } from '@moizp/vega-media-kit/core'
 import type { Shot } from './steps/02-shots'
 import type { Gap } from './steps/03-speech'
@@ -41,8 +42,20 @@ export async function sdhWithNovaLite(captions: Cue[], descriptions: FitCue[], l
     messages: [{ role: 'user', content: [{ text: JSON.stringify({ language, captions: captions.map(({ id, start, end, text, speaker }) => ({ id, start, end, text, speaker })), descriptions: descriptions.map((d) => ({ start: d.startMs / 1000, text: d.text })) }) }] }],
     inferenceConfig: { maxTokens: 4000, temperature: 0 },
   }))
-  const parsed = JSON.parse(stripFence(r.output?.message?.content?.[0]?.text ?? '{"cues":[]}')) as { cues: Array<Omit<Cue, 'trackId'>> }
-  return parsed.cues.map((c) => ({ ...c, trackId: 'sdh' }))
+  return parseSdhReply(r.output?.message?.content?.[0]?.text ?? '', captions)
+}
+
+const SdhReply = z.object({ cues: z.array(z.object({ id: z.string(), start: z.number(), end: z.number(), text: z.string(), speaker: z.string().optional() }).passthrough()) })
+/** Nova Lite's reply as SDH cues; anything other than {"cues":[…]} (it has echoed the request envelope) falls back to the plain captions. */
+export function parseSdhReply(text: string, captions: Cue[]): Cue[] {
+  let json: unknown
+  try { json = JSON.parse(stripFence(text)) } catch { json = undefined }
+  const parsed = SdhReply.safeParse(json)
+  if (!parsed.success) {
+    console.warn('SDH: Nova Lite reply is not {"cues":[…]}; using plain captions', text.slice(0, 200))
+    return captions.map((c) => ({ ...c, trackId: 'sdh' }))
+  }
+  return parsed.data.cues.map((c) => ({ ...c, trackId: 'sdh' }) as Cue)
 }
 /** Nova Lite sometimes wraps JSON in a ```json fence despite "JSON only". */
 export const stripFence = (t: string) => t.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
