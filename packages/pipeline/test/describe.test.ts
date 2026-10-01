@@ -1,4 +1,4 @@
-import { mkdtemp, readdir } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, writeFile } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -124,6 +124,19 @@ describe('describe cache', () => {
     expect(send).toHaveBeenCalledTimes(1)
     await cachedDescribe(work, 'qwen.qwen3-vl-235b-a22b', 'other prompt', frames, send) // new budget or names → new key
     expect(send).toHaveBeenCalledTimes(2)
+    expect((await readdir(join(work, 'cache/describe'))).filter((f) => f.endsWith('.tmp'))).toEqual([]) // written via temp + rename
+  })
+  it('treats a truncated or malformed cache file as a miss and rewrites it', async () => {
+    const work = await mkdtemp(join(tmpdir(), 'desc-'))
+    const file = join(work, 'cache/describe', `${describeCacheKey('m', 'sys', frames)}.json`)
+    await mkdir(join(work, 'cache/describe'), { recursive: true })
+    const send = vi.fn<Converse>(async () => reply('Snow falls.'))
+    for (const bad of ['{"text":"Snow fa', '{}']) {
+      await writeFile(file, bad)
+      expect(await cachedDescribe(work, 'm', 'sys', frames, send)).toMatchObject({ text: 'Snow falls.' })
+    }
+    expect(send).toHaveBeenCalledTimes(2)
+    expect(await cachedDescribe(work, 'm', 'sys', frames, send)).toMatchObject({ cached: true })
   })
 })
 
@@ -133,6 +146,25 @@ describe('concurrency', () => {
     const out = await mapLimit([30, 5, 20, 1, 10, 2], 4, async (ms) => { live++; peak = Math.max(peak, live); await new Promise((r) => setTimeout(r, ms)); live--; return ms })
     expect(out).toEqual([30, 5, 20, 1, 10, 2])
     expect(peak).toBe(4)
+  })
+  it('after a failure starts nothing new and settles every running item before rejecting', async () => {
+    const started: number[] = [], finished: number[] = []
+    const p = mapLimit([0, 1, 2, 3, 4, 5, 6, 7], 3, async (i) => {
+      started.push(i)
+      await new Promise((r) => setTimeout(r, i === 1 ? 5 : 30))
+      if (i === 1) throw new Error('ThrottlingException')
+      finished.push(i)
+      return i
+    })
+    await expect(p).rejects.toThrow('ThrottlingException')
+    expect(started).toEqual([0, 1, 2]) // 3…7 never called Bedrock
+    expect(finished.sort()).toEqual([0, 2]) // in-flight calls finished before the step returned (and its meter was read)
+  })
+  it('stops starting items once the signal aborts', async () => {
+    const ac = new AbortController()
+    const seen: number[] = []
+    await expect(mapLimit([0, 1, 2, 3], 1, async (i) => { seen.push(i); if (i === 1) ac.abort(); return i }, ac.signal)).rejects.toThrow()
+    expect(seen).toEqual([0, 1])
   })
   it('reads DESCRIBE_CONCURRENCY, default 4', () => {
     vi.stubEnv('DESCRIBE_CONCURRENCY', '')

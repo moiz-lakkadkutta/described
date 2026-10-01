@@ -1,7 +1,7 @@
 import { BedrockRuntimeClient, ConverseCommand, type ConverseCommandInput, type ConverseCommandOutput, type ConverseOutput } from '@aws-sdk/client-bedrock-runtime'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { execa } from 'execa'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { Ctx } from './index'
 import type { Shot } from './02-shots'
@@ -33,7 +33,7 @@ export async function describeShots(ctx: Ctx, send: Converse = bedrockConverse()
   const replies = await mapLimit(shots, describeConcurrency(), async (s) => {
     const system = describeSystemPrompt({ maxWords: wordBudget(s, gaps), knownNames: knownNames(words, s.startMs, ctx.language), language: ctx.language })
     return cachedDescribe(ctx.work, modelId, system, await keyframes(ctx.work, s), send)
-  })
+  }, ctx.signal)
   console.log(`describe: ${shots.length} shots, ${replies.filter((r) => r.cached).length} from cache`)
   await writeFile(`${ctx.work}/described.json`, JSON.stringify(dedupe(shots, replies), null, 2))
 }
@@ -45,38 +45,55 @@ export const bedrockConverse = (): Converse => { const c = new BedrockRuntimeCli
 /** Shots described at once (DESCRIBE_CONCURRENCY, default 4) — Converse quotas are per minute, so keep this small. */
 export const describeConcurrency = () => Math.max(1, Number(process.env.DESCRIBE_CONCURRENCY) || 4)
 
-/** Like Promise.all(items.map(fn)) with at most n in flight; results keep the input order. */
-export async function mapLimit<T, R>(items: T[], n: number, fn: (t: T) => Promise<R>): Promise<R[]> {
+/**
+ * Like Promise.all(items.map(fn)) with at most n in flight; results keep the input order. After the first failure (or an abort)
+ * no new item starts, and it rejects only once every running item has settled, so nothing keeps calling Bedrock after the step
+ * has returned and its meter was read.
+ */
+export async function mapLimit<T, R>(items: T[], n: number, fn: (t: T) => Promise<R>, signal?: AbortSignal): Promise<R[]> {
   const out = new Array<R>(items.length)
-  let next = 0
-  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => { while (next < items.length) { const i = next++; out[i] = await fn(items[i]!) } }))
+  let next = 0, failed = false
+  const runners = await Promise.allSettled(Array.from({ length: Math.min(n, items.length) }, async () => {
+    while (!failed && next < items.length) {
+      signal?.throwIfAborted()
+      const i = next++
+      try { out[i] = await fn(items[i]!) } catch (e) { failed = true; throw e }
+    }
+  }))
+  const err = runners.find((r): r is PromiseRejectedResult => r.status === 'rejected')
+  if (err) throw err.reason
   return out
 }
 
 /** One shot's raw reply as read from Bedrock or the cache. */
 export interface RawReply { text: string; usage: { inputTokens: number; outputTokens: number }; stopReason?: string; cached?: boolean }
 
-/** sha256(model id + system prompt + key-frame bytes): the request's only inputs (the user text and inferenceConfig are fixed). */
+/** Bump when buildDescribeRequest's fixed parts (user text, inferenceConfig) or replyText change, so old replies stop matching. */
+export const DESCRIBE_CACHE_VERSION = 1
+/** sha256(cache version + model id + system prompt + key-frame bytes): the request's only variable inputs. */
 export function describeCacheKey(modelId: string, system: string, frames: Uint8Array[]): string {
-  const h = createHash('sha256').update(modelId).update('\0').update(system)
+  const h = createHash('sha256').update(`v${DESCRIBE_CACHE_VERSION}\0`).update(modelId).update('\0').update(system)
   for (const f of frames) h.update('\0').update(f)
   return h.digest('hex')
 }
 
 /**
  * Raw reply for one shot from {work}/cache/describe/{key}.json, else one Converse call whose reply + usage is stored there.
- * A cache hit costs nothing; a miss adds its usage to the job's meter.
+ * A cache hit costs nothing; a miss adds its usage to the job's meter. An unreadable or truncated file is a miss; writes are
+ * atomic (temp file + rename), so a crash mid-write never leaves one.
  */
 export async function cachedDescribe(work: string, modelId: string, system: string, frames: Uint8Array[], send: Converse): Promise<RawReply> {
   const file = `${work}/cache/describe/${describeCacheKey(modelId, system, frames)}.json`
-  const hit = await readFile(file, 'utf8').then((t) => JSON.parse(t) as RawReply, () => undefined)
-  if (hit) return { ...hit, cached: true }
+  const hit = await readFile(file, 'utf8').then((t) => { try { return JSON.parse(t) as RawReply } catch { return undefined } }, () => undefined)
+  if (hit && typeof hit.text === 'string' && hit.usage) return { ...hit, cached: true }
   const r = await send(buildDescribeRequest(system, frames, modelId))
   // usage.inputTokens / outputTokens — https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html
   const reply: RawReply = { text: replyText(r.output), usage: { inputTokens: r.usage?.inputTokens ?? 0, outputTokens: r.usage?.outputTokens ?? 0 }, stopReason: r.stopReason }
   meter()?.bedrock(modelId, reply.usage)
   await mkdir(dirname(file), { recursive: true })
-  await writeFile(file, JSON.stringify(reply))
+  const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`
+  await writeFile(tmp, JSON.stringify(reply))
+  await rename(tmp, file)
   return reply
 }
 
