@@ -1,0 +1,107 @@
+# DESC-006 device check — Player and track sheet on the Fire TV Stick
+
+Run on the stick (AFTSS, Fire OS 7), release build, D-pad only after launch. Setup, build and install are the same as
+[DESC-005](DESC-005.md) §0–1 (API running with the published Sintel row, `EXPO_PUBLIC_API_URL=http://<mac-ip>:4000`).
+Tick each box; failures go in a friction log (`pnpm friction "<title>"`) or back to the ticket. DESC-006 stays open
+in TASKS.md until this passes.
+
+Stream under test: `https://dco7qa0c4m1pw.cloudfront.net/published/sintel-90-210/master.m3u8`
+
+## 0. Before you start
+
+- [ ] `curl -s http://localhost:4000/titles/sintel-90-210 -H 'x-device-id: x' | jq '.data | {voice, resumeS, synopsis}'` shows
+      `"voice": "Joanna"`, `"resumeS": null` and a synopsis (DESC-006 restored these fields; before it the status line read `Description on · undefined`).
+- [ ] `curl -s https://dco7qa0c4m1pw.cloudfront.net/published/sintel-90-210/master.m3u8` lists two `TYPE=AUDIO` renditions
+      (Original; Audio description with `CHARACTERISTICS="public.accessibility.describes-video"`) and the SUBTITLES renditions
+      Captions / Rich captions (`…describes-music-and-sound`) / Description text. Note which are present — the sheet's
+      choices fall back when one is missing (Rich → Captions).
+- [ ] Keep a log open: `adb logcat | grep -i -E 'ExoPlayer|ReactNativeJS|Video'`.
+
+## 1. Start and status line
+
+- [ ] Home → Sintel → **▶ Play with description**. The film starts; until it plays the bottom-left line reads **Loading…**.
+- [ ] Chrome while starting: the name top-left over a dark band, a bar with elapsed time left and length right
+      (`0:00 … 14:48`-style), and the status line under it: **Description on · Joanna · Rich captions** (28 px, grey).
+- [ ] The narration is heard over the film (AD rendition chosen by role, not by position in the playlist).
+- [ ] Rich captions show bottom-centre: 44 px off-white text in a dark box, sound cues in brackets, ≤ 2 lines. While the
+      chrome shows, captions sit above the bar, not under it.
+- [ ] Settings → caption size (if DESC-009 has landed; otherwise `PUT /me/prefs {"captionScale":150}` and replay): captions grow.
+
+## 2. Auto-hide
+
+- [ ] With the film playing and no key pressed, the chrome and status line vanish after **4 s** (time it with a stopwatch: 3.5–4.5 s).
+- [ ] Any key (▼ is the safest) brings them back and starts the 4 s again. Pressing ▼ every 3 s keeps them up.
+- [ ] Pause: chrome stays up for as long as the film is paused.
+
+## 3. Play, pause, seek
+
+- [ ] **Select** pauses; **Select** again plays. Same with the remote's **Play/Pause** key.
+- [ ] **►** once: the time jumps +10 s on the bar at once; the picture follows within ~0.3 s (presses within 0.3 s gather into one seek).
+- [ ] **◄** three quick presses: −30 s, one seek.
+- [ ] **◄** at `0:05`: stops at `0:00`, no error. **►** near the end stops at the length.
+- [ ] Hold **►** for ~6 s: the time moves by 10 s steps at first, then faster (30 s, then 60 s steps); release → one seek, playback continues there.
+      Note how long the picture takes to resume after release: ________ s.
+- [ ] Fast-forward / rewind keys (if the remote has them) behave like ► / ◄.
+
+## 4. Track sheet
+
+- [ ] **Menu** opens a panel on the right (about a third of the screen): **Audio & captions**; AUDIO: Original · Audio description (Joanna);
+      CAPTIONS: Off · Captions · Rich captions · Description text; at the foot **Extended mode · On**.
+- [ ] Focus starts on the audio in use. Selected items have the teal inner ring + ✓; the focused item has the off-white outline and grows slightly.
+- [ ] **▲ / ▼** move through one vertical list; ◄ ► do nothing (and do not seek the film). Play/Pause does nothing while the sheet is open.
+- [ ] **Back** closes the sheet (does not leave the film). **Menu** closes it too. **▲** from the film opens it as well.
+- [ ] After closing, **Select** pauses the film (focus is back on the player, not lost). Reopen: focus is on the item you were on.
+
+### Audio switch and stall
+
+- [ ] Select **Original**: narration stops, the film's own mix continues. Status line: **Description off · Rich captions**.
+- [ ] Select **Audio description (Joanna)**: narration returns. Status: **Description on · Joanna · Rich captions**.
+- [ ] Measure the stall for each switch (video freeze or audio gap, phone slow-mo video of the TV if needed): Original → AD ________ ms, AD → Original ________ ms.
+      Segments are 4 s with aligned GOPs, so expect no rebuffer; anything over ~500 ms goes in a friction log.
+- [ ] There is **no volume fade** yet: the kit's `KitPlayerRef` has no volume control (react-native-video's `volume` prop is not passed through by
+      the kit's Fire OS adapter). Note whether the hard cut is audible as a click: ________.
+
+### Captions
+
+- [ ] **Off**: captions disappear; status ends **Captions off**.
+- [ ] **Captions**: plain dialogue captions (no [sound] cues). Status ends **Captions**.
+- [ ] **Rich captions**: dialogue + sound cues. Status ends **Rich captions**.
+- [ ] **Description text**: the descriptions appear as text (what the narrator says). Status ends **Description text**.
+- [ ] Back to Title, then Play again: the caption choice is remembered (`GET /me/prefs` → `captionKind`).
+- [ ] **Extended mode** toggles On/Off and `GET /me/prefs` shows `extendedMode` changed. (Its behaviour is DESC-007; nothing else should change.)
+
+## 5. Back saves, Play resumes
+
+- [ ] Play to about `3:00`, press **Back**: Title appears with **Play with description** focused.
+- [ ] API log shows `PUT /me/progress` with `positionS` ≈ 180; `psql` / Prisma Studio `Progress` row matches.
+- [ ] **Play with description** again: playback starts at ≈ `3:00` (Fire OS seeks once the stream is up — the first frame may show `0:00` for a moment; note it: ________).
+- [ ] Force-stop and relaunch the app, open Sintel, Play: still resumes at ≈ `3:00` (resume point comes from `GET /titles/:slug` → `resumeS`).
+- [ ] Home: **Continue watching** lists Sintel after a relaunch (the row is not refreshed in-session yet).
+- [ ] While watching, the API log shows a `PUT /me/progress` about every 10 s of playback — not several per second.
+- [ ] Seek to the last 20 s, let it end, press **Back**, Play: starts from `0:00`.
+
+## 6. Buffering and errors
+
+- [ ] Throttle the stick's network (Mac hotspot with Network Link Conditioner "Very Bad Network", or pull the router uplink briefly):
+      status line reads **Loading…** and the chrome stays up while it stalls.
+- [ ] Turn the API/CDN path off mid-play (airplane the hotspot ~20 s): once ExoPlayer gives up the status line reads
+      **Playback stopped. Press Select to try again, Back for the title.** — no code, no red screen.
+- [ ] Restore the network, press **Select**: playback restarts near where it stopped. **Back** instead returns to Title.
+
+## 7. VoiceView
+
+Turn on: Settings → Accessibility → VoiceView → On.
+
+- [ ] On entering the player: "Play or pause Sintel. Left and right skip 10 seconds. Menu changes audio and captions."
+- [ ] A stall longer than 2 s is announced once: "Loading…" (a short one says nothing; a long one is not repeated).
+- [ ] Track sheet items read their purpose: "Play the original audio", "Play audio description, voice Joanna", "Turn captions off",
+      "Show captions", "Show rich captions, with sounds and music", "Show the description as text", "Extended mode is on. Press to turn it off".
+      Selected items are also read as selected.
+- [ ] Switching audio announces **"Description off"** / **"Description on"** (never "disabled"/"enabled").
+- [ ] The error state is announced with the same sentence as on screen.
+- [ ] Turn VoiceView off again.
+
+## 8. Record
+
+- [ ] Screenshots: chrome up, track sheet open (`adb exec-out screencap -p > desc-006-sheet.png`; video comes out black — friction 2026-09-26).
+- [ ] Note build type, Fire OS version, the stall and seek timings above, and any failures in the ticket; then tick DESC-006 in TASKS.md.
