@@ -1,10 +1,21 @@
+import { promptText, type CaptionStyle, type PromptKey } from '@described/contracts'
+export interface FirstRunPanel { key: PromptKey; title: string; body?: string; cta: string; label: string; hint: string; alt?: string; altLabel?: string; altHint?: string }
 /** All user-facing copy. Plain, short, present tense. Says "described" and "on/off" — never the blocklisted words (see docs/decisions/0002-wording.md). */
 export const strings = {
-  firstRun: [
-    { title: 'Described plays every film with audio description.', body: "It's on now.", cta: 'Next' },
-    { title: 'Press Menu while watching.', body: 'Change the voice, captions, or turn description off.', cta: 'Next' },
-    { title: 'Extended mode pauses the film when there is a lot to describe.', body: 'Keep it on?', cta: 'Keep on', alt: 'Turn off' },
-  ],
+  /** Three panels; each panel's visible text joined is exactly its spoken prompt (promptText in contracts). */
+  firstRun: {
+    panels: [
+      { key: 'firstRun1', title: 'Described plays every film with audio description.', body: "It's on now.", cta: 'Next', label: 'Next tip', hint: 'Tip 1 of 3. Press Back twice to skip the introduction.' },
+      { key: 'firstRun2', title: promptText.firstRun2, cta: 'Next', label: 'Next tip', hint: 'Tip 2 of 3. Back goes to the previous tip.' },
+      {
+        key: 'firstRun3', title: "Extended mode pauses the film when there's a lot to describe.", body: 'Keep it on?',
+        cta: 'Keep on', label: 'Keep extended mode on', hint: 'Tip 3 of 3. Finishes the introduction.',
+        alt: 'Turn off', altLabel: 'Turn extended mode off', altHint: 'Finishes the introduction. You can turn it on again in Settings.',
+      },
+    ] as FirstRunPanel[],
+    step: (n: number, total: number) => `${n} of ${total}`,
+    skipArmed: 'Press Back again to skip the introduction.',
+  },
   home: { continue: 'Continue watching', newly: 'Newly described', all: 'All titles', playWithAd: 'Play with description', play: 'Play', myList: 'My list' },
   title: {
     hearSample: 'Hear a sample', stopSample: 'Stop the sample', samplePlaying: 'Playing a sample', playWithout: 'Play without description',
@@ -32,10 +43,30 @@ export const strings = {
     close: 'Close the synopsis',
     retry: 'Try the library again',
     rail: (label: string) => `Go to ${label}`,
+    setting: (name: string, value: string) => `${name}: ${value}`,
+    settingHint: 'Press left or right to change',
+    hearVoice: (voice: string) => `Hear the voice ${voice}`,
+    hearVoiceHint: 'Plays one sentence in this voice',
+    resetIntroHint: 'Opens the three introduction screens now',
+    about: 'About and licenses: film credits and the licenses of the font and code',
+    closeAbout: 'Close About and licenses',
   },
   player: { statusOn: (voice: string, cap: string) => `Description on · ${voice} · ${cap}`, statusOff: 'Description off', loading: 'Loading…', error: 'Playback stopped. Press Select to try again, Back for the title.', extendedBar: 'Describing…' },
   tracks: { heading: 'Audio & captions', audio: 'Audio', original: 'Original', ad: (voice: string) => `Audio description (${voice})`, captions: 'Captions', off: 'Off', plain: 'Captions', rich: 'Rich captions', descText: 'Description text', extended: 'Extended mode', announceOn: 'Description on', announceOff: 'Description off' },
-  settings: { adDefault: 'Description on by default', voice: 'Voice', hearIt: 'Hear it', extended: 'Extended mode', capSize: 'Caption size', capStyle: 'Caption style', reset: 'Show first-run again', about: 'About & licenses' },
+  settings: {
+    heading: 'Settings', adDefault: 'Description on by default', voice: 'Voice', hearIt: 'Hear it', extended: 'Extended mode', capSize: 'Caption size',
+    capStyle: 'Caption style', reset: 'Show the introduction again', about: 'About & licenses', on: 'On', off: 'Off',
+    style: { box: 'Box', shadow: 'Shadow' } as Record<CaptionStyle, string>, scale: (n: number) => `${n}%`,
+  },
+  about: {
+    heading: 'About & licenses', films: 'Films', software: 'Font and code', loading: 'Loading the film credits…', close: 'Close',
+    unavailable: 'Can\u2019t reach the library, so the film credits are missing. Check the network and open this page again.',
+    licenses: [
+      'Atkinson Hyperlegible © Braille Institute of America, used under the SIL Open Font License 1.1.',
+      'vega-media-kit © Moiz Lakkadkutta and contributors, used under the MIT License.',
+      'Described © Moiz Lakkadkutta and contributors, open source under the MIT License.',
+    ],
+  },
   offline: 'Can\u2019t reach the library. Check the network and press Select to retry.',
   retry: 'Try again',
   rail: { home: 'Home', described: 'Described', list: 'My list', settings: 'Settings' },

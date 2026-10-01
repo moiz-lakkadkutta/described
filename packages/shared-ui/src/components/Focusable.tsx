@@ -13,6 +13,10 @@ export interface FocusableProps {
   onBlur?: () => void
   label: string // aria-label: purpose, not "button"
   hint?: string
+  /** Platform role where it adds meaning: a settings value is `adjustable` (◄► changes it), a static line is `text`. */
+  role?: 'button' | 'adjustable' | 'text'
+  /** Current value of an adjustable element, exposed as accessibilityValue. */
+  value?: string
   selected?: boolean
   style?: ViewStyle
   /** Applied while focused, e.g. the surface one step brighter. */
@@ -30,7 +34,7 @@ const radius = tokens.radius.card
  * Selected is a teal inset ring + check. Never colour alone. Focus comes from react-tv-space-navigation
  * (native Pressable focus never moves on the stick — friction 2026-09-26 D-pad).
  */
-export function Focusable({ children, onPress, onFocus, onBlur, label, hint, selected, style, focusedStyle, defaultFocus, check = true, testID }: FocusableProps) {
+export function Focusable({ children, onPress, onFocus, onBlur, label, hint, role, value, selected, style, focusedStyle, defaultFocus, check = true, testID }: FocusableProps) {
   const scale = useRef(new Animated.Value(1)).current
   const focused = useRef(false)
   const animate = (to: number) => Animated.timing(scale, { toValue: to, duration: tokens.motion.focusMs, useNativeDriver: true }).start()
@@ -41,7 +45,7 @@ export function Focusable({ children, onPress, onFocus, onBlur, label, hint, sel
         onSelect={onPress}
         onFocus={() => { focused.current = true; animate(tokens.motion.focusScale); announceFocus(label, hint, () => focused.current); onFocus?.() }}
         onBlur={() => { focused.current = false; animate(1); onBlur?.() }}
-        viewProps={{ 'aria-label': label, accessibilityHint: hint, accessibilityState: { selected: !!selected }, testID }}
+        viewProps={{ 'aria-label': label, accessibilityHint: hint, accessibilityState: { selected: !!selected }, testID, ...(role ? { accessibilityRole: role } : {}), ...(value ? { accessibilityValue: { text: value } } : {}) }}
       >
         {({ isFocused }) => (
           <Animated.View style={[styles.base, style, isFocused && focusedStyle, { transform: [{ scale }] }]}>

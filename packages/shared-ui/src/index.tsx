@@ -2,10 +2,12 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { AccessibilityInfo, BackHandler, View } from 'react-native'
 import { SpatialNavigationRoot, useLockSpatialNavigation } from 'react-tv-space-navigation'
 import { useDpad } from '@moizp/vega-media-kit/focus'
-import type { Catalog, Prefs, TitleDetail } from '@described/contracts'
+import type { About as AboutData, Catalog, Prefs, PromptKey, TitleDetail } from '@described/contracts'
+import { screenReaderOn } from './a11y'
 import { Focusable, FontsLoadedContext, Rail, Screen, T } from './components'
 import { setDpadGate } from './focus/remote'
 import { nextCaptionKind, type SampleState } from './models'
+import { About } from './screens/About'
 import { FirstRun } from './screens/FirstRun'
 import { Home } from './screens/Home'
 import { Player } from './screens/Player'
@@ -19,7 +21,7 @@ export * from './components'
 export { configureRemote } from './focus'
 export type { KeySource } from './focus'
 
-type Route = { name: 'home' } | { name: 'title'; slug: string } | { name: 'reading'; slug: string } | { name: 'player'; slug: string; withAd: boolean } | { name: 'settings' } | { name: 'firstRun' }
+type Route = { name: 'home' } | { name: 'title'; slug: string } | { name: 'reading'; slug: string } | { name: 'player'; slug: string; withAd: boolean } | { name: 'settings' } | { name: 'about' } | { name: 'firstRun'; from?: 'settings' }
 const noSpeech = async () => {}
 const defaultPrefs: Prefs = { adDefault: true, extendedMode: true, voice: 'Joanna', captionKind: 'sdh', captionScale: 100, captionStyle: 'box', firstRunDone: false }
 const routeKey = (r: Route) => ('slug' in r ? `${r.name}:${r.slug}` : r.name)
@@ -37,7 +39,7 @@ export interface RootProps {
   apiBaseUrl: string; scale: number; deviceId?: string
   /** False when the platform could not load Atkinson Hyperlegible: system sans at the same sizes. */
   fontsLoaded?: boolean
-  /** Platform audio: resolves when the clip ends or is stopped. Used for "Hear a sample" (and extended cues, DESC-007). */
+  /** Platform audio: resolves when the clip ends or is stopped. Used for "Hear a sample", first-run prompts, Settings "Hear it" (and extended cues, DESC-007). */
   speak?: (url: string) => Promise<void>
   stopSpeaking?: () => void
 }
@@ -56,6 +58,7 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   const [attempt, setAttempt] = useState(0)
   const [myList, setMyList] = useState<ReadonlySet<string>>(new Set()) // TODO: no My list API yet; kept for the session
   const [sample, setSample] = useState<SampleState>('idle')
+  const [about, setAbout] = useState<AboutData | null | 'offline'>(null)
   const shouldHandle = useDpad()
   useEffect(() => { setDpadGate(shouldHandle) }, [shouldHandle])
 
@@ -72,7 +75,11 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
 
   useEffect(() => {
     Promise.all([api<Catalog>('/catalog'), api<Prefs>('/me/prefs')])
-      .then(([c, p]) => { setCatalog(c); setPrefs({ ...defaultPrefs, ...p }); setOffline(false); if (!p.firstRunDone) setRoute({ name: 'firstRun' }) })
+      .then(([c, p]) => {
+        setCatalog(c); setPrefs({ ...defaultPrefs, ...p }); setOffline(false)
+        // First run until the profile says it is done (a Retry while on Title must not jump there).
+        if (!p.firstRunDone) setRoute((r) => (r.name === 'home' ? { name: 'firstRun' } : r))
+      })
       .catch(() => setOffline(true))
   }, [api, attempt])
   const slug = 'slug' in route ? route.slug : null
@@ -100,6 +107,8 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
       switch (route.name) {
         case 'reading': setRoute({ name: 'title', slug: route.slug }); return true
         case 'title': case 'settings': setRoute({ name: 'home' }); return true
+        case 'about': setRoute({ name: 'settings' }); return true
+        case 'firstRun': return false // FirstRun's own listener: previous panel, or Back-Back to skip; never exits
         case 'player': setRoute({ name: 'title', slug: route.slug }); return true
         default: return false
       }
@@ -107,9 +116,24 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
     return () => sub.remove()
   }, [route])
 
-  const savePrefs = (p: Partial<Prefs>) => { setPrefs({ ...prefs, ...p }); void api('/me/prefs', { method: 'PUT', body: JSON.stringify(p) }).catch(() => {}) }
+  // PUTs go one at a time, in order, so quick ◄► presses can't land out of order and persist an older value.
+  const saving = useRef<Promise<unknown>>(Promise.resolve())
+  const savePrefs = (p: Partial<Prefs>) => {
+    setPrefs((cur) => ({ ...cur, ...p }))
+    saving.current = saving.current.then(() => api('/me/prefs', { method: 'PUT', body: JSON.stringify(p) })).catch(() => {})
+  }
+  // App-voice prompts: clips at /prompts/<voice>/<key>.mp3 (API → CloudFront; TODO(DESC-010) generate them with Polly in
+  // the pipeline). FirstRun always announces the text too; with VoiceView on the clip is skipped so two voices never
+  // talk over each other (same rule as earcons, PLAN §8).
+  const promptUrl = useCallback((voice: Prefs['voice'], key: PromptKey) => `${apiBaseUrl}/prompts/${voice}/${key}.mp3`, [apiBaseUrl])
+  const voice = useRef(prefs.voice)
+  voice.current = prefs.voice
+  const speakPrompt = useCallback((key: PromptKey) => { if (!screenReaderOn()) speak(promptUrl(voice.current, key)).catch(() => {}) }, [speak, promptUrl])
+  const hearVoice = (v: Prefs['voice']) => { speak(promptUrl(v, 'voicePreview')).catch(() => {}) }
+  const finishFirstRun = (p: Partial<Prefs>) => { savePrefs({ ...p, firstRunDone: true }); setRoute(route.name === 'firstRun' && route.from === 'settings' ? { name: 'settings' } : { name: 'home' }) }
+  useEffect(() => { if (route.name === 'about') api<AboutData>('/about').then(setAbout).catch(() => setAbout('offline')) }, [route.name, api])
   const toggleList = (s: string) => setMyList((l) => { const n = new Set(l); if (n.has(s)) n.delete(s); else n.add(s); return n })
-  const rail = <Rail current={route.name === 'settings' ? 'settings' : 'home'} items={[{ key: 'home', label: strings.rail.home }, { key: 'described', label: strings.rail.described }, { key: 'list', label: strings.rail.list }, { key: 'settings', label: strings.rail.settings }]} onSelect={(k) => setRoute(k === 'settings' ? { name: 'settings' } : { name: 'home' })} /> // TODO(DESC-011): Described and My list screens; both open Home until then
+  const rail = <Rail current={route.name === 'settings' || route.name === 'about' ? 'settings' : 'home'} items={[{ key: 'home', label: strings.rail.home }, { key: 'described', label: strings.rail.described }, { key: 'list', label: strings.rail.list }, { key: 'settings', label: strings.rail.settings }]} onSelect={(k) => setRoute(k === 'settings' ? { name: 'settings' } : { name: 'home' })} /> // TODO(DESC-011): Described and My list screens; both open Home until then
 
   const screen = (() => {
     if (offline) return (
@@ -124,12 +148,13 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
       </Screen>
     )
     switch (route.name) {
-      case 'firstRun': return <Screen><FirstRun speakText={() => {}} onDone={(ext) => { savePrefs({ extendedMode: ext, firstRunDone: true }); setRoute({ name: 'home' }) }} /></Screen>
-      case 'settings': return <Screen rail={rail}><Settings prefs={prefs} onChange={savePrefs} onHearVoice={() => {}} /></Screen>
+      case 'firstRun': return <Screen><FirstRun speakPrompt={speakPrompt} onDone={(ext) => finishFirstRun({ extendedMode: ext })} onSkip={() => finishFirstRun({})} /></Screen>
+      case 'settings': return <Screen rail={rail}><Settings prefs={prefs} onChange={savePrefs} onHearVoice={hearVoice} onResetFirstRun={() => { savePrefs({ firstRunDone: false }); setRoute({ name: 'firstRun', from: 'settings' }) }} onAbout={() => { setAbout(null); setRoute({ name: 'about' }) }} /></Screen>
+      case 'about': return <Screen rail={rail}><About about={about} onClose={() => setRoute({ name: 'settings' })} /></Screen>
       case 'reading': return <Screen><Reading title={current} onClose={() => setRoute({ name: 'title', slug: route.slug })} /></Screen>
       case 'title': return (
         <Screen rail={rail}>
-          <Title title={current} captionKind={prefs.captionKind} inList={myList.has(route.slug)} sample={sample}
+          <Title title={current} adDefault={prefs.adDefault} captionKind={prefs.captionKind} inList={myList.has(route.slug)} sample={sample}
             onPlay={(withAd) => setRoute({ name: 'player', slug: route.slug, withAd })} onSample={toggleSample}
             onCaptions={() => savePrefs({ captionKind: nextCaptionKind(prefs.captionKind) })} onToggleList={() => toggleList(route.slug)}
             onMore={() => setRoute({ name: 'reading', slug: route.slug })} />
@@ -137,14 +162,14 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
       )
       // TODO(DESC-007): pass `speak` once extended cues carry their own audio; today Player would play the sample clip.
       case 'player': return current ? <Player title={current} prefs={prefs} withAd={route.withAd} scale={scale} speak={noSpeech} onProgress={(s) => { if (Math.round(s) % 10 === 0) void api('/me/progress', { method: 'PUT', body: JSON.stringify({ titleSlug: current.slug, positionS: s }) }).catch(() => {}) }} onBack={() => setRoute({ name: 'title', slug: current.slug })} /> : <Screen><T variant="body">{strings.player.loading}</T></Screen>
-      default: return <Screen rail={rail}><Home catalog={catalog} myList={myList} onOpen={(s) => setRoute({ name: 'title', slug: s })} onPlay={(s, withAd) => setRoute({ name: 'player', slug: s, withAd })} onToggleList={toggleList} /></Screen>
+      default: return <Screen rail={rail}><Home catalog={catalog} myList={myList} adDefault={prefs.adDefault} onOpen={(s) => setRoute({ name: 'title', slug: s })} onPlay={(s, withAd) => setRoute({ name: 'player', slug: s, withAd })} onToggleList={toggleList} /></Screen>
     }
   })()
   return (
     <FontsLoadedContext.Provider value={fontsLoaded}>
       <View style={{ flex: 1, backgroundColor: tokens.color.ground }}>
         <SpatialNavigationRoot key={offline ? 'offline' : key}>
-          <LockWhile locked={!offline && ((route.name === 'home' && !catalog) || ((route.name === 'title' || route.name === 'reading') && !current))} />
+          <LockWhile locked={!offline && ((route.name === 'home' && !catalog) || ((route.name === 'title' || route.name === 'reading') && !current) || (route.name === 'about' && about === null))} />
           {screen}
         </SpatialNavigationRoot>
       </View>

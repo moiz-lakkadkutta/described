@@ -14,5 +14,7 @@ export function announceFocus(label: string, hint: string | undefined, stillFocu
   clearTimeout(timer)
   timer = setTimeout(() => { if (stillFocused()) AccessibilityInfo.announceForAccessibility(hint ? `${label}. ${hint}` : label) }, ANNOUNCE_DEBOUNCE_MS)
 }
+/** True while VoiceView (or another screen reader) is on. */
+export const screenReaderOn = () => readerOn
 /** Test seam. */
 export const _setScreenReader = (on: boolean) => { readerOn = on }
