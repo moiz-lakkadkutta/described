@@ -18,6 +18,13 @@ import { TrackSheet, type SheetItem } from './TrackSheet'
 
 /** Buffering longer than this is announced ("Loading…"), once per stall. */
 export const BUFFERING_ANNOUNCE_MS = 2000
+/**
+ * A sent seek stands for the position until the player reports within this of it, or this long passes: the kit's
+ * Fire OS position only moves on onProgress, which stops while the seek buffers, so a second press would otherwise
+ * start from the old place.
+ */
+export const PENDING_SEEK_NEAR_S = 2
+export const PENDING_SEEK_MS = 5000
 /** Height of the bottom chrome (bar, time, status line) in px at 1080p; captions sit above it while it shows. */
 const CHROME_BOTTOM = 176
 const bands = scrimBands()
@@ -29,11 +36,14 @@ const announce = (s: string) => AccessibilityInfo.announceForAccessibility(s)
  */
 export interface PlayerSession {
   slug: string; name: string; state: PlayerState; adOn: boolean; durationS: number | null
+  /** `seek` is the Player's own seek (clamped, resume-aware), so transport seeks behave like ◄►. */
   controls: { play(): void; pause(): void; seek(s: number): void; getPosition(): number }
 }
 
 export interface PlayerProps {
   title: TitleDetail; prefs: Prefs; withAd: boolean; scale: number
+  /** Start here instead of the saved position (a deep link with a time, DESC-008). */
+  startAtS?: number
   /** Back: leave for Title. `positionS` is where to resume (0 once the film has ended). */
   onBack: (positionS: number) => void
   /** ≤ 4 Hz from the kit. Root saves progress from it. */
@@ -54,10 +64,10 @@ const extendedCueAudio = (_cue: Cue, _slug: string): string | null => null
 /**
  * Player: full-bleed video through the kit. AD is an audio rendition chosen by role; captions and description text
  * are text tracks chosen by kind and HLS characteristics; the kit's CueOverlay draws them. Chrome (title, bar,
- * time, status line) shows on any key and hides after 4 s of playing without input. Remote: Select / Play-Pause
+ * time) shows on any key and hides after 4 s of playing without input; the status line always stays. Remote: Select / Play-Pause
  * toggle, ◄► skip 10 s (held: faster), ▲ or Menu open the track sheet, Back saves the position and leaves.
  */
-export function Player({ title, prefs, withAd, scale, onBack, onProgress, onPrefs, speak, onNowPlaying }: PlayerProps) {
+export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgress, onPrefs, speak, onNowPlaying }: PlayerProps) {
   const ref = useRef<KitPlayerRef>(null)
   const [state, setState] = useState<PlayerState>('idle')
   const [error, setError] = useState(false)
@@ -74,7 +84,7 @@ export function Player({ title, prefs, withAd, scale, onBack, onProgress, onPref
   const [describing, setDescribing] = useState(false)
 
   const pos = useRef(0)
-  const startAt = useRef(resumePoint(title.resumeS, title.durationS))
+  const startAt = useRef(startAtS != null ? clampSeek(startAtS, title.durationS) : resumePoint(title.resumeS, title.durationS))
   const seekedToStart = useRef(false)
   const tracksRef = useRef(tracks)
   const stateRef = useRef(state)
@@ -84,15 +94,27 @@ export function Player({ title, prefs, withAd, scale, onBack, onProgress, onPref
   const hold = useRef({ start: 0, last: 0 })
   const sheetItem = useRef<SheetItem | undefined>(undefined)
   const spoken = useRef(new Set<string>())
+  const pendingSeek = useRef<{ target: number; timer: ReturnType<typeof setTimeout> } | null>(null)
+  const announcedStall = useRef(false)
 
   const showChrome = useCallback(() => { setChrome(true); setPoke((n) => n + 1) }, [])
-  const getPosition = useCallback(() => scrubRef.current ?? ref.current?.getPosition() ?? pos.current, [])
+  const getPosition = useCallback(() => scrubRef.current ?? pendingSeek.current?.target ?? ref.current?.getPosition() ?? pos.current, [])
+  const clearPending = useCallback(() => { if (pendingSeek.current) clearTimeout(pendingSeek.current.timer); pendingSeek.current = null }, [])
+  /** The one seek path: keys, transport controls (DESC-008) and resume. A seek sent before the load is up wins over resume. */
+  const seekTo = useCallback((s: number) => {
+    const target = clampSeek(s, title.durationS)
+    seekedToStart.current = true
+    clearPending()
+    pendingSeek.current = { target, timer: setTimeout(() => { pendingSeek.current = null }, PENDING_SEEK_MS) }
+    ref.current?.seek(target)
+    pos.current = target; setPosition(target)
+  }, [title.durationS, clearPending])
 
   // Rich vs plain captions is an HLS characteristic the kit's TextTrack does not carry: read it from the master.
   useEffect(() => {
     let live = true
     fetch(title.manifestUrl)
-      .then(async (r) => parseHlsMaster(await r.text(), r.url || title.manifestUrl)) // base URL as the kit resolves it
+      .then(async (r) => { if (!r.ok) throw new Error(`master ${r.status}`); return parseHlsMaster(await r.text(), r.url || title.manifestUrl) }) // base URL as the kit resolves it
       .then((m) => { if (live) setChars(characteristicsByUri(m.renditions)) })
       .catch(() => {}) // the NAME fallback covers it
     return () => { live = false }
@@ -110,7 +132,7 @@ export function Player({ title, prefs, withAd, scale, onBack, onProgress, onPref
     spoken.current.add(ext.id)
     const audio = extendedCueAudio(ext, title.slug)
     if (!audio) return
-    setDescribing(true); ref.current?.pause()
+    setDescribing(true); announce(strings.player.extendedBar); ref.current?.pause()
     speak(audio).finally(() => { setDescribing(false); ref.current?.play() })
   }, [cues, adOn, prefs.extendedMode, speak, title.slug])
 
@@ -122,30 +144,35 @@ export function Player({ title, prefs, withAd, scale, onBack, onProgress, onPref
   }, [chrome, poke, sheet, state, error])
   const chromeShown = chrome || state !== 'playing' || error
 
-  // A stall is announced once, after 2 s; a short one says nothing.
+  // A stall is announced once, after 2 s (loading → buffering is still one stall); a short one says nothing.
   useEffect(() => {
-    if (error || (state !== 'loading' && state !== 'buffering')) return
-    const t = setTimeout(() => announce(strings.player.loading), BUFFERING_ANNOUNCE_MS)
+    if (state === 'playing' || state === 'paused') announcedStall.current = false
+    if (error || announcedStall.current || (state !== 'loading' && state !== 'buffering')) return
+    const t = setTimeout(() => { announcedStall.current = true; announce(strings.player.loading) }, BUFFERING_ANNOUNCE_MS)
     return () => clearTimeout(t)
   }, [state, error])
+  useEffect(() => { if (state === 'ended') announce(strings.player.ended) }, [state])
   useEffect(() => { if (error) announce(strings.player.error) }, [error])
 
+  const play = useCallback(() => {
+    // ExoPlayer stays at the end after `ended`: playing again needs a seek to the start first.
+    if (stateRef.current === 'ended') seekTo(0)
+    ref.current?.play()
+  }, [seekTo])
+  const { slug, name, durationS } = title
   useEffect(() => {
-    onNowPlaying?.({
-      slug: title.slug, name: title.name, state, adOn, durationS: title.durationS,
-      controls: { play: () => ref.current?.play(), pause: () => ref.current?.pause(), seek: (s) => ref.current?.seek(clampSeek(s, title.durationS)), getPosition },
-    })
-  }, [onNowPlaying, title, state, adOn, getPosition])
+    onNowPlaying?.({ slug, name, state, adOn, durationS, controls: { play, pause: () => ref.current?.pause(), seek: seekTo, getPosition } })
+  }, [onNowPlaying, slug, name, durationS, state, adOn, play, seekTo, getPosition])
   useEffect(() => () => onNowPlaying?.(null), [onNowPlaying])
-  useEffect(() => () => clearTimeout(commit.current), [])
+  useEffect(() => () => { clearTimeout(commit.current); clearPending() }, [clearPending])
 
   const toggle = () => {
     if (error) { retry(); return }
     if (stateRef.current === 'playing' || stateRef.current === 'buffering') ref.current?.pause()
-    else ref.current?.play()
+    else play()
   }
   const retry = () => {
-    startAt.current = getPosition(); seekedToStart.current = false
+    startAt.current = getPosition(); seekedToStart.current = false; clearPending()
     setError(false); setState('idle'); setTracks({ audio: [], text: [] }); setAttempt((a) => a + 1)
   }
   const seekBy = (dir: 1 | -1, repeat: boolean) => {
@@ -161,12 +188,11 @@ export function Player({ title, prefs, withAd, scale, onBack, onProgress, onPref
     scrubRef.current = target; setScrub(target)
     clearTimeout(commit.current)
     commit.current = setTimeout(() => {
-      ref.current?.seek(target)
-      pos.current = target; setPosition(target)
       scrubRef.current = null; setScrub(null)
+      seekTo(target)
     }, SEEK_COMMIT_MS)
   }
-  const openSheet = () => { setSheet(true) }
+  const openSheet = () => { setSheet(true); announce(strings.tracks.heading) }
   const closeSheet = () => { setSheet(false); showChrome() }
   const chooseAudio = (on: boolean) => {
     if (on === adOn) return
@@ -184,7 +210,7 @@ export function Player({ title, prefs, withAd, scale, onBack, onProgress, onPref
     showChrome()
     switch (k) {
       case 'playPause': if (!repeat) toggle(); break
-      case 'play': ref.current?.play(); break
+      case 'play': play(); break
       case 'pause': ref.current?.pause(); break
       case 'left': case 'rewind': seekBy(-1, repeat); break
       case 'right': case 'fastForward': seekBy(1, repeat); break
@@ -209,7 +235,7 @@ export function Player({ title, prefs, withAd, scale, onBack, onProgress, onPref
     // point is sought once the load is up. Harmless where startAt already worked.
     if ((s === 'ready' || s === 'playing') && !seekedToStart.current) {
       seekedToStart.current = true
-      if (startAt.current > 0) { ref.current?.seek(startAt.current); pos.current = startAt.current; setPosition(startAt.current) }
+      if (startAt.current > 0) seekTo(startAt.current)
     }
   }
   const onError = (e: PlayerError) => { if (e.fatal) { setError(true); setState('error') } }
@@ -217,7 +243,7 @@ export function Player({ title, prefs, withAd, scale, onBack, onProgress, onPref
   const shownPos = scrub ?? position
   const duration = title.durationS ?? 0
   const fraction = duration ? Math.min(1, shownPos / duration) : 0
-  const status = statusLine({ state, error, adOn, voice: title.voice, caption: tracks.text.length ? selection.kind : prefs.captionKind })
+  const status = statusLine({ state, error, adOn, voice: title.voice, caption: selection.kind }) // what is really on screen
   const visibleCues = cues.filter((c) => c.trackId === selection.shown)
   const insetY = tokens.layout.safeY + (chromeShown ? CHROME_BOTTOM : 0)
 
@@ -231,7 +257,12 @@ export function Player({ title, prefs, withAd, scale, onBack, onProgress, onPref
         preferredAudio={{ role: adOn ? 'description' : 'main' }}
         onTracks={(t: Tracks) => { tracksRef.current = t; setTracks(t) }}
         onCue={setCues} onState={onState} onError={onError}
-        onPosition={(s: number) => { pos.current = s; setPosition(s); onProgress(s) }}
+        onPosition={(s: number) => {
+          const p = pendingSeek.current
+          if (p && Math.abs(s - p.target) > PENDING_SEEK_NEAR_S) return // a tick from before the seek landed
+          if (p) clearPending()
+          pos.current = s; setPosition(s); onProgress(s)
+        }}
         style={{ flex: 1 }}
       />
       <CueOverlay active={visibleCues} primaryTrackId={selection.shown} scale={scale} safeInset={{ x: Math.round(tokens.layout.safeX * scale), y: Math.round(insetY * scale) }}
@@ -245,12 +276,12 @@ export function Player({ title, prefs, withAd, scale, onBack, onProgress, onPref
         </View>
       </View>
 
-      <View style={{ position: 'absolute', left: px(tokens.layout.safeX), right: px(tokens.layout.safeX), bottom: px(tokens.layout.safeY), gap: px(16), opacity: chromeShown ? 1 : 0 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: px(24) }}>
+      <View style={{ position: 'absolute', left: px(tokens.layout.safeX), right: px(tokens.layout.safeX), bottom: px(tokens.layout.safeY), gap: px(16) }}>
+        <View testID="bar" style={{ flexDirection: 'row', alignItems: 'center', gap: px(24), opacity: chromeShown ? 1 : 0 }}>
           <T variant="label" style={{ minWidth: px(120) }}>{clock(shownPos)}</T>
           <View style={{ flex: 1 }}>
             {sheet ? <View style={{ height: px(44) }} /> : (
-              <Focusable label={strings.player.surface(title.name)} hint={strings.player.surfaceHint} defaultFocus onPress={() => { showChrome(); toggle() }} testID="player-surface"
+              <Focusable label={strings.player.surface(title.name)} hint={`${status}. ${strings.player.surfaceHint}`} defaultFocus onPress={() => { showChrome(); toggle() }} testID="player-surface"
                 style={{ height: px(44), justifyContent: 'center', paddingHorizontal: px(8) }}>
                 <View accessibilityLabel={strings.player.position(clock(shownPos), clock(duration))} style={{ height: px(8), borderRadius: px(4), backgroundColor: tokens.color.surface3, overflow: 'hidden' }}>
                   <View testID="progress-fill" style={{ width: `${fraction * 100}%`, height: '100%', backgroundColor: tokens.color.interactive }} />
@@ -260,11 +291,17 @@ export function Player({ title, prefs, withAd, scale, onBack, onProgress, onPref
           </View>
           <T variant="label" color={tokens.color.textSecondary} style={{ minWidth: px(120), textAlign: 'right' }}>{clock(duration)}</T>
         </View>
-        {/* Persistent 28 px status line, bottom-left; hides with the chrome. */}
-        <T variant="label" testID="status-line" color={error ? tokens.color.error : tokens.color.textSecondary}>{status}</T>
+        {/* Persistent 28 px status line, bottom-left: always on screen, so "Description on" can be checked at a glance. */}
+        <View style={{ alignSelf: 'flex-start', backgroundColor: tokens.color.scrimBottom, paddingHorizontal: px(12), paddingVertical: px(4), borderRadius: px(tokens.radius.badge) }}>
+          <T variant="label" testID="status-line" color={error ? tokens.color.error : tokens.color.text}>{status}</T>
+        </View>
       </View>
 
-      {describing ? <View accessibilityLabel={strings.player.extendedBar} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: px(8), backgroundColor: tokens.color.badge }} /> : null}
+      {describing ? (
+        <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: px(8), backgroundColor: tokens.color.badge }}>
+          <T variant="label" style={{ position: 'absolute', right: px(tokens.layout.safeX), bottom: px(16) }}>{strings.player.extendedBar}</T>
+        </View>
+      ) : null}
       {sheet ? (
         <TrackSheet voice={title.voice} adOn={adOn} captionKind={prefs.captionKind} extendedMode={prefs.extendedMode} initial={sheetItem.current}
           onFocusItem={(id) => { sheetItem.current = id }} onAudio={chooseAudio}

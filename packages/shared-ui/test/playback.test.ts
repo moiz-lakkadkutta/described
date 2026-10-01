@@ -60,9 +60,9 @@ describe('seek', () => {
   it('10 s per press, faster the longer ◄► is held', () => {
     expect([0, 1999, 2000, 4999, 5000, 20000].map(seekStep)).toEqual([10, 10, 30, 30, 60, 60])
   })
-  it('clamps to the start and to the end when the duration is known', () => {
+  it('clamps to the start and to 1 s before the end when the duration is known', () => {
     expect(clampSeek(-4, 888)).toBe(0)
-    expect(clampSeek(900, 888)).toBe(888)
+    expect(clampSeek(900, 888)).toBe(887)
     expect(clampSeek(900, null)).toBe(900)
   })
 })
@@ -88,6 +88,7 @@ describe('status line', () => {
     [{ ...base, state: 'buffering' as const }, 'Loading…'],
     [{ ...base, state: 'loading' as const }, 'Loading…'],
     [{ ...base, error: true }, strings.player.error],
+    [{ ...base, state: 'ended' as const }, 'The end. Press Select to watch again, Back for the title.'],
     [{ ...base, state: 'error' as const }, 'Playback stopped. Press Select to try again, Back for the title.'],
   ])('%o → %s', (o, s) => expect(statusLine(o)).toBe(s))
   it('error copy never carries a code', () => expect(strings.player.error).not.toMatch(/\d|error|code/i))

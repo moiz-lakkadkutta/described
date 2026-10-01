@@ -14,7 +14,11 @@ export type CaptionKind = Prefs['captionKind']
 /** HLS CHARACTERISTICS (RFC 8216 §4.3.4.1; Apple HLS authoring spec). Rich captions carry describes-music-and-sound. */
 export const SDH_CHARACTERISTIC = 'public.accessibility.describes-music-and-sound'
 
-/** The audio rendition for AD on/off, by role — never by id. Off picks a main track that is not a description. */
+/**
+ * The audio rendition for AD on/off, by role — never by id. Off picks a main track that is not a description.
+ * On Fire OS the kit derives roles from ExoPlayer's track title, i.e. the rendition NAME ("Audio description…"), not
+ * HLS CHARACTERISTICS — the pipeline must keep that NAME (09-package.ts).
+ */
 export function audioTrackFor(tracks: readonly AudioTrack[], ad: boolean): AudioTrack | undefined {
   return ad ? tracks.find((t) => t.roles.includes('description')) : tracks.find((t) => !t.roles.includes('description') && t.roles.includes('main')) ?? tracks.find((t) => !t.roles.includes('description'))
 }
@@ -71,8 +75,9 @@ export const SEEK_COMMIT_MS = 300
 export function seekStep(heldMs: number): number {
   return heldMs < 2000 ? SEEK_STEP_S : heldMs < 5000 ? 30 : 60
 }
+/** One rule for every seek (keys, transport, resume): from 0 to 1 s before the end, so a seek never ends the film. */
 export function clampSeek(s: number, durationS: number | null | undefined): number {
-  return Math.max(0, durationS ? Math.min(s, durationS) : s)
+  return Math.max(0, durationS ? Math.min(s, durationS - 1) : s)
 }
 
 // ── Resume ─────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -86,6 +91,7 @@ export function resumePoint(resumeS: number | null | undefined, durationS: numbe
 // ── Status line and time ───────────────────────────────────────────────────────────────────────────────────────────
 export function statusLine(o: { state: PlayerState; error: boolean; adOn: boolean; voice: string; caption: CaptionKind }): string {
   if (o.error || o.state === 'error') return strings.player.error
+  if (o.state === 'ended') return strings.player.ended
   if (o.state === 'loading' || o.state === 'buffering') return strings.player.loading
   const cap = o.caption === 'off' ? strings.player.captionsOff : captionName(o.caption)
   return o.adOn ? strings.player.statusOn(o.voice, cap) : strings.player.statusOff(cap)

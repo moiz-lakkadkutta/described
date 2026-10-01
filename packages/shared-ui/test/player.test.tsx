@@ -5,7 +5,7 @@ import TestRenderer, { act, type ReactTestInstance } from 'react-test-renderer'
 import { audioTracksFromHls, parseHlsMaster, textTracksFromHls } from '@moizp/vega-media-kit/core'
 import type { Prefs } from '@described/contracts'
 import { configureRemote } from '../src/focus/remote'
-import { BUFFERING_ANNOUNCE_MS, Player, type PlayerProps } from '../src/screens/Player'
+import { BUFFERING_ANNOUNCE_MS, PENDING_SEEK_MS, Player, type PlayerProps } from '../src/screens/Player'
 import { SEEK_COMMIT_MS } from '../src/playback'
 import { strings } from '../src/strings'
 import { tokens } from '../src/theme/tokens'
@@ -71,11 +71,14 @@ describe('chrome', () => {
     act(() => { vi.advanceTimersByTime(10_000) })
     expect(chromeShown()).toBe(true)
   })
-  it('the status line hides with it', () => {
+  it('the status line stays when the chrome hides (persistent: "Description on" at a glance)', () => {
     mount(); report('onState', 'playing')
     act(() => { vi.advanceTimersByTime(tokens.motion.overlayHideMs) })
+    expect(chromeShown()).toBe(false)
+    expect(r.root.findByProps({ testID: 'bar' }).props.style.opacity).toBe(0)
     const line = r.root.findByProps({ testID: 'status-line' })
-    expect(line.parent!.props.style.opacity).toBe(0)
+    for (let n: ReactTestInstance | null = line; n; n = n.parent) expect(Object.assign({}, ...[n.props.style].flat(3).filter(Boolean)).opacity ?? 1).toBe(1)
+    expect(status()).toBe('Description on · Joanna · Captions off') // no text track is on screen yet
   })
 })
 
@@ -98,13 +101,32 @@ describe('remote', () => {
     expect(kit.ref.seek).toHaveBeenCalledTimes(2)
     expect(kit.ref.seek).toHaveBeenLastCalledWith(90)
   })
-  it('clamps at the start and the end', () => {
+  it('clamps at the start and 1 s before the end', () => {
     mount(); report('onPosition', 4)
     press('left'); act(() => { vi.advanceTimersByTime(SEEK_COMMIT_MS) })
     expect(kit.ref.seek).toHaveBeenLastCalledWith(0)
+    report('onPosition', 0)
     report('onPosition', DURATION - 3)
     press('right'); act(() => { vi.advanceTimersByTime(SEEK_COMMIT_MS) })
-    expect(kit.ref.seek).toHaveBeenLastCalledWith(DURATION)
+    expect(kit.ref.seek).toHaveBeenLastCalledWith(DURATION - 1)
+  })
+  it('a second seek starts from the first one, though the player has not reported since (it is buffering)', () => {
+    mount(); report('onPosition', 100)
+    press('right'); act(() => { vi.advanceTimersByTime(SEEK_COMMIT_MS) })
+    expect(kit.ref.seek).toHaveBeenLastCalledWith(110)
+    report('onState', 'buffering'); report('onPosition', 100.2) // a late tick from before the seek: ignored
+    press('right'); act(() => { vi.advanceTimersByTime(SEEK_COMMIT_MS) })
+    expect(kit.ref.seek).toHaveBeenLastCalledWith(120)
+  })
+  it('the sent seek stands for the position until the player reports near it, or 5 s pass', () => {
+    mount(); report('onPosition', 100)
+    press('right'); act(() => { vi.advanceTimersByTime(SEEK_COMMIT_MS) })
+    report('onPosition', 111) // landed
+    press('right'); act(() => { vi.advanceTimersByTime(SEEK_COMMIT_MS) })
+    expect(kit.ref.seek).toHaveBeenLastCalledWith(121)
+    act(() => { vi.advanceTimersByTime(PENDING_SEEK_MS) }) // never landed: the player's own position again
+    press('left'); act(() => { vi.advanceTimersByTime(SEEK_COMMIT_MS) })
+    expect(kit.ref.seek).toHaveBeenLastCalledWith(101)
   })
   it('holding ◄► accelerates', () => {
     const hold = (ms: number) => {
@@ -115,7 +137,7 @@ describe('remote', () => {
     }
     mount(); report('onPosition', 0)
     expect(hold(1000)).toBe(60) // one press + 5 repeat steps of 10 s
-    report('onPosition', 0)
+    report('onPosition', 60); report('onPosition', 0)
     const long = hold(6000)
     expect(long).toBeGreaterThan(30 * 10) // 30 steps; flat 10 s steps would reach only 310
     expect(long).toBeLessThanOrEqual(DURATION)
@@ -128,10 +150,25 @@ describe('remote', () => {
   })
 })
 
+describe('the end', () => {
+  it('says so, and Select or Play/Pause plays again from the start', () => {
+    mount(); report('onPosition', DURATION - 1); report('onState', 'ended')
+    expect(status()).toBe(strings.player.ended)
+    expect(a11yCalls).toContain(strings.player.ended)
+    expect(surface()!.props.accessibilityHint).toContain(strings.player.ended) // the status is spoken with the player's focus
+    act(() => surface()!.props.onSelect())
+    expect(kit.ref.seek).toHaveBeenLastCalledWith(0)
+    expect(kit.ref.play).toHaveBeenCalledOnce()
+    report('onState', 'ended')
+    press('playPause')
+    expect(kit.ref.seek).toHaveBeenCalledTimes(2)
+    expect(kit.ref.play).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe('Back and resume', () => {
   it('Back hands the position to Root (which saves it) and is handled', () => {
     const p = mount(); report('onPosition', 321.4)
-    kit.ref.getPosition.mockReturnValue(321.4)
     let handled = false
     act(() => { handled = back.press() })
     expect(handled).toBe(true)
@@ -150,6 +187,17 @@ describe('Back and resume', () => {
     report('onState', 'playing'); report('onState', 'ready'); report('onState', 'playing')
     expect(kit.ref.seek.mock.calls).toEqual([[120]])
   })
+  it('a seek sent before the load is up wins over the resume point (keys and transport alike)', () => {
+    const onNowPlaying = vi.fn()
+    mount({ title: { ...title, resumeS: 120 }, onNowPlaying }); report('onState', 'loading')
+    act(() => onNowPlaying.mock.lastCall![0].controls.seek(300))
+    report('onState', 'ready'); report('onState', 'playing')
+    expect(kit.ref.seek.mock.calls).toEqual([[300]])
+  })
+  it('a deep link start (startAtS) wins over the saved position', () => {
+    mount({ title: { ...title, resumeS: 120 }, startAtS: 42 })
+    expect(kitProps().startAt).toBe(42)
+  })
   it('no saved position: starts at 0 and never seeks', () => {
     mount(); report('onState', 'ready'); report('onState', 'playing')
     expect(kitProps().startAt).toBe(0)
@@ -160,7 +208,7 @@ describe('Back and resume', () => {
 describe('tracks from the master playlist', () => {
   it('selects Rich captions (and the description text for Extended mode) by characteristics', async () => {
     const renamed = master.replace('NAME="Rich captions"', 'NAME="English"').replace('NAME="Captions"', 'NAME="English (rich)"')
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => ({ url, text: async () => renamed })))
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => ({ ok: true, url, text: async () => renamed })))
     mount(); await flush()
     expect(fetch).toHaveBeenCalledWith(title.manifestUrl)
     // Names that would mislead: only the characteristic says which track is rich (ids are ordinals, same order).
@@ -213,6 +261,16 @@ describe('loading and errors', () => {
     act(() => { vi.advanceTimersByTime(10_000) })
     expect(a11yCalls.filter((s) => s === 'Loading…')).toHaveLength(1)
   })
+  it('loading then buffering is one stall: announced once; a new stall after playing is announced again', () => {
+    mount(); report('onState', 'loading')
+    act(() => { vi.advanceTimersByTime(BUFFERING_ANNOUNCE_MS) })
+    report('onState', 'buffering')
+    act(() => { vi.advanceTimersByTime(BUFFERING_ANNOUNCE_MS * 3) })
+    expect(a11yCalls.filter((s) => s === 'Loading…')).toHaveLength(1)
+    report('onState', 'playing'); report('onState', 'buffering')
+    act(() => { vi.advanceTimersByTime(BUFFERING_ANNOUNCE_MS) })
+    expect(a11yCalls.filter((s) => s === 'Loading…')).toHaveLength(2)
+  })
   it('a short stall says nothing', () => {
     mount(); report('onState', 'buffering')
     act(() => { vi.advanceTimersByTime(1500) })
@@ -221,7 +279,7 @@ describe('loading and errors', () => {
     expect(a11yCalls).not.toContain('Loading…')
   })
   it('a fatal error shows and announces the plain copy; Select tries again from the same place', () => {
-    mount(); report('onPosition', 200); kit.ref.getPosition.mockReturnValue(200)
+    mount(); report('onPosition', 200)
     report('onError', { code: 'EXO', message: 'Playback error', fatal: true })
     expect(status()).toBe(strings.player.error)
     expect(a11yCalls).toContain(strings.player.error)
@@ -232,7 +290,7 @@ describe('loading and errors', () => {
     expect(status()).not.toBe(strings.player.error)
   })
   it('a non-fatal error (a caption fetch) does not stop anything', () => {
-    mount(); report('onState', 'playing')
+    mount(); report('onTracks', tracks); report('onState', 'playing')
     report('onError', { code: 'TEXT_FETCH', message: 'x', fatal: false })
     expect(status()).toBe('Description on · Joanna · Rich captions')
   })
@@ -244,6 +302,7 @@ describe('track sheet', () => {
     expect(defaultFocus()).toEqual([strings.player.surface(title.name)])
     press('up')
     expect(r.root.findAllByProps({ testID: 'track-sheet' })).toHaveLength(1)
+    expect(a11yCalls).toContain(strings.tracks.heading) // the panel's name is spoken; each item names its section
     expect(surface()).toBeUndefined()
     expect(defaultFocus()).toEqual([strings.tracks.a11y.ad('Joanna')])
     press('menu')
@@ -306,7 +365,7 @@ describe('platform hook (DESC-008)', () => {
     const s = onNowPlaying.mock.lastCall![0]
     expect(s).toMatchObject({ slug: title.slug, state: 'playing', adOn: true, durationS: DURATION })
     s.controls.pause(); expect(kit.ref.pause).toHaveBeenCalled()
-    s.controls.seek(9999); expect(kit.ref.seek).toHaveBeenLastCalledWith(DURATION)
+    s.controls.seek(9999); expect(kit.ref.seek).toHaveBeenLastCalledWith(DURATION - 1)
     act(() => r.unmount())
     expect(onNowPlaying).toHaveBeenLastCalledWith(null)
     act(() => { r = TestRenderer.create(<></>) })

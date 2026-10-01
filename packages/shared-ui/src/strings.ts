@@ -36,6 +36,7 @@ export const strings = {
   player: {
     statusOn: (voice: string, cap: string) => `Description on · ${voice} · ${cap}`, statusOff: (cap: string) => `Description off · ${cap}`, captionsOff: 'Captions off',
     loading: 'Loading…', error: 'Playback stopped. Press Select to try again, Back for the title.', extendedBar: 'Describing…',
+    ended: 'The end. Press Select to watch again, Back for the title.',
     surface: (name: string) => `Play or pause ${name}`, surfaceHint: 'Left and right skip 10 seconds. Menu changes audio and captions.',
     position: (at: string, of: string) => `${at} of ${of}`,
   },
@@ -43,8 +44,8 @@ export const strings = {
     heading: 'Audio & captions', audio: 'Audio', original: 'Original', ad: (voice: string) => `Audio description (${voice})`, captions: 'Captions', off: 'Off', plain: 'Captions', rich: 'Rich captions', descText: 'Description text', extended: 'Extended mode', announceOn: 'Description on', announceOff: 'Description off',
     on: 'On', offState: 'Off',
     a11y: {
-      original: 'Play the original audio', ad: (voice: string) => `Play audio description, voice ${voice}`,
-      off: 'Turn captions off', plain: 'Show captions', rich: 'Show rich captions, with sounds and music', descText: 'Show the description as text',
+      original: 'Audio: Original, no description', ad: (voice: string) => `Audio: Audio description, voice ${voice}`,
+      off: 'Captions off', plain: 'Captions: Captions, dialogue only', rich: 'Captions: Rich captions, with sounds and music', descText: 'Captions: Description text',
       extendedOn: 'Extended mode is on. Press to turn it off', extendedOff: 'Extended mode is off. Press to turn it on',
     },
   },
