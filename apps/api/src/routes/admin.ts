@@ -17,11 +17,16 @@ admin.post('/titles', validate(NewTitle, (r) => r.body), async (req, res, next) 
   } catch (e) { next(e) }
 })
 
-/** Enqueue the full describe pipeline (packages/pipeline worker consumes 'describe'). */
+/** Pipeline step 1's queue: the worker (packages/pipeline/src/jobs.ts) creates it and chains probe → shots → speech → describe → fit → finish. */
+export const PIPELINE_FIRST_QUEUE = 'pipeline-probe'
+
+/** Enqueue the describe pipeline for a title. One queued run per title (singletonKey); null means one is already queued, or no worker has created the queues. */
 admin.post('/titles/:id/describe', async (req, res, next) => {
   try {
+    await db.title.findUniqueOrThrow({ where: { id: req.params.id } })
+    const jobId = await boss.send(PIPELINE_FIRST_QUEUE, { titleId: req.params.id }, { singletonKey: req.params.id })
+    if (!jobId) throw new AppError(409, 'NOT_QUEUED', 'this title is already queued, or the pipeline worker has not started')
     await db.title.update({ where: { id: req.params.id }, data: { status: 'processing' } })
-    const jobId = await boss.send('describe', { titleId: req.params.id })
     ok(res, { jobId }, 202)
   } catch (e) { next(e) }
 })
