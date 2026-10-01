@@ -62,6 +62,9 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   const shouldHandle = useDpad()
   useEffect(() => { setDpadGate(shouldHandle) }, [shouldHandle])
 
+  /** Settings changed here but not yet saved; kept until a PUT succeeds and laid over any prefs fetched meanwhile. */
+  const unsaved = useRef<Partial<Prefs>>({})
+  const flushPrefs = useRef<() => void>(() => {})
   const api = useCallback(async <R,>(path: string, init?: RequestInit): Promise<R> => {
     const ctl = new AbortController()
     const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS)
@@ -69,6 +72,8 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
       const r = await fetch(apiBaseUrl + path, { ...init, signal: ctl.signal, headers: { 'content-type': 'application/json', 'x-device-id': deviceId, ...(init?.headers ?? {}) } })
       const j = (await r.json()) as { success: boolean; data: R }
       if (!j.success) throw new Error('api')
+      // The connection is back: send any settings a failed save left behind (a prefs PUT flushes itself).
+      if (!(path === '/me/prefs' && init?.method === 'PUT') && Object.keys(unsaved.current).length) flushPrefs.current()
       return j.data
     } finally { clearTimeout(timer) }
   }, [apiBaseUrl, deviceId])
@@ -76,9 +81,10 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   useEffect(() => {
     Promise.all([api<Catalog>('/catalog'), api<Prefs>('/me/prefs')])
       .then(([c, p]) => {
-        setCatalog(c); setPrefs({ ...defaultPrefs, ...p }); setOffline(false)
+        const merged = { ...defaultPrefs, ...p, ...unsaved.current } // unsaved local changes win over the server's copy
+        setCatalog(c); setPrefs(merged); setOffline(false)
         // First run until the profile says it is done (a Retry while on Title must not jump there).
-        if (!p.firstRunDone) setRoute((r) => (r.name === 'home' ? { name: 'firstRun' } : r))
+        if (!merged.firstRunDone) setRoute((r) => (r.name === 'home' ? { name: 'firstRun' } : r))
       })
       .catch(() => setOffline(true))
   }, [api, attempt])
@@ -116,11 +122,28 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
     return () => sub.remove()
   }, [route])
 
-  // PUTs go one at a time, in order, so quick ◄► presses can't land out of order and persist an older value.
+  // PUTs go one at a time, in order, so quick ◄► presses can't land out of order and persist an older value. A failed
+  // PUT keeps its changes in `unsaved`; they go with the next save, the next successful request, or Retry. The failure
+  // is announced once per outage.
   const saving = useRef<Promise<unknown>>(Promise.resolve())
+  const toldUnsaved = useRef(false)
+  flushPrefs.current = () => {
+    saving.current = saving.current.then(async () => {
+      const body = { ...unsaved.current }
+      if (!Object.keys(body).length) return
+      try {
+        await api('/me/prefs', { method: 'PUT', body: JSON.stringify(body) })
+        for (const k of Object.keys(body) as (keyof Prefs)[]) if (unsaved.current[k] === body[k]) delete unsaved.current[k]
+        toldUnsaved.current = false
+      } catch {
+        if (!toldUnsaved.current) { toldUnsaved.current = true; AccessibilityInfo.announceForAccessibility(strings.a11y.notSaved) }
+      }
+    })
+  }
   const savePrefs = (p: Partial<Prefs>) => {
+    unsaved.current = { ...unsaved.current, ...p }
     setPrefs((cur) => ({ ...cur, ...p }))
-    saving.current = saving.current.then(() => api('/me/prefs', { method: 'PUT', body: JSON.stringify(p) })).catch(() => {})
+    flushPrefs.current()
   }
   // App-voice prompts: clips at /prompts/<voice>/<key>.mp3 (API → CloudFront; TODO(DESC-010) generate them with Polly in
   // the pipeline). FirstRun always announces the text too; with VoiceView on the clip is skipped so two voices never

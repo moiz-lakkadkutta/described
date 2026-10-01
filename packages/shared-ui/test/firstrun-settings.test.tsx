@@ -19,12 +19,16 @@ const ok = (data: unknown) => Promise.resolve({ json: async () => ({ success: tr
 const about = { titles: [{ name: 'Sintel', attribution: title.attribution }] }
 /** Fetch routed by path; records every PUT /me/prefs body in order. */
 function api(prefs: Partial<Prefs> = {}) {
-  const state = { puts: [] as Partial<Prefs>[], aboutDown: false }
+  const state = { puts: [] as Partial<Prefs>[], aboutDown: false, putDown: false, down: false, served: { ...basePrefs, ...prefs } }
   vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
     const path = url.replace('http://api', '')
-    if (path === '/me/prefs' && init?.method === 'PUT') { state.puts.push(JSON.parse(String(init.body))); return ok({}) }
+    if (state.down) return Promise.reject(new Error('network'))
+    if (path === '/me/prefs' && init?.method === 'PUT') {
+      if (state.putDown) return Promise.reject(new Error('network'))
+      state.puts.push(JSON.parse(String(init.body))); return ok({})
+    }
     if (path === '/catalog') return ok(catalog)
-    if (path === '/me/prefs') return ok({ ...basePrefs, ...prefs })
+    if (path === '/me/prefs') return ok(state.served)
     if (path === '/about') return state.aboutDown ? Promise.reject(new Error('network')) : ok(about)
     if (path.startsWith('/titles/')) return ok(title)
     return ok({})
@@ -212,14 +216,55 @@ describe('settings', () => {
 })
 
 describe('settings in Root: saved and spoken', () => {
-  it('◄► changes are PUT in order and apply at once', async () => {
+  it('◄► changes apply at once; PUTs go one at a time and the last one carries the latest value', async () => {
     const s = api(); const r = await mount()
     press(r, 'Go to Settings')
     focus(r, `${S.capSize}:`)
     key('right'); key('right'); key('left')
     await flush()
-    expect(s.puts).toEqual([{ captionScale: 125 }, { captionScale: 150 }, { captionScale: 125 }])
-    expect(labels(r)).toContain(`${S.capSize}: 125%`)
+    expect(s.puts.at(-1)).toEqual({ captionScale: 125 })
+    expect(value(r, 'capSize')).toBe('125%')
+    key('right'); await flush()
+    expect(s.puts.at(-1)).toEqual({ captionScale: 150 })
+  })
+
+  it('a failed save is announced once, kept, and sent with the next save', async () => {
+    const s = api(); const r = await mount()
+    press(r, 'Go to Settings')
+    s.putDown = true
+    focus(r, `${S.capSize}:`); key('right'); await flush()
+    expect(a11yCalls.filter((c) => c === strings.a11y.notSaved)).toHaveLength(1)
+    focus(r, `${S.capStyle}:`); key('right'); await flush()
+    expect(a11yCalls.filter((c) => c === strings.a11y.notSaved)).toHaveLength(1) // once per outage
+    expect(value(r, 'capSize')).toBe('125%') // the screen keeps your change
+    s.putDown = false
+    focus(r, `${S.voice}:`); key('right'); await flush()
+    expect(s.puts).toEqual([{ captionScale: 125, captionStyle: 'shadow', voice: 'Daniel' }])
+    key('right'); await flush()
+    expect(s.puts.at(-1)).toEqual({ voice: 'Matthew' }) // saved changes are not sent again
+  })
+
+  it('unsaved changes go out on the next successful request', async () => {
+    const s = api(); const r = await mount()
+    press(r, 'Go to Settings')
+    s.putDown = true
+    focus(r, `${S.capSize}:`); key('right'); await flush()
+    s.putDown = false
+    press(r, 'Go to Home'); press(r, 'Open Sintel'); await flush() // GET /titles succeeds
+    expect(s.puts).toEqual([{ captionScale: 125 }])
+  })
+
+  it('Retry refetches prefs, lays unsaved changes over them, and saves them', async () => {
+    const s = api(); const r = await mount()
+    press(r, 'Go to Settings')
+    s.down = true
+    focus(r, `${S.capStyle}:`); key('right'); await flush()
+    press(r, 'Go to Home'); press(r, 'Open Sintel'); await flush() // offline screen
+    s.down = false
+    press(r, strings.a11y.retry); await flush()
+    expect(s.puts).toEqual([{ captionStyle: 'shadow' }])
+    press(r, 'Go to Settings')
+    expect(value(r, 'capStyle')).toBe('Shadow') // not replaced by the server's stale 'box'
   })
 
   it('Hear it speaks the voice preview clip', async () => {

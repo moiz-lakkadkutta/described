@@ -48,6 +48,7 @@ export const strings = {
     listAdded: (name: string) => `${name} added to My list`,
     listRemoved: (name: string) => `${name} removed from My list`,
     loading: 'Loading…',
+    notSaved: 'That setting wasn\u2019t saved. It will be saved when the connection is back.',
     setting: (name: string, value: string) => `${name}: ${value}`,
     settingHint: 'Press left or right to change',
     hearVoice: (voice: string) => `Hear the voice ${voice}`,
