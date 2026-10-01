@@ -1,12 +1,20 @@
 # 0001 — Week-0 gates
 
-Status: pending (fill in Sept 17)
+Status: A and B decided 2026-10-01; C pending the 20-shot rerun (see 0003)
 
-- Gate A (media pipeline tests 1–6):
-- Gate B (Vega blocks > 1 day):
-- Gate C (AI quality):
+- Gate A (media pipeline tests 1–6): **pass on Fire OS; Vega deferred.** Test 6 (our own HLS from S3 + CloudFront,
+  `published/sintel-90-150/master.m3u8`) passes. Tests 1–5 passed twice on a Fire TV Stick (AFTSS, Fire OS 7.7.1.6):
+  first frame 2.9–3.9 s; audio switch Original → AD stalls 0.5–0.6 s with no rewind; cue events reach our overlay with
+  `{extended,words}` meta; two text tracks at once; seek, pause, resume, rate 0.8 (measured 0.802). Not run on Vega — no SDK
+  on this Mac. Finding: the stick decodes H.264 in hardware only up to 1920×1088, High Profile Level 4; the 2534×1080 L5.0
+  rendition fell back to software decode (5–6 of 24 fps dropped, 3 s seeks) → mezzanine now fits inside 1920×1080 at L4.0.
+- Gate B (Vega blocks > 1 day): **Fire OS primary, Vega experimental** — decided by the human 2026-09-26, recorded in
+  vega-media-kit `docs/decisions/0001-week0-gates.md`. "Pass on both OSes" in Gate A is read under this decision.
+- Gate C (AI quality): **pending.** First paid run (Sintel 1:30–2:30, 7 cues) was 3 of 7 usable (43 % < 70 %), but 3 of the 4
+  failures were pipeline bugs and 2 were prompt-induced invented on-screen text. Fixes and prompt change approved; decided by
+  the 20-shot rerun on Sintel 1:30–3:30 — see 0003-gate-c.md.
 
-Decision:
+Decision: build Described on Fire OS first; Vega stays experimental; Nova Pro stays unless the rerun scores < 70 %.
 
 ## Local dry runs (DESC-001 part 1)
 
