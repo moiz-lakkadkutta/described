@@ -27,7 +27,10 @@ It is the demo, it unblocks DESC-006–009, and it needs no pipeline work: Sinte
 - [ ] DESC-007 · week 2 · Extended mode: per-cue Polly audio, prefetch 10 s, pause–speak–resume, ochre bar, setting
 - [ ] DESC-008 · week 2 · Platform bindings: Content Launcher catalog + intents, Personalization, Media Controls, Alexa pause
 - [ ] DESC-009 · week 2 · First run + Settings + full VoiceView pass
+  - decide where `prefs.adDefault` applies (since DESC-005 the play action picks AD; nothing reads the setting)
 - [ ] DESC-010 · week 3 · Five titles processed; physical 4K Select; TTFF < 2 s (Vega build deferred, decision 0004)
+  - `build:tv` (EAS) cannot work while the kit comes from the `link:../vega-media-kit` override: EAS uploads only this repo; publish the kit (0.1.0) or vendor it first. Build locally with `expo run:android --variant release` until then
   - re-check hardware decode on the stick with the 1920×818 L4.0 rendition
 - [ ] DESC-011 · week 4 · Polish, docs/screens, README, docs/aws.md, feedback, feature requests, ≥ 8 friction logs · freeze Oct 15
+  - rail: Described (described titles grid) and My list screens + a My list API; both rail items open Home today (DESC-005)
 - [ ] DESC-012 · week 5 · Video + submission (Oct 22)
