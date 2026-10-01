@@ -4,6 +4,7 @@ import { KitPlayer, CueOverlay } from '@moizp/vega-media-kit'
 import type { Cue, KitPlayerRef, PlayerState } from '@moizp/vega-media-kit'
 import type { Prefs, TitleDetail } from '@described/contracts'
 import { T } from '../components'
+import { usePlatformPlayback } from '../platform'
 import { strings } from '../strings'
 import { tokens } from '../theme/tokens'
 import { px } from '../theme/scale'
@@ -24,6 +25,7 @@ export function Player({ title, prefs, withAd, scale, onBack, onProgress, speak 
   const [adOn, setAdOn] = useState(withAd) // the chosen action wins over the default
   const [describing, setDescribing] = useState(false)
   const spoken = useRef(new Set<string>())
+  usePlatformPlayback(ref, { slug: title.slug, name: title.name, durationS: title.durationS, state }) // Alexa / media session + watch activity (DESC-008)
   const textIds = () => (prefs.captionKind === 'off' ? [] : [`${prefs.captionKind}-${title.tracks.text[0]?.language ?? 'en'}`]).concat(prefs.extendedMode ? ['descriptions-' + (title.tracks.text[0]?.language ?? 'en')] : [])
 
   useEffect(() => {

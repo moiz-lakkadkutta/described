@@ -8,6 +8,7 @@ import { setDpadGate } from './focus/remote'
 import { nextCaptionKind, type SampleState } from './models'
 import { FirstRun } from './screens/FirstRun'
 import { Home } from './screens/Home'
+import { useLaunchRoute, type LaunchSource } from './platform'
 import { Player } from './screens/Player'
 import { Settings } from './screens/Settings'
 import { Reading, Title } from './screens/Title'
@@ -18,8 +19,11 @@ export { tokens } from './theme/tokens'
 export * from './components'
 export { configureRemote } from './focus'
 export type { KeySource } from './focus'
+export * from './platform'
+export { parseDeepLink } from '@described/contracts'
+export type { LaunchTarget } from '@described/contracts'
 
-type Route = { name: 'home' } | { name: 'title'; slug: string } | { name: 'reading'; slug: string } | { name: 'player'; slug: string; withAd: boolean } | { name: 'settings' } | { name: 'firstRun' }
+type Route = { name: 'home' } | { name: 'title'; slug: string } | { name: 'reading'; slug: string } | { name: 'player'; slug: string; withAd: boolean; startAtS?: number } | { name: 'settings' } | { name: 'firstRun' }
 const noSpeech = async () => {}
 const defaultPrefs: Prefs = { adDefault: true, extendedMode: true, voice: 'Joanna', captionKind: 'sdh', captionScale: 100, firstRunDone: false }
 const routeKey = (r: Route) => ('slug' in r ? `${r.name}:${r.slug}` : r.name)
@@ -40,6 +44,8 @@ export interface RootProps {
   /** Platform audio: resolves when the clip ends or is stopped. Used for "Hear a sample" (and extended cues, DESC-007). */
   speak?: (url: string) => Promise<void>
   stopSpeaking?: () => void
+  /** Deep links (`described://title/…`, `described://play/…`) the app is opened with (DESC-008). Pass a stable function. */
+  launches?: LaunchSource
 }
 
 /**
@@ -47,7 +53,7 @@ export interface RootProps {
  * with fresh focus and its DefaultFocus / focus memory decides where focus lands.
  * Platform entries (apps/expo, apps/vega) pass apiBaseUrl, scale, fonts state and audio; they call configureRemote first.
  */
-export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded = true, speak = async () => {}, stopSpeaking = () => {} }: RootProps) {
+export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded = true, speak = async () => {}, stopSpeaking = () => {}, launches }: RootProps) {
   const [route, setRoute] = useState<Route>({ name: 'home' })
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [title, setTitle] = useState<TitleDetail | null>(null)
@@ -58,6 +64,7 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   const [sample, setSample] = useState<SampleState>('idle')
   const shouldHandle = useDpad()
   useEffect(() => { setDpadGate(shouldHandle) }, [shouldHandle])
+  useLaunchRoute(launches, { catalog, holding: offline || route.name === 'firstRun', adDefault: prefs.adDefault, navigate: setRoute })
 
   const api = useCallback(async <R,>(path: string, init?: RequestInit): Promise<R> => {
     const ctl = new AbortController()
@@ -78,7 +85,7 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   const slug = 'slug' in route ? route.slug : null
   // `attempt` too: Retry on the offline screen must refetch the title, not only the catalog.
   useEffect(() => { if (slug && title?.slug !== slug) api<TitleDetail>(`/titles/${slug}`).then(setTitle).catch(() => setOffline(true)) }, [slug, api, attempt]) // eslint-disable-line react-hooks/exhaustive-deps
-  const current = title && title.slug === slug ? title : null
+  const current = title && title.slug === slug ? (route.name === 'player' && route.startAtS !== undefined ? { ...title, resumeS: route.startAtS } : title) : null // a play link's ?t= wins over saved progress
   // A live region does not speak on first appearance, so the offline message is announced explicitly.
   useEffect(() => { if (offline) AccessibilityInfo.announceForAccessibility(strings.offline) }, [offline])
 
