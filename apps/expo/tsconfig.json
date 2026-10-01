@@ -3,11 +3,13 @@
   "compilerOptions": {
     "types": [
       "react",
-      "node"
+      "node",
+      "vitest/globals"
     ]
   },
   "include": [
     "App.tsx",
-    "src"
+    "src",
+    "test"
   ]
 }

@@ -2,6 +2,9 @@
 // Adapted from AmazonAppDev/react-native-multi-tv-app-sample (MIT-0) apps/expo-multi-tv/plugins/withKeyEvent.js:
 // - getInstance()?. so a key pressed before the module exists cannot crash the activity;
 // - only D-pad keys are consumed (native focus must not move too); Back and media keys keep Android's default.
+// app.json sets newArchEnabled: false because of this module: react-native-keyevent is an old-architecture module that
+// emits through the bridge, and Gate A only ever ran it that way. React Native 0.82 removes the old architecture, so
+// moving past 0.81 needs a new key source first (friction 2026-10-01 "react-native-keyevent needs the old architecture").
 const { withMainActivity } = require('expo/config-plugins')
 
 const TAG = '// described:keyevent'
@@ -20,15 +23,22 @@ const BODY = `
   override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean = isDpad(keyCode) || super.onKeyUp(keyCode, event)
 `
 
-module.exports = function withKeyEvent(config) {
+function withKeyEvent(config) {
   return withMainActivity(config, (c) => {
     let src = c.modResults.contents
     if (c.modResults.language !== 'kt') throw new Error('withKeyEvent expects a Kotlin MainActivity')
     if (src.includes(TAG)) return c
-    for (const imp of IMPORTS) if (!src.includes(imp)) src = src.replace(/^(package .*\n)/m, `$1${imp}\n`)
-    src = src.replace(/(class MainActivity\s*:\s*ReactActivity\(\)\s*\{)/, `$1\n${BODY}`)
+    src = patch(src)
     if (!src.includes(TAG)) throw new Error('withKeyEvent: MainActivity class declaration not found')
     c.modResults.contents = src
     return c
   })
 }
+/** Pure transform, exported for tests. */
+function patch(src) {
+  if (src.includes(TAG)) return src
+  for (const imp of IMPORTS) if (!src.includes(imp)) src = src.replace(/^(package .*\n)/m, `$1${imp}\n`)
+  return src.replace(/(class MainActivity\s*:\s*ReactActivity\(\)\s*\{)/, `$1\n${BODY}`)
+}
+module.exports = withKeyEvent
+module.exports.patch = patch
