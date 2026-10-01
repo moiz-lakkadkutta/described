@@ -45,4 +45,22 @@ Two pipeline amplifiers: the `isNew` heuristic turned 2 of the worst inventions 
 land ~2 frames late, so clips end on the next shot's frames and Nova sometimes describes those.
 Cost: ≈ $0.15 (Nova Pro 74,253 input tokens).
 
-Decision on the replacement model: pending the human.
+## Replacement bake-off (2026-10-01)
+
+Same 29 shots, the approved prompt verbatim, temperature 0, `parseDescription` on every reply. Raw descriptions rated
+blind (models shuffled to letters, seed 20261001) by two independent raters on faithful / style / clean (timing excluded —
+the pipeline owns it; length excluded — fit() shortens). Raters were Opus, not Fable: the account hit its Fable limit and the
+human chose Opus for the whole bake-off. Usable = both raters agree. Inter-rater agreement 27–28 of 29 per model.
+
+| Model (Bedrock id) | Input | Rater 1 | Rater 2 | Both | Cost / 29 shots | Notes |
+|---|---|---|---|---|---|---|
+| **Qwen3-VL 235B** (`qwen.qwen3-vl-235b-a22b`) | 3–6 key frames | 23 | 23 | **22 (75.9 %)** | $0.034 | literal, house style, no invented scenes; misses are wrong details (direction, "gargoyle", "doll") and thin coverage |
+| TwelveLabs Pegasus 1.2 (`us.twelvelabs.pegasus-1-2-v1:0`) | video (clips < 4 s padded) | 13 | 15 | 13 (44.8 %) | $0.078 | adds "Night. A rooftop." to 7 daylight shots; invented objects |
+| Nova Pro v1 (baseline) | video | 6 | 5 | 5 (17.2 %) | $0.061 | invented events, wrong colours (raw text, before shortening) |
+| Nova 2 Lite (`us.amazon.nova-2-lite-v1:0`) | video | 1 | 2 | 1 (3.4 %) | $0.028 | ignores one-line rule; camera language; 10 replies cut off |
+| Claude Haiku 4.5 | key frames | — | — | — | — | not tested: Anthropic use-case form not submitted for the account |
+
+Spend ≈ $0.15. Docs: https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-pegasus.html ·
+https://docs.aws.amazon.com/nova/latest/nova2-userguide/using-converse-api.html
+
+Decision on the replacement model: pending the human (bake-off favours Qwen3-VL 235B, the only model ≥ 70 %).
