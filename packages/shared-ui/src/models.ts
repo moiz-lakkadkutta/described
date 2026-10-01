@@ -58,6 +58,7 @@ export function homeModel(catalog: Catalog | null, myList: ReadonlySet<string>, 
 
 export type SampleState = 'idle' | 'playing'
 const captionNames: Record<Prefs['captionKind'], string> = { off: strings.tracks.off, captions: strings.tracks.plain, sdh: strings.tracks.rich, descriptions: strings.tracks.descText }
+export const captionName = (k: Prefs['captionKind']) => captionNames[k]
 export const nextCaptionKind = (k: Prefs['captionKind']): Prefs['captionKind'] => (['off', 'captions', 'sdh', 'descriptions'] as const)[(['off', 'captions', 'sdh', 'descriptions'].indexOf(k) + 1) % 4]!
 /** The Title screen shows this many synopsis lines; a longer synopsis gets "More". */
 export const SYNOPSIS_LINES = 4
@@ -87,4 +88,18 @@ export function titleModel(t: TitleDetail, o: { sample: SampleState; inList: boo
     actions: t.processingMinutesLeft != null ? [listAction(t, o.inList)] : actions, // My list stays, so focus has somewhere to land
     more,
   }
+}
+
+/**
+ * What Title shows but VoiceView can't reach by focus: name, facts, badges, the processing line and the synopsis.
+ * Said before the first focus announcement on Title (setFocusContext).
+ */
+export function titleSummary(t: TitleDetail) {
+  return [
+    t.name, ...facts(t, false),
+    t.badges.includes('sdh') ? strings.a11y.sdh : null,
+    t.extendedCount ? strings.a11y.extended(t.extendedCount) : null,
+    t.processingMinutesLeft != null ? strings.title.processing(t.processingMinutesLeft) : null,
+    t.synopsis,
+  ].filter(Boolean).map((x) => String(x).replace(/[.\s]+$/, '')).join('. ')
 }

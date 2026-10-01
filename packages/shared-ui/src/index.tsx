@@ -6,7 +6,7 @@ import type { About as AboutData, Catalog, Prefs, PromptKey, TitleDetail } from 
 import { screenReaderOn } from './a11y'
 import { Focusable, FontsLoadedContext, Rail, Screen, T } from './components'
 import { setDpadGate } from './focus/remote'
-import { nextCaptionKind, type SampleState } from './models'
+import { captionName, nextCaptionKind, type SampleState } from './models'
 import { About } from './screens/About'
 import { FirstRun } from './screens/FirstRun'
 import { Home } from './screens/Home'
@@ -132,9 +132,21 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   const hearVoice = (v: Prefs['voice']) => { speak(promptUrl(v, 'voicePreview')).catch(() => {}) }
   const finishFirstRun = (p: Partial<Prefs>) => { savePrefs({ ...p, firstRunDone: true }); setRoute(route.name === 'firstRun' && route.from === 'settings' ? { name: 'settings' } : { name: 'home' }) }
   useEffect(() => { if (route.name === 'about') api<AboutData>('/about').then(setAbout).catch(() => setAbout('offline')) }, [route.name, api])
-  const toggleList = (s: string) => setMyList((l) => { const n = new Set(l); if (n.has(s)) n.delete(s); else n.add(s); return n })
+  const toggleList = (s: string) => {
+    const name = catalog?.all.find((i) => i.slug === s)?.name ?? (current?.slug === s ? current.name : s)
+    AccessibilityInfo.announceForAccessibility(myList.has(s) ? strings.a11y.listRemoved(name) : strings.a11y.listAdded(name))
+    setMyList((l) => { const n = new Set(l); if (n.has(s)) n.delete(s); else n.add(s); return n })
+  }
+  const cycleCaptions = () => {
+    const next = nextCaptionKind(prefs.captionKind)
+    savePrefs({ captionKind: next })
+    AccessibilityInfo.announceForAccessibility(strings.a11y.captions(captionName(next)))
+  }
   const rail = <Rail current={route.name === 'settings' || route.name === 'about' ? 'settings' : 'home'} items={[{ key: 'home', label: strings.rail.home }, { key: 'described', label: strings.rail.described }, { key: 'list', label: strings.rail.list }, { key: 'settings', label: strings.rail.settings }]} onSelect={(k) => setRoute(k === 'settings' ? { name: 'settings' } : { name: 'home' })} /> // TODO(DESC-011): Described and My list screens; both open Home until then
 
+  const loading = !offline && ((route.name === 'home' && !catalog) || ((route.name === 'title' || route.name === 'reading') && !current) || (route.name === 'about' && about === null))
+  // Loading beyond 2 s is spoken (PLAN §8); the skeletons say it to everyone else.
+  useEffect(() => { if (!loading) return; const t = setTimeout(() => AccessibilityInfo.announceForAccessibility(strings.a11y.loading), 2000); return () => clearTimeout(t) }, [loading, key])
   const screen = (() => {
     if (offline) return (
       <Screen>
@@ -156,7 +168,7 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
         <Screen rail={rail}>
           <Title title={current} adDefault={prefs.adDefault} captionKind={prefs.captionKind} inList={myList.has(route.slug)} sample={sample}
             onPlay={(withAd) => setRoute({ name: 'player', slug: route.slug, withAd })} onSample={toggleSample}
-            onCaptions={() => savePrefs({ captionKind: nextCaptionKind(prefs.captionKind) })} onToggleList={() => toggleList(route.slug)}
+            onCaptions={cycleCaptions} onToggleList={() => toggleList(route.slug)}
             onMore={() => setRoute({ name: 'reading', slug: route.slug })} />
         </Screen>
       )
@@ -169,7 +181,7 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
     <FontsLoadedContext.Provider value={fontsLoaded}>
       <View style={{ flex: 1, backgroundColor: tokens.color.ground }}>
         <SpatialNavigationRoot key={offline ? 'offline' : key}>
-          <LockWhile locked={!offline && ((route.name === 'home' && !catalog) || ((route.name === 'title' || route.name === 'reading') && !current) || (route.name === 'about' && about === null))} />
+          <LockWhile locked={loading} />
           {screen}
         </SpatialNavigationRoot>
       </View>

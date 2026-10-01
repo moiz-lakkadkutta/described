@@ -5,6 +5,7 @@ import { useFocusMemory } from '@moizp/vega-media-kit/focus'
 import type { Catalog } from '@described/contracts'
 import { AdBadge, Card, Focusable, Row, SkeletonCard, T } from '../components'
 import { pickInitialFocus } from '../focus/memory'
+import { setFocusContext } from '../a11y'
 import { homeModel, type Action } from '../models'
 import { tokens } from '../theme/tokens'
 import { scrimBands } from '../theme/scrim'
@@ -40,7 +41,7 @@ export function Home({ catalog, myList, adDefault = true, onOpen, onPlay, onTogg
           {bands.map((c) => <View key={c} style={{ flex: 1, backgroundColor: c }} />)}
         </View>
         {/* LRUD orders siblings by registration, so the hero's node is mounted from the start (before the rows). */}
-        <SpatialNavigationNode orientation="horizontal">
+        <SpatialNavigationNode orientation="horizontal" onActive={() => { if (hero) setFocusContext([hero.name, hero.synopsis].filter(Boolean).join('. ')) }}>
           <View style={{ flex: 1, justifyContent: 'flex-end', padding: px(48), gap: px(16) }}>
             {hero ? (
               <>
