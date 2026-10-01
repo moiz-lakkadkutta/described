@@ -1,6 +1,6 @@
 # 0003 — Gate C: description prompt, timing bound, evaluation
 
-Status: approvals 2026-10-01; rerun scored 41 % → Gate C triggered; replacement model pending the human
+Status: closed 2026-10-02 — Gate C passes with Qwen3-VL 235B (72.4 %, both raters)
 Ticket: DESC-001 part 2 · Gate definition: hackathon runbook §6 (Gate C: < 70 % usable in a 20-shot sample → swap model)
 
 ## Evidence (Sintel 1:30–2:30, first paid run)
@@ -63,4 +63,19 @@ human chose Opus for the whole bake-off. Usable = both raters agree. Inter-rater
 Spend ≈ $0.15. Docs: https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-pegasus.html ·
 https://docs.aws.amazon.com/nova/latest/nova2-userguide/using-converse-api.html
 
-Decision on the replacement model: pending the human (bake-off favours Qwen3-VL 235B, the only model ≥ 70 %).
+**Decision (human, 2026-10-01): describe shots with Qwen3-VL 235B from 3–6 key frames** (commits 126d1e9, ee9495d).
+
+## Confirmation run (2026-10-02, `sintel-90-210`, full pipeline from `describe`)
+
+29 shots, 22 voiced, 0 extended, 7 unplaced; ≈ $0.03 for descriptions (61,495 input tokens). Two independent Opus raters,
+full five-criterion rubric including timing; unusable if either rater says so.
+
+| | Rater 1 | Rater 2 | Both |
+|---|---|---|---|
+| Usable | 22 (75.9 %) | 24 (82.8 %) | **21 (72.4 %)** |
+
+**Gate C passes.** Timing, overlap, budget, style and clean had zero failures. All 8 misses are faithfulness details:
+direction (0 "walks left"), eyes (10), an invented "veiled face" (11), shot 14 voiced as darkness while the city fades in,
+"grabs a sleeve" for lifting a cloth (16), "stands"/"pink-haired" (21), "reads book" for tending the dragon (28), and
+26 "bloodied wings" — Qwen wrote "wing"; the Nova Lite shortening step introduced the plural.
+The margin is thin (2.4 points): follow-ups are a shortener that may not change facts, and per-title spot checks.
