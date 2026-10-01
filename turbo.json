@@ -12,6 +12,7 @@
     "POLLY_VOICE_EN",
     "NOVA_PRO_MODEL_ID",
     "NOVA_LITE_MODEL_ID",
+    "DESCRIBE_MODEL_ID",
     "ADMIN_TOKEN",
     "RVS_BASE",
     "RVS_SECRET",

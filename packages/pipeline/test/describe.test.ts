@@ -1,4 +1,4 @@
-import { buildDescribeRequest, keyframeArgs, keyframeTimes, parseDescription } from '../src/steps/04-describe'
+import { buildDescribeRequest, keyframeArgs, keyframeTimes, parseDescription, replyText } from '../src/steps/04-describe'
 import { describeSystemPrompt } from '../src/prompts'
 
 const p = 'Man holds large weapon.'
@@ -50,7 +50,7 @@ describe('key frames', () => {
       const d = t.slice(1).map((x, i) => x - t[i]!)
       for (const x of d) expect(Math.abs(x - d[0]!)).toBeLessThanOrEqual(1) // evenly spaced (rounded to whole ms)
     }
-    expect(keyframeTimes(0, 4100)).toEqual([500, 1500, 2500, 3500]) // (k + 0.5) / n of startMs → endMs − 100, as in the bake-off
+    expect(keyframeTimes(0, 4100)).toEqual([500, 1500, 2500, 3500]) // the 100 ms tail is new; frame count and (k+0.5)/n spacing are the bake-off's
   })
   // Gate C raters: cuts land ~2 frames late, so the tail of a shot can already show the next one.
   it('keeps clear of the last 100 ms so frames of the next shot are not sent', () => {
@@ -83,5 +83,13 @@ describe('buildDescribeRequest', () => {
     c.slice(0, 3).forEach((b, i) => expect(b).toEqual({ image: { format: 'jpeg', source: { bytes: f[i] } } }))
     expect(c[3]).toEqual({ text: 'These are frames from one shot, in time order. Describe this shot.' })
     expect(r.inferenceConfig).toEqual({ maxTokens: 120, temperature: 0 })
+  })
+})
+
+describe('replyText', () => {
+  it('joins every text block and skips non-text blocks, as the bake-off read the reply', () => {
+    expect(replyText({ message: { role: 'assistant', content: [{ reasoningContent: { reasoningText: { text: 'x' } } } as never, { text: 'Woman holds ' }, { text: 'bowl.' }] } })).toBe('Woman holds bowl.')
+    expect(replyText({ message: { role: 'assistant', content: [] } })).toBe('')
+    expect(replyText(undefined)).toBe('')
   })
 })

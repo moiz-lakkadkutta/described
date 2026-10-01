@@ -1,4 +1,4 @@
-import { BedrockRuntimeClient, ConverseCommand, type ConverseCommandInput } from '@aws-sdk/client-bedrock-runtime'
+import { BedrockRuntimeClient, ConverseCommand, type ConverseCommandInput, type ConverseOutput } from '@aws-sdk/client-bedrock-runtime'
 import { execa } from 'execa'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import type { Ctx } from './index'
@@ -32,7 +32,7 @@ export async function describeShots(ctx: Ctx) {
   for (const s of shots) {
     const system = describeSystemPrompt({ maxWords: wordBudget(s, gaps), knownNames: known, language: ctx.language })
     const r = await client.send(new ConverseCommand(buildDescribeRequest(system, await keyframes(ctx.work, s), modelId)))
-    const { description, sameAsPrev } = parseDescription(r.output?.message?.content?.[0]?.text ?? '', prev)
+    const { description, sameAsPrev } = parseDescription(replyText(r.output), prev)
     // usage.inputTokens / outputTokens — https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html
     out.push({ ...s, description, sameAsPrev, tokens: r.usage?.inputTokens ?? 0, outputTokens: r.usage?.outputTokens ?? 0, stopReason: r.stopReason })
     if (!sameAsPrev && description) prev = description
@@ -40,11 +40,15 @@ export async function describeShots(ctx: Ctx) {
   await writeFile(`${ctx.work}/described.json`, JSON.stringify(out, null, 2))
 }
 
+/** The reply text: every text block joined, non-text blocks (e.g. reasoning) skipped — as the Gate C bake-off read it. */
+export const replyText = (output: ConverseOutput | undefined): string =>
+  output?.message?.content?.filter((c) => c.text).map((c) => c.text).join('') ?? ''
+
 /** Grabs the shot's key frames from {work}/mezz.mp4 into {work}/frames/shot_N_k.jpg and returns their bytes in time order. */
 export async function keyframes(work: string, s: Shot): Promise<Uint8Array[]> {
   await mkdir(`${work}/frames`, { recursive: true })
   const files = keyframeTimes(s.startMs, s.endMs).map((t, k) => ({ t, f: `${work}/frames/shot_${s.index}_${k}.jpg` }))
-  for (const { t, f } of files) await execa('ffmpeg', keyframeArgs(`${work}/mezz.mp4`, t / 1000, f), { stdio: 'ignore' })
+  for (const { t, f } of files) await execa('ffmpeg', keyframeArgs(`${work}/mezz.mp4`, t / 1000, f))
   return Promise.all(files.map(({ f }) => readFile(f)))
 }
 

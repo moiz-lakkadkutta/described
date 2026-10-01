@@ -33,7 +33,10 @@ export class MediaStack extends Stack {
     media.grantReadWrite(pipelineRole)
     pipelineRole.addToPolicy(new iam.PolicyStatement({ actions: ['transcribe:StartTranscriptionJob', 'transcribe:GetTranscriptionJob', 'polly:SynthesizeSpeech', 'translate:TranslateText'], resources: ['*'] }))
     // Converse is authorised by bedrock:InvokeModel — https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html
+    // Nova Lite still shortens / writes SDH; shot description is Qwen3-VL 235B, InvokeModel only (Converse, no streaming), in-Region us-east-1 —
+    // https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-qwen-qwen3-vl-235b-a22b.html
     pipelineRole.addToPolicy(new iam.PolicyStatement({ actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'], resources: ['arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-*', `arn:aws:bedrock:us-east-1:${this.account}:inference-profile/*`] }))
+    pipelineRole.addToPolicy(new iam.PolicyStatement({ actions: ['bedrock:InvokeModel'], resources: ['arn:aws:bedrock:us-east-1::foundation-model/qwen.qwen3-vl-235b-a22b'] }))
     // Nova reads shot clips by S3 URI with the caller's credentials — https://docs.aws.amazon.com/bedrock/latest/userguide/conversation-inference.html
     pipelineRole.addToPolicy(new iam.PolicyStatement({ actions: ['s3:GetObject'], resources: [`arn:aws:s3:::described-nova-ingest-${props.stage}-${this.account}/*`] }))
     new CfnOutput(this, 'MediaBucket', { value: media.bucketName })
