@@ -21,7 +21,7 @@ export function Player({ title, prefs, withAd, scale, onBack, onProgress, speak 
   const [cues, setCues] = useState<Cue[]>([])
   const [state, setState] = useState<PlayerState>('idle')
   const [sheet, setSheet] = useState(false)
-  const [adOn, setAdOn] = useState(withAd && prefs.adDefault)
+  const [adOn, setAdOn] = useState(withAd) // the chosen action wins over the default
   const [describing, setDescribing] = useState(false)
   const spoken = useRef(new Set<string>())
   const textIds = () => (prefs.captionKind === 'off' ? [] : [`${prefs.captionKind}-${title.tracks.text[0]?.language ?? 'en'}`]).concat(prefs.extendedMode ? ['descriptions-' + (title.tracks.text[0]?.language ?? 'en')] : [])
@@ -39,7 +39,7 @@ export function Player({ title, prefs, withAd, scale, onBack, onProgress, speak 
 
   const visibleCues = cues.filter((c) => !c.meta?.extended || prefs.captionKind === 'descriptions')
   return (
-    <View style={{ flex: 1, backgroundColor: '#000' }}>
+    <View style={{ flex: 1, backgroundColor: tokens.color.video }}>
       <KitPlayer
         ref={ref}
         source={{ uri: title.manifestUrl, type: 'hls', headers: { 'x-kit-text-urls': JSON.stringify(Object.fromEntries(title.tracks.text.map((t) => [t.id, t.url]))) } }}

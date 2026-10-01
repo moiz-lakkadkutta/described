@@ -1,49 +1,61 @@
-import React, { useState } from 'react'
-import { Animated, Pressable, StyleSheet, type ViewStyle } from 'react-native'
+import React, { useRef } from 'react'
+import { Animated, StyleSheet, View, type ViewStyle } from 'react-native'
+import { DefaultFocus, SpatialNavigationFocusableView } from 'react-tv-space-navigation'
+import { announceFocus } from '../a11y'
+import { T } from './Text'
 import { tokens } from '../theme/tokens'
 import { px } from '../theme/scale'
 
 export interface FocusableProps {
-  children: React.ReactNode
+  children: React.ReactNode | ((s: { focused: boolean }) => React.ReactNode)
   onPress?: () => void
   onFocus?: () => void
   label: string // aria-label: purpose, not "button"
   hint?: string
   selected?: boolean
   style?: ViewStyle
-  hasTVPreferredFocus?: boolean
+  /** Applied while focused, e.g. the surface one step brighter. */
+  focusedStyle?: ViewStyle
+  /** Takes focus when its screen mounts (react-tv-space-navigation DefaultFocus). */
+  defaultFocus?: boolean
   testID?: string
 }
 
-/** Focus is a physical change: outline + 1.04 scale in 150 ms. Selected is a persistent accent ring. Never colour alone. */
-export function Focusable({ children, onPress, onFocus, label, hint, selected, style, hasTVPreferredFocus, testID }: FocusableProps) {
-  const [focused, setFocused] = useState(false)
-  const scale = React.useRef(new Animated.Value(1)).current
+const radius = 6
+/**
+ * Focus is a physical change: 4 px off-white outline 3 px outside the element + 1.04 scale in 150 ms.
+ * Selected is a teal inset ring + check. Never colour alone. Focus comes from react-tv-space-navigation
+ * (native Pressable focus never moves on the stick — friction 2026-09-26 D-pad).
+ */
+export function Focusable({ children, onPress, onFocus, label, hint, selected, style, focusedStyle, defaultFocus, testID }: FocusableProps) {
+  const scale = useRef(new Animated.Value(1)).current
   const animate = (to: number) => Animated.timing(scale, { toValue: to, duration: tokens.motion.focusMs, useNativeDriver: true }).start()
+  // Always wrapped: toggling the wrapper would remount the node and drop focus.
   return (
-    <Pressable
-      onPress={onPress}
-      onFocus={() => { setFocused(true); animate(tokens.motion.focusScale); onFocus?.() }}
-      onBlur={() => { setFocused(false); animate(1) }}
-      hasTVPreferredFocus={hasTVPreferredFocus}
-      aria-label={label}
-      accessibilityHint={hint}
-      aria-selected={selected}
-      testID={testID}
-      style={{ outlineWidth: 0 }}
-    >
-      <Animated.View
-        style={[
-          styles.base,
-          style,
-          selected && { borderColor: tokens.color.interactive, borderWidth: px(3) },
-          focused && { borderColor: tokens.color.focus, borderWidth: px(tokens.focus.width), margin: -px(tokens.focus.width) },
-          { transform: [{ scale }] },
-        ]}
+    <DefaultFocus enable={!!defaultFocus}>
+      <SpatialNavigationFocusableView
+        onSelect={onPress}
+        onFocus={() => { animate(tokens.motion.focusScale); announceFocus(label, hint); onFocus?.() }}
+        onBlur={() => animate(1)}
+        viewProps={{ 'aria-label': label, accessibilityHint: hint, accessibilityState: { selected: !!selected }, testID }}
       >
-        {children}
-      </Animated.View>
-    </Pressable>
+        {({ isFocused }) => (
+          <Animated.View style={[styles.base, style, isFocused && focusedStyle, { transform: [{ scale }] }]}>
+            {typeof children === 'function' ? children({ focused: isFocused }) : children}
+            {selected ? (
+              <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: radius, borderWidth: px(tokens.focus.selectedWidth), borderColor: tokens.color.interactive }]}>
+                <View style={{ position: 'absolute', top: px(4), right: px(8) }}><T variant="label" color={tokens.color.interactive}>✓</T></View>
+              </View>
+            ) : null}
+            {isFocused ? <View pointerEvents="none" style={[styles.outline, outline()]} /> : null}
+          </Animated.View>
+        )}
+      </SpatialNavigationFocusableView>
+    </DefaultFocus>
   )
 }
-const styles = StyleSheet.create({ base: { borderRadius: 6, borderColor: 'transparent', borderWidth: 0 } })
+const outline = () => {
+  const o = -px(tokens.focus.width + tokens.focus.offset)
+  return { top: o, left: o, right: o, bottom: o, borderWidth: px(tokens.focus.width), borderRadius: radius + px(tokens.focus.width + tokens.focus.offset) }
+}
+const styles = StyleSheet.create({ base: { borderRadius: radius }, outline: { position: 'absolute', borderColor: tokens.color.focus } })

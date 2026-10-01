@@ -13,7 +13,7 @@ catalog.get('/', async (req, res, next) => {
     const deviceId = String(req.header('x-device-id') ?? 'anon')
     const titles = await db.title.findMany({ where: { status: 'published' }, orderBy: { createdAt: 'desc' }, include: { cues: { where: { extended: true }, select: { id: true } }, progress: { where: { profile: { deviceId } } } } })
     const items: CatalogItem[] = titles.map((t: (typeof titles)[number]) => ({
-      slug: t.slug, name: t.name, year: t.year, durationS: t.durationS, posterUrl: cdn(t.posterKey),
+      slug: t.slug, name: t.name, year: t.year, durationS: t.durationS, posterUrl: cdn(t.posterKey), synopsis: t.synopsis,
       badges: ['ad', 'sdh', ...(t.cues.length ? (['extended'] as const) : [])], extendedCount: t.cues.length,
       resumeS: t.progress[0]?.positionS ?? null,
     }))

@@ -14,7 +14,7 @@ const cycle = <T,>(arr: readonly T[], cur: T) => arr[(arr.indexOf(cur) + 1) % ar
 export function Settings({ prefs, onChange, onHearVoice }: { prefs: Prefs; onChange: (p: Partial<Prefs>) => void; onHearVoice: (v: Prefs['voice']) => void }) {
   const row = (label: string, value: string, onPress: () => void, first = false, extra?: React.ReactNode) => (
     <View key={label} style={{ flexDirection: 'row', alignItems: 'center', gap: px(24) }}>
-      <Focusable label={`${label}: ${value}`} hint="Press to change" hasTVPreferredFocus={first} onPress={onPress} style={{ flex: 1, flexDirection: 'row', justifyContent: 'space-between', paddingVertical: px(20), paddingHorizontal: px(24), backgroundColor: tokens.color.surface1 }}>
+      <Focusable label={`${label}: ${value}`} hint="Press to change" defaultFocus={first} onPress={onPress} style={{ flex: 1, flexDirection: 'row', justifyContent: 'space-between', paddingVertical: px(20), paddingHorizontal: px(24), backgroundColor: tokens.color.surface1 }}>
         <T variant="body">{label}</T><T variant="body" color={tokens.color.interactive}>{value}</T>
       </Focusable>
       {extra}

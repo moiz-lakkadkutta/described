@@ -1,11 +1,13 @@
 import { z } from 'zod'
 export const Badge = z.enum(['ad', 'sdh', 'extended'])
-export const CatalogItem = z.object({ slug: z.string(), name: z.string(), year: z.number().nullable(), durationS: z.number().nullable(), posterUrl: z.string().url().nullable(), badges: z.array(Badge), extendedCount: z.number().int(), resumeS: z.number().nullable() })
+export const CatalogItem = z.object({ slug: z.string(), name: z.string(), year: z.number().nullable(), durationS: z.number().nullable(), posterUrl: z.string().url().nullable(), badges: z.array(Badge), extendedCount: z.number().int(), resumeS: z.number().nullable(), synopsis: z.string().nullable().optional() })
 export const Catalog = z.object({ continue: z.array(CatalogItem), newlyDescribed: z.array(CatalogItem), all: z.array(CatalogItem) })
 export const TitleDetail = CatalogItem.extend({
   synopsis: z.string().nullable(), attribution: z.string(), manifestUrl: z.string().url(), voice: z.string(),
   tracks: z.object({ audio: z.array(z.object({ id: z.string(), language: z.string(), role: z.enum(['main', 'description']), label: z.string() })), text: z.array(z.object({ id: z.string(), language: z.string(), kind: z.enum(['captions', 'sdh', 'descriptions']), label: z.string(), url: z.string().url() })) }),
   sampleCue: z.object({ startS: z.number(), audioUrl: z.string().url(), text: z.string() }).nullable(),
+  /** Set while the pipeline is still describing this title; the Title screen shows it instead of the play actions. */
+  processingMinutesLeft: z.number().int().nullable().optional(),
 })
 export const Prefs = z.object({ adDefault: z.boolean(), extendedMode: z.boolean(), voice: z.enum(['Joanna', 'Matthew', 'Vicki', 'Daniel']), captionKind: z.enum(['off', 'captions', 'sdh', 'descriptions']), captionScale: z.union([z.literal(100), z.literal(125), z.literal(150), z.literal(200)]), firstRunDone: z.boolean() })
 export const ProgressPut = z.object({ titleSlug: z.string(), positionS: z.number().min(0) })
