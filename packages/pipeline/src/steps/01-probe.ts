@@ -10,11 +10,11 @@ import type { Ctx } from './index'
 export async function probe(ctx: Ctx) {
   await mkdir(ctx.work, { recursive: true })
   await download(ctx.source, `${ctx.work}/source.mp4`)
-  const { stdout } = await execa('ffprobe', ['-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', `${ctx.work}/source.mp4`])
+  const { stdout } = await execa('ffprobe', ['-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', `${ctx.work}/source.mp4`], { cancelSignal: ctx.signal })
   await writeFile(`${ctx.work}/probe.json`, stdout)
   const video = (JSON.parse(stdout) as { streams: Array<{ codec_type: string; r_frame_rate?: string; avg_frame_rate?: string }> }).streams.find((s) => s.codec_type === 'video')
   const rate = (r?: string) => { const [n, d] = (r ?? '0/0').split('/').map(Number); return n && d ? n / d : 0 }
-  await execa('ffmpeg', mezzanineArgs(ctx.work, rate(video?.r_frame_rate) || rate(video?.avg_frame_rate)), { stdio: 'inherit' })
+  await execa('ffmpeg', mezzanineArgs(ctx.work, rate(video?.r_frame_rate) || rate(video?.avg_frame_rate)), { stdio: 'inherit', cancelSignal: ctx.signal })
 }
 
 /**

@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { handleJob, JOB_STEPS, persist, QUEUE_OPTIONS, queueName, registerPipeline, type Db, type JobStep } from '../src/jobs'
+import { FAILED_QUEUE, handleDeadLetter, handleJob, JOB_STEPS, persist, QUEUE_OPTIONS, queueName, registerPipeline, type Db, type JobStep } from '../src/jobs'
 import { meter } from '../src/cost'
 import type { Ctx } from '../src/steps'
 
@@ -16,6 +16,7 @@ function fakes() {
     job: {
       upsert: vi.fn(async ({ where, create, update }: { where: { id: string }; create: Record<string, unknown>; update: Record<string, unknown> }) => { const r = jobs.get(where.id); if (r) inc(r, update); else jobs.set(where.id, { costUsd: 0, ...create }) }),
       update: vi.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => inc(jobs.get(where.id)!, data)),
+      updateMany: vi.fn(async ({ where, data }: { where: { status: { in: string[] } }; data: Record<string, unknown> }) => { for (const r of jobs.values()) if (where.status.in.includes(r.status as string)) inc(r, data) }),
     },
     shot: {
       deleteMany: vi.fn(async () => { shots = [] }), createMany: vi.fn(async ({ data }: { data: Array<Record<string, unknown>> }) => { shots.push(...data) }),
@@ -24,19 +25,59 @@ function fakes() {
     gap: { deleteMany: vi.fn(async () => { gaps = [] }), createMany: vi.fn(async ({ data }: { data: Array<Record<string, unknown>> }) => { gaps.push(...data) }) },
     $transaction: vi.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
   }
-  const boss = { createQueue: vi.fn(async () => {}), send: vi.fn(async () => 'next-id'), work: vi.fn(async () => 'worker-id') }
+  const boss = { createQueue: vi.fn(async () => {}), updateQueue: vi.fn(async () => {}), send: vi.fn(async () => 'next-id'), work: vi.fn(async () => 'worker-id') }
   return { db: db as unknown as Db, raw: db, boss, jobs, title, shots: () => shots, gaps: () => gaps }
 }
 const job = (id: string, retryCount = 0, retryLimit = 2) => ({ id, data: { titleId: 't1' }, retryCount, retryLimit })
 
 describe('pipeline jobs', () => {
-  it('creates one queue per step with a retry policy, and one worker each', async () => {
+  it('creates the dead-letter queue first, then creates and updates one queue per step, and one worker each', async () => {
     const f = fakes()
     await registerPipeline({ boss: f.boss as never, db: f.db })
-    expect(f.boss.createQueue.mock.calls.map((c) => (c as unknown[])[0])).toEqual(['pipeline-probe', 'pipeline-shots', 'pipeline-speech', 'pipeline-describe', 'pipeline-fit', 'pipeline-finish'])
-    for (const s of JOB_STEPS) expect(QUEUE_OPTIONS[s]).toMatchObject({ policy: 'short', retryBackoff: true, retryLimit: expect.any(Number), retryDelay: expect.any(Number) })
-    expect(f.boss.work).toHaveBeenCalledTimes(JOB_STEPS.length)
+    expect(f.boss.createQueue.mock.calls.map((c) => (c as unknown[])[0])).toEqual([FAILED_QUEUE, 'pipeline-probe', 'pipeline-shots', 'pipeline-speech', 'pipeline-describe', 'pipeline-fit', 'pipeline-finish'])
+    expect(f.boss.updateQueue.mock.calls.map((c) => (c as unknown[])[0])).toEqual(JOB_STEPS.map(queueName)) // QUEUE_OPTIONS edits reach existing queues
+    for (const s of JOB_STEPS) expect(QUEUE_OPTIONS[s]).toMatchObject({ policy: 'short', retryBackoff: true, deadLetter: FAILED_QUEUE, retryLimit: expect.any(Number), retryDelay: expect.any(Number) })
+    expect(f.boss.work).toHaveBeenCalledTimes(JOB_STEPS.length + 1)
     expect(f.boss.work.mock.calls[0]).toEqual(['pipeline-probe', { includeMetadata: true }, expect.any(Function)])
+    expect((f.boss.work.mock.calls.at(-1) as unknown[])[0]).toBe(FAILED_QUEUE)
+  })
+  it('gives up before pg-boss expiry: records a timeout, persists nothing and enqueues nothing, even if the step finishes later', async () => {
+    const f = fakes()
+    let finish!: () => void
+    const run = vi.fn(() => new Promise<void>((r) => { finish = r }))
+    await expect(handleJob('shots', job('x1'), { boss: f.boss as never, db: f.db, run, timeoutMs: 20 })).rejects.toThrow()
+    expect(f.jobs.get('x1')).toMatchObject({ status: 'retrying', error: expect.stringMatching(/^timed out after/) })
+    finish()
+    await new Promise((r) => setTimeout(r, 10))
+    expect(f.raw.$transaction).not.toHaveBeenCalled()
+    expect(f.boss.send).not.toHaveBeenCalled()
+    for (const s of JOB_STEPS) expect(QUEUE_OPTIONS[s].expireInSeconds).toBeGreaterThan(60)
+  })
+  it('records a failed Job row when the title has no source asset', async () => {
+    const f = fakes()
+    f.title.assets = []
+    await expect(handleJob('probe', job('p1', 2, 2), { boss: f.boss as never, db: f.db, run: vi.fn() })).rejects.toThrow(/no source asset/)
+    expect(f.jobs.get('p1')).toMatchObject({ status: 'failed', error: expect.stringContaining('no source asset') })
+    expect(f.title.status).toBe('failed')
+  })
+  it('notes on the Job row when the next step was not queued', async () => {
+    const f = fakes()
+    f.boss.send.mockResolvedValue(null as never)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await handleJob('fit', job('f1'), { boss: f.boss as never, db: f.db, run: vi.fn(async () => {}) })
+    expect(f.jobs.get('f1')).toMatchObject({ status: 'done', error: expect.stringContaining('pipeline-finish not queued') })
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
+  })
+  it('dead letter: closes running rows and fails the title', async () => {
+    const f = fakes()
+    f.jobs.set('d1', { titleId: 't1', step: 'describe', status: 'running' })
+    f.jobs.set('s1', { titleId: 't1', step: 'shots', status: 'done' })
+    f.title.status = 'processing'
+    await handleDeadLetter('t1', f.db)
+    expect(f.jobs.get('d1')).toMatchObject({ status: 'failed', error: expect.stringContaining('dead letter') })
+    expect(f.jobs.get('s1')!.status).toBe('done')
+    expect(f.title.status).toBe('failed')
   })
   it('enqueues the next step by titleId and records a Job row with cost per step', async () => {
     const f = fakes()

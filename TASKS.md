@@ -16,6 +16,7 @@ It is the demo, it unblocks DESC-006–009, and it needs no pipeline work: Sinte
   - one job per step (`worker.ts` runs the whole pipeline as one `describe` job today); cost recorded per job
   - describe calls Qwen3-VL on Bedrock directly, no Strands agent (decision 0005); no paid runs without the human
   - per-shot describe cache; Nova Lite shortener must not change facts ("wing" → "wings")
+  - follow-ups from review: known names for German transcripts (every noun is capitalised; needs another signal); names that only ever open a sentence ("Sintel, wait.") are missed; capExtended cuts an over-long extended cue at 25 words mid-clause when shortening fails
 - [ ] DESC-004 · week 1 · Pipeline steps 6–10 (Polly, mix, SDH, package, publish); manifest validated with the kit's HLS and VTT parsers (decision 0004)
   - buildPackagerArgs(language, hasCaptions, hasSdh) — hasSdh added in DESC-001 Gate C (omit Rich captions when SDH degraded)
 - [ ] DESC-005 · week 1 · Home + Title screens with tokens, Atkinson Hyperlegible via expo-font, skeletons, focus memory — running on the stick

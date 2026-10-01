@@ -20,13 +20,20 @@ admin.post('/titles', validate(NewTitle, (r) => r.body), async (req, res, next) 
 /** Pipeline step 1's queue: the worker (packages/pipeline/src/jobs.ts) creates it and chains probe → shots → speech → describe → fit → finish. */
 export const PIPELINE_FIRST_QUEUE = 'pipeline-probe'
 
-/** Enqueue the describe pipeline for a title. One queued run per title (singletonKey); null means one is already queued, or no worker has created the queues. */
+/**
+ * Enqueue the describe pipeline for a title. A title already processing answers 409 unless `?force=1` (two chains would share one
+ * work dir); pg-boss also keeps one queued run per title (singletonKey), so a null job id is a 409 too, and the status goes back.
+ */
 admin.post('/titles/:id/describe', async (req, res, next) => {
   try {
-    await db.title.findUniqueOrThrow({ where: { id: req.params.id } })
-    const jobId = await boss.send(PIPELINE_FIRST_QUEUE, { titleId: req.params.id }, { singletonKey: req.params.id })
-    if (!jobId) throw new AppError(409, 'NOT_QUEUED', 'this title is already queued, or the pipeline worker has not started')
-    await db.title.update({ where: { id: req.params.id }, data: { status: 'processing' } })
+    const t = await db.title.findUniqueOrThrow({ where: { id: req.params.id } })
+    if (t.status === 'processing' && req.query.force !== '1') throw new AppError(409, 'PROCESSING', 'this title is being described; add ?force=1 to queue it again')
+    await db.title.update({ where: { id: t.id }, data: { status: 'processing' } })
+    const jobId = await boss.send(PIPELINE_FIRST_QUEUE, { titleId: t.id }, { singletonKey: t.id }).catch(async (e) => { await db.title.update({ where: { id: t.id }, data: { status: t.status } }); throw e })
+    if (!jobId) {
+      await db.title.update({ where: { id: t.id }, data: { status: t.status } })
+      throw new AppError(409, 'NOT_QUEUED', 'this title is already queued, or the pipeline worker has not started')
+    }
     ok(res, { jobId }, 202)
   } catch (e) { next(e) }
 })

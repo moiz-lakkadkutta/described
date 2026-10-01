@@ -37,6 +37,7 @@ pnpm pipeline describe --title sintel-90-150-d3 --source s3://$S3_BUCKET_MEDIA/s
 ```
 
 Expect `describe: N shots, N from cache` and no `describe:` cost line (≈ $0.007 for the rest: Nova Lite + Polly).
+`--from speech` instead prints `Transcribe skipped` (same mezzanine) and costs nothing for speech.
 
 ## B. Worker, one pg-boss job per step (Postgres needed)
 
@@ -58,4 +59,6 @@ select status from "Title" where id = '<id>';           -- published after the f
 ```
 
 Six rows (probe, shots, speech, describe, fit, finish), all `done`; costs sum to ≈ $0.05 (a new slug, so a new
-`work/` dir and no cache). A second POST while a run is queued answers 409.
+`work/` dir and no cache). A second POST while the title is processing answers 409 (`?force=1` overrides).
+To see the dead-letter path without spending: stop the worker mid-step; after the queue's expiry and retries, the Job row
+and the title read `failed` (`pipeline-failed` queue).
