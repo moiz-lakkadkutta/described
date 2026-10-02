@@ -323,12 +323,13 @@ describe('track sheet', () => {
     press('menu')
     expect(defaultFocus()).toEqual([strings.tracks.a11y.rich])
   })
-  it('while open, ◄► and Play/Pause leave the film alone', () => {
+  it("while open, ◄► leave the film alone; Play/Pause still toggles it (like the media session's PLAY/PAUSE)", () => {
     mount(); report('onState', 'playing'); press('menu')
-    press('left'); press('playPause')
+    press('left')
     act(() => { vi.advanceTimersByTime(SEEK_COMMIT_MS) })
     expect(kit.ref.seek).not.toHaveBeenCalled()
-    expect(kit.ref.pause).not.toHaveBeenCalled()
+    press('playPause')
+    expect(kit.ref.pause).toHaveBeenCalledTimes(1)
   })
   it('selected = teal ring + ✓; sections in spec order', () => {
     mount(); press('menu')
@@ -392,10 +393,13 @@ describe('keys and spatial navigation (one key path, DESC-009 phase 2)', () => {
     press('left'); press('right'); press('up'); press('menu'); press('menu'); press('playPause')
     expect(moves).toEqual([])
   })
-  it('in the track sheet ▲▼ and Select still move focus; only Menu is taken (it closes the sheet)', () => {
-    mount(); press('menu'); moves.length = 0
+  it('in the track sheet ▲▼ and Select still move focus; Play/Pause toggles playback; Menu closes the sheet', () => {
+    mount(); report('onState', 'playing'); press('menu'); moves.length = 0
     press('down'); press('up'); press('select')
     expect(moves).toEqual(['down', 'up', 'enter'])
+    press('playPause')
+    expect(kit.ref.pause).toHaveBeenCalledTimes(1)
+    expect(r.root.findAllByProps({ testID: 'track-sheet' })).toHaveLength(1) // the sheet stays open
     press('menu')
     expect(r.root.findAllByProps({ testID: 'track-sheet' })).toHaveLength(0)
     expect(moves).toEqual(['down', 'up', 'enter'])
@@ -413,8 +417,10 @@ describe('caption style (Settings → Caption style)', () => {
     mount({ prefs: { ...prefs, captionStyle: 'box', captionScale: 150 } })
     expect(overlay()).toMatchObject({ boxColor: tokens.color.cueBox, userScale: 1.5, primaryColor: tokens.color.text, fontFamily: tokens.type.caption.family })
   })
-  it('Shadow: no box', () => {
+  it('Shadow: a lighter box (never bare text) until the kit draws a text shadow', () => {
     mount({ prefs: { ...prefs, captionStyle: 'shadow' } })
-    expect(overlay()).toMatchObject({ boxColor: tokens.color.cueNoBox, userScale: 1 })
+    expect(overlay()).toMatchObject({ boxColor: tokens.color.cueShadowBox, userScale: 1 })
+    expect(tokens.color.cueShadowBox).not.toBe(tokens.color.cueBox)
+    expect(Number(/,\s*([\d.]+)\)$/.exec(tokens.color.cueShadowBox)![1])).toBeGreaterThan(0.3)
   })
 })

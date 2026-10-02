@@ -64,12 +64,13 @@ export interface PlayerProps {
 const extendedCueAudio = (_cue: Cue, _slug: string): string | null => null
 
 /**
- * Captions as Settings chose them: size (100–200 %) and style. Box (default, PLAN §8) is the token box; Shadow drops
- * the box. TODO(kit): CueTheme has no text shadow, so Shadow is boxless text until the kit adds one.
+ * Captions as Settings chose them: size (100–200 %) and style. Box (default, PLAN §8) is the token box; Shadow is a
+ * lighter box (cueShadowBox), since bare text is unreadable on bright video. TODO(kit): switch Shadow to a text shadow
+ * once CueTheme has one.
  */
 export const cueTheme = (prefs: Pick<Prefs, 'captionScale' | 'captionStyle'>) => ({
   fontFamily: tokens.type.caption.family, primaryColor: tokens.color.text, userScale: prefs.captionScale / 100,
-  boxColor: prefs.captionStyle === 'shadow' ? tokens.color.cueNoBox : tokens.color.cueBox,
+  boxColor: prefs.captionStyle === 'shadow' ? tokens.color.cueShadowBox : tokens.color.cueBox,
 })
 /**
  * Player: full-bleed video through the kit. AD is an audio rendition chosen by role; captions and description text
@@ -215,11 +216,18 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
 
   // Raw keys (Select reaches the surface through spatial navigation; Back through BackHandler). A key the player acts
   // on is consumed, so spatial navigation does not also move focus (◄► seek, ▲ opens the sheet). In the sheet only
-  // Menu is taken; ▲▼ and Select move through it.
+  // Menu and the play keys are taken; ▲▼ and Select move through it.
   const onKey = useRef<(k: RemoteKey, repeat: boolean) => boolean>(() => false)
   onKey.current = (k, repeat) => {
     if (k === 'back') return false
-    if (sheet) { if (k === 'menu') { if (!repeat) closeSheet(); return true } return false }
+    if (sheet) {
+      // In the sheet: Menu closes it; Play/Pause still toggles playback (as the media session does with PLAY/PAUSE).
+      if (k === 'menu') { if (!repeat) closeSheet(); return true }
+      if (k === 'playPause') { if (!repeat) toggle(); return true }
+      if (k === 'play') { play(); return true }
+      if (k === 'pause') { ref.current?.pause(); return true }
+      return false
+    }
     showChrome()
     switch (k) {
       case 'playPause': if (!repeat) toggle(); return true
