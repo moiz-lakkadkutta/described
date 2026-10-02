@@ -37,7 +37,8 @@ Catalog has `sintel-90-210` (DESC-005 §0).
 - [ ] **No replay:** after the step above, press Home on the remote and reopen Described from Your Apps → it resumes where it
       was; the link is not applied again (no second launch line in logcat).
 - [ ] **Past the end:** `… -d "described://play/sintel-90-210?t=99999"` → Player opens on the last second (clamped), not an
-      error. Note what the Player does with it (same as a resume point near the end; rule is DESC-006's).
+      error, and does not start over (an explicit `?t=` skips the resume-near-end rule).
+- [ ] **Same title, new time:** while Sintel plays, `… -d "described://play/sintel-90-210?t=300"` → the Player restarts at 5:00.
 - [ ] **Unknown title:** `… -d "described://title/no-such-title"` → stays on Home, no offline screen. Logcat shows the launch line.
 - [ ] **Not ours:** `… -d "described://settings/x"` → logcat `→ ignored`, nothing changes.
 - [ ] **During first run:** clear the profile (new device id or reset `firstRunDone`), force-stop, start with the Title link
@@ -75,14 +76,17 @@ Start Sintel from the app and let it play. Watch logcat (`DescribedMediaSession`
 
 ## 4. Media keys
 
-With the Player playing (key path from plugins/withKeyEvent.js; Player key handling is DESC-006):
+With the Player playing. Each key must have exactly one handler (docs/platform/fire-os-bindings.md §4):
 
 - [ ] `adb shell input keyevent KEYCODE_MEDIA_PAUSE` → logcat `media button 127 … → default mapping` and `control=pause`;
-      the key also reaches JS (`onKeyDown` 127). Video pauses and stays paused (pause is idempotent, so both paths are safe).
-- [ ] `adb shell input keyevent KEYCODE_MEDIA_PLAY` → resumes, same two log lines with 126 / `control=play`.
+      the video pauses once. (JS skips 127 while the session is active.) **If nothing happens**, Android is not handing the
+      key to the session: remove `setKeySkip(...)` in apps/expo/App.tsx, rebuild, and file a friction log.
+- [ ] `adb shell input keyevent KEYCODE_MEDIA_PLAY` → resumes once (`media button 126 …`, `control=play`).
 - [ ] `adb shell input keyevent KEYCODE_MEDIA_PLAY_PAUSE` (85) → logcat `control=button keyCode=85` (swallowed by the session);
-      after DESC-006 the key path toggles **exactly once** — no pause-then-play flicker.
-- [ ] `KEYCODE_MEDIA_FAST_FORWARD` / `KEYCODE_MEDIA_REWIND` → ±10 s once per press (after DESC-006).
+      the Player's key handling toggles **exactly once** — no pause-then-play flicker.
+- [ ] `KEYCODE_MEDIA_FAST_FORWARD` / `KEYCODE_MEDIA_REWIND` → the bar jumps ±10 s once per press and the seek commits ~0.3 s later;
+      `adb shell dumpsys media_session | grep -A6 DescribedMediaSession` shows the new position after the commit.
+- [ ] Back to Title, then `KEYCODE_MEDIA_PAUSE` on the Title screen → nothing breaks (no session; key path, no Player).
 - [ ] Physical remote ⏯ behaves like the adb key.
 
 ## 5. Catalog feed (Mac, no device)
