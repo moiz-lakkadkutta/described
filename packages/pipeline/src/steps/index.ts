@@ -11,6 +11,7 @@ import { publish } from './10-publish'
 import { readFile, stat } from 'node:fs/promises'
 import { meter, metered, pollyUsd } from '../cost'
 import type { FitCue } from './05-fit'
+import { cueAudioFile } from '../cues'
 
 export interface DescribeInput { slug: string; source: string; language: 'en' | 'de'; voice: string; fromStep?: string }
 export const ORDER = ['probe', 'shots', 'speech', 'describe', 'fit', 'voice', 'mix', 'text', 'package', 'publish'] as const
@@ -21,10 +22,10 @@ const STEPS: Record<Step, (ctx: Ctx) => Promise<void>> = {
   probe, shots: detectShots, speech: speechMap, describe: (ctx) => describeShots(ctx), fit: fitDescriptions,
   voice: async (ctx) => { const since = Date.now(); try { await voice(ctx) } finally { meter()?.add(pollyUsd(await pollyChars(ctx.work, since))) } }, mix, text: sdh, package: pack, publish,
 }
-/** Characters Polly billed since `since`: the texts of cues whose cue_N.mp3 06-voice wrote by now (its SSML wrapper is not billed), so a failed run still counts what it paid for. */
+/** Characters Polly billed since `since`: the texts of cues whose clip (cueAudioFile; the hashed key only exists once published) 06-voice wrote by now (its SSML wrapper is not billed), so a failed run still counts what it paid for. */
 export async function pollyChars(work: string, since = 0): Promise<number> {
   const cues = JSON.parse(await readFile(`${work}/cues.json`, 'utf8').catch(() => '[]')) as FitCue[]
-  const written = await Promise.all(cues.map((_, i) => stat(`${work}/cue_${i}.mp3`).then((s) => s.mtimeMs >= since, () => false)))
+  const written = await Promise.all(cues.map((_, i) => stat(`${work}/${cueAudioFile(i)}`).then((s) => s.mtimeMs >= since, () => false)))
   return cues.reduce((n, c, i) => n + (written[i] ? c.text.length : 0), 0)
 }
 /** One step, in-process. Each step reads/writes work/{slug}/ and overwrites its own outputs, so re-running it is safe. */

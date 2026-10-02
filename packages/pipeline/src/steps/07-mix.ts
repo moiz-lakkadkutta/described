@@ -1,3 +1,4 @@
+import { cueAudioFile } from '../cues'
 import { execa } from 'execa'
 import { readFile } from 'node:fs/promises'
 import type { Ctx } from './index'
@@ -28,7 +29,7 @@ export const DUCK = 'sidechaincompress=threshold=0.25:ratio=4:attack=10:release=
 export function buildMixArgs(work: string, cues: Array<FitCue & { i: number }>, durationS: number): string[] {
   const D = durationS.toFixed(3)
   const inputs = ['-y', '-i', `${work}/mezz.mp4`]
-  for (const c of cues) inputs.push('-i', `${work}/cue_${c.i}.mp3`)
+  for (const c of cues) inputs.push('-i', `${work}/${cueAudioFile(c.i)}`)
   // Polly MP3 is 24 kHz mono → 48 kHz stereo before mixing.
   const delayed = cues.map((c, k) => `[${k + 1}:a]adelay=${c.startMs}|${c.startMs},aformat=sample_rates=48000:channel_layouts=stereo,apad=whole_dur=${D}[n${k}]`).join(';')
   const narrMix = cues.length ? `${cues.map((_, k) => `[n${k}]`).join('')}amix=inputs=${cues.length}:duration=first:normalize=0,alimiter=limit=0.9[narr]` : `anullsrc=r=48000:cl=stereo:d=${D}[narr]`

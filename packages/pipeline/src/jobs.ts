@@ -2,6 +2,7 @@ import type PgBoss from 'pg-boss'
 import type { PrismaClient } from '@prisma/client'
 import { readFile } from 'node:fs/promises'
 import { metered } from './cost'
+import { writeDescriptionCues } from './cues'
 import { ctxFor, ORDER, runStep, type Ctx } from './steps'
 import type { Shot } from './steps/02-shots'
 import type { Gap } from './steps/03-speech'
@@ -36,7 +37,7 @@ export const STEP_MARGIN_S = 60
 
 export interface StepJob { id: string; data: { titleId: string }; retryCount: number; retryLimit: number }
 export type Boss = Pick<PgBoss, 'createQueue' | 'updateQueue' | 'send' | 'work'>
-export type Db = Pick<PrismaClient, 'title' | 'job' | 'shot' | 'gap' | '$transaction'>
+export type Db = Pick<PrismaClient, 'title' | 'job' | 'shot' | 'gap' | 'descriptionCue' | '$transaction'>
 export interface Deps { boss: Boss; db: Db; run?: (step: JobStep, ctx: Ctx) => Promise<void>; timeoutMs?: number }
 
 /** Steps 6–10 in order, unchanged. */
@@ -104,7 +105,10 @@ export async function handleDeadLetter(titleId: string, db: Db) {
 
 const json = async <T>(work: string, f: string) => JSON.parse(await readFile(`${work}/${f}`, 'utf8')) as T
 
-/** Rows each step owns, replaced wholesale so a re-run overwrites them (Title.durationS, Shot, Gap; describe fills Shot text). */
+/**
+ * Rows each step owns, replaced wholesale so a re-run overwrites them (Title.durationS, Shot, Gap; describe fills Shot text;
+ * finish writes DescriptionCue rows with their published clip keys). handleJob calls it only inside the deadline.
+ */
 export async function persist(step: JobStep, titleId: string, work: string, db: Db) {
   if (step === 'probe') {
     const p = await json<{ format: { duration: string } }>(work, 'probe.json')
@@ -121,5 +125,7 @@ export async function persist(step: JobStep, titleId: string, work: string, db: 
       const text = { description: s.description, sameAsPrev: s.sameAsPrev, novaTokens: s.tokens }
       return db.shot.upsert({ where: { titleId_index: { titleId, index: s.index } }, create: { titleId, index: s.index, startMs: s.startMs, endMs: s.endMs, ...text }, update: text })
     }))
+  } else if (step === 'finish') {
+    await writeDescriptionCues(db as never, titleId, work)
   }
 }

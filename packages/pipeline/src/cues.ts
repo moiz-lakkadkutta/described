@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { readFile, writeFile } from 'node:fs/promises'
 import { serializeVtt } from '@moizp/vega-media-kit/core'
 import type { FitCue } from './steps/05-fit'
 
@@ -41,4 +42,35 @@ export function descriptionCueRows(titleId: string, cues: readonly FitCue[], pub
     titleId, startMs: c.startMs, endMs: c.endMs, text: c.text, extended: c.extended, wordCount: c.wordCount,
     pollyKey: published.get(c.i) ?? null,
   }))
+}
+
+/** work/{slug}/clips.json: cues.json index → published clip key, written by 10-publish after the uploads. */
+export const CLIPS_FILE = 'clips.json'
+export const writeClips = (work: string, clips: ReadonlyMap<number, string>) => writeFile(`${work}/${CLIPS_FILE}`, JSON.stringify(Object.fromEntries(clips)))
+export const readClips = async (work: string) => new Map(Object.entries(JSON.parse(await readFile(`${work}/${CLIPS_FILE}`, 'utf8')) as Record<string, string>).map(([i, k]) => [Number(i), k]))
+
+/** What writing DescriptionCue rows needs, structurally (Prisma's client satisfies it). */
+export interface CueDb {
+  descriptionCue: { deleteMany(a: { where: { titleId: string } }): unknown; createMany(a: { data: DescriptionCueRow[] }): unknown }
+  $transaction(ops: never[]): Promise<unknown>
+}
+/**
+ * Replaces the title's DescriptionCue rows from cues.json and clips.json. The worker calls it from persist('finish') (src/jobs.ts):
+ * only after steps 6–10 succeeded inside the job's deadline, with the job's own db and titleId.
+ */
+export async function writeDescriptionCues(db: CueDb, titleId: string, work: string) {
+  const cues = JSON.parse(await readFile(`${work}/cues.json`, 'utf8')) as FitCue[]
+  const rows = descriptionCueRows(titleId, cues, await readClips(work))
+  await db.$transaction([db.descriptionCue.deleteMany({ where: { titleId } }), db.descriptionCue.createMany({ data: rows })] as never[])
+}
+
+/** The CLI's path (no job, no titleId): looks the title up by slug. Without DATABASE_URL, or without a Title row, it warns and skips. */
+export async function writeDescriptionCuesForCli(slug: string, work: string, open?: () => Promise<CueDb & { title: { findUnique(a: { where: { slug: string }; select: { id: true } }): Promise<{ id: string } | null> }; $disconnect(): Promise<void> }>) {
+  if (!open && !process.env.DATABASE_URL) { console.warn('no DATABASE_URL: DescriptionCue rows not written'); return }
+  const db = open ? await open() : (new (await import('@prisma/client')).PrismaClient() as never as Awaited<ReturnType<NonNullable<typeof open>>>)
+  try {
+    const t = await db.title.findUnique({ where: { slug }, select: { id: true } })
+    if (!t) { console.warn(`no Title row for ${slug}: DescriptionCue rows not written`); return }
+    await writeDescriptionCues(db, t.id, work)
+  } finally { await db.$disconnect() }
 }

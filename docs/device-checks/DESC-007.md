@@ -16,7 +16,7 @@ The published `sintel-90-210` has **no** extended cues (Gate C confirmation run:
 `DescriptionCue` rows (no pipeline step wrote them before DESC-007). So there is nothing to test on it yet.
 
 **Paid run — do not start without the human's go-ahead.** One 2-minute segment through the full pipeline, which now writes
-the `DescriptionCue` rows in the publish step:
+the `DescriptionCue` rows once publish has uploaded the clips (the worker in its `finish` job, inside the job's deadline; the CLI after the run):
 
 | Step | Service | Estimate (2 min, ~25 shots, ~20 cues) |
 |---|---|---|
@@ -33,9 +33,10 @@ In the fixture replay (`packages/pipeline/test/fixtures/sintel-90-150.*`) Sintel
 depends on the describe output. If the run yields 0 extended cues, another segment costs the same again; ask first.
 
 - [ ] Title row: `POST /admin/titles` (x-admin-token) with a fresh slug (e.g. `sintel-90-150`; re-runs reuse segment names, see 10-publish).
-- [ ] Run with `DATABASE_URL` set so publish writes the rows: `pnpm --filter @described/pipeline cli describe --title <slug> --source s3://…`.
-      Publish logs nothing about rows when it worked; `publish: no Title row…` or `no DATABASE_URL…` means they were not written.
-- [ ] Mark the title published as for `sintel-90-210` (`UPDATE "Title" SET status='published' WHERE slug='<slug>'`).
+- [ ] Run it: through the worker (`POST /admin/titles/:id/describe`; the `finish` job writes the rows and marks the title published), or
+      with the CLI and `DATABASE_URL` set: `pnpm --filter @described/pipeline cli describe --title <slug> --source s3://…`.
+      The CLI logs nothing about rows when it worked; `no Title row for …` or `no DATABASE_URL…` means they were not written.
+- [ ] CLI runs only: mark the title published as for `sintel-90-210` (`UPDATE "Title" SET status='published' WHERE slug='<slug>'`); the worker does it itself.
 
 ## 1. Before you start (laptop)
 
