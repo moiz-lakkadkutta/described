@@ -9,7 +9,7 @@ vi.mock('@aws-sdk/client-transcribe', () => ({
   StartTranscriptionJobCommand: class Start { kind = 'start'; constructor(public input: unknown) {} },
   GetTranscriptionJobCommand: class Get { kind = 'get'; constructor(public input: unknown) {} },
 }))
-import { mezzMarker, pollTranscription, speechMap, transcribe } from '../src/steps/03-speech'
+import { mezzMarker, speechMap, transcribe, TranscribeFailed, waitForTranscription } from '../src/steps/03-speech'
 import { pollyChars } from '../src/steps'
 import { metered } from '../src/cost'
 
@@ -92,17 +92,13 @@ describe('speech', () => {
     expect(t.started).toHaveLength(2)
     const failing = fakeTranscribe({})
     failing.send.mockImplementation(async (cmd: { kind: string }) => cmd.kind === 'start' ? {} : { TranscriptionJob: { TranscriptionJobStatus: 'FAILED', FailureReason: 'bad audio' } })
-    await expect(metered(() => transcribe(ctx(work), 'm3', failing.tc))).rejects.toMatchObject({ message: 'Transcribe failed: bad audio', costUsd: 0 })
+    await expect(metered(() => transcribe(ctx(work), 'm3', failing.tc))).rejects.toMatchObject({ message: expect.stringContaining('FAILED: bad audio'), costUsd: 0 })
     vi.restoreAllMocks()
   })
-  it('polls Transcribe until COMPLETED, and fails on FAILED, timeout or abort', async () => {
-    const seq = (...s: string[]) => { const get = vi.fn(async () => ({ status: s.shift() ?? 'IN_PROGRESS', reason: 'bad audio' })); return get }
-    const done = seq('IN_PROGRESS', 'COMPLETED')
-    await pollTranscription(done, { intervalMs: 1 })
-    expect(done).toHaveBeenCalledTimes(2)
-    await expect(pollTranscription(seq('FAILED'), { intervalMs: 1 })).rejects.toThrow('Transcribe failed: bad audio')
-    await expect(pollTranscription(seq(), { intervalMs: 5, timeoutMs: 20 })).rejects.toThrow(/still IN_PROGRESS/)
-    await expect(pollTranscription(seq(), { intervalMs: 1, signal: AbortSignal.abort() })).rejects.toThrow()
+  it('stops waiting when the job deadline aborts, and marks FAILED as TranscribeFailed (not billed)', async () => {
+    const sleep = async () => {}
+    await expect(waitForTranscription(async () => ({ status: 'IN_PROGRESS' }), { sleep, signal: AbortSignal.abort() })).rejects.toThrow()
+    await expect(waitForTranscription(async () => ({ status: 'FAILED', failureReason: 'x' }), { sleep })).rejects.toBeInstanceOf(TranscribeFailed)
   })
 })
 

@@ -10,7 +10,7 @@ Status: decided — A pass on Fire OS (Vega deferred), B Vega experimental, C pa
   rendition fell back to software decode (5–6 of 24 fps dropped, 3 s seeks) → mezzanine now fits inside 1920×1080 at L4.0.
 - Gate B (Vega blocks > 1 day): **Fire OS primary, Vega experimental** — decided by the human 2026-09-26, recorded in
   vega-media-kit `docs/decisions/0001-week0-gates.md`. "Pass on both OSes" in Gate A is read under this decision.
-- Gate C (AI quality): **passes with Qwen3-VL 235B — 72.4 % (2026-10-02, see 0003).** Nova Pro was **triggered** — 20-shot rerun (29 shots) scored 41 % usable with both raters agreeing. Before that: First paid run (Sintel 1:30–2:30, 7 cues) was 3 of 7 usable (43 % < 70 %), but 3 of the 4
+- Gate C (AI quality): **passes with Qwen3-VL 235B — 72.4 % (2026-10-02, see 0003).** Nova Pro was **triggered** — 29-shot rerun scored 41 % usable with both raters agreeing. Before that: first paid run (Sintel 1:30–2:30, 7 cues) was 3 of 7 usable (43 % < 70 %), but 3 of the 4
   failures were pipeline bugs and 2 were prompt-induced invented on-screen text. Fixes and prompt change approved; decided by
   the 20-shot rerun on Sintel 1:30–3:30 — see 0003-gate-c.md.
 

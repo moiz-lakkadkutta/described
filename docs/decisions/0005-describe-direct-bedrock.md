@@ -16,6 +16,9 @@ The describe step calls Bedrock Converse directly, once per shot. No agent layer
 - **Cost:** the Qwen3-VL calls are the same either way; an agent adds orchestrator-model calls (Nova Lite in the sketch) whose
   input grows with every tool turn. Direct calls add nothing on top of the descriptions.
 - **Retries and cost tracking** come from pg-boss jobs (retry policy) and the per-job `costUsd` column (DESC-003), not an agent.
+- **Retries are cheap only with the per-shot describe cache.** Without it a pg-boss retry re-describes every shot and pays
+  for the Qwen3-VL calls again. DESC-003 adds the cache (tracked as DESC-016) together with the describe job: a shot whose
+  description is already stored is skipped.
 - **Cost rule:** no paid Bedrock, Transcribe or Polly run without the human's go-ahead; tests use recorded fixtures.
 
 Docs: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html ·

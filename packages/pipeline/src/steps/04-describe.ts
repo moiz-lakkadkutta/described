@@ -1,7 +1,7 @@
 import { BedrockRuntimeClient, ConverseCommand, type ConverseCommandInput, type ConverseCommandOutput, type ConverseOutput } from '@aws-sdk/client-bedrock-runtime'
 import { createHash, randomUUID } from 'node:crypto'
 import { execa } from 'execa'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { Ctx } from './index'
 import type { Shot } from './02-shots'
@@ -30,9 +30,10 @@ export async function describeShots(ctx: Ctx, send: Converse = bedrockConverse(c
   const gaps = JSON.parse(await readFile(`${ctx.work}/gaps.json`, 'utf8')) as Gap[]
   const words = JSON.parse(await readFile(`${ctx.work}/words.json`, 'utf8').catch(() => '[]')) as Word[]
   const modelId = process.env.DESCRIBE_MODEL_ID ?? DEFAULT_DESCRIBE_MODEL_ID
+  const videoMs = await videoDurationMs(`${ctx.work}/mezz.mp4`)
   const replies = await mapLimit(shots, describeConcurrency(), async (s) => {
     const system = describeSystemPrompt({ maxWords: wordBudget(s, gaps), knownNames: knownNames(words, s.startMs, ctx.language), language: ctx.language })
-    return cachedDescribe(ctx.work, modelId, system, await keyframes(ctx.work, s), send)
+    return cachedDescribe(ctx.work, modelId, system, await keyframes(ctx.work, s, videoMs), send)
   }, ctx.signal)
   console.log(`describe: ${shots.length} shots, ${replies.filter((r) => r.cached).length} from cache`)
   await writeFile(`${ctx.work}/described.json`, JSON.stringify(dedupe(shots, replies), null, 2))
@@ -138,13 +139,41 @@ export function knownNames(words: Word[], beforeMs: number, language: 'en' | 'de
 export const replyText = (output: ConverseOutput | undefined): string =>
   output?.message?.content?.filter((c) => c.text).map((c) => c.text).join('') ?? ''
 
-/** Grabs the shot's key frames from {work}/mezz.mp4 into {work}/frames/shot_N_k.jpg and returns their bytes in time order. */
-export async function keyframes(work: string, s: Shot): Promise<Uint8Array[]> {
+/**
+ * Grabs the shot's key frames from {work}/mezz.mp4 into {work}/frames/shot_N_k.jpg and returns their bytes in time order.
+ * Times are clamped to the mezz video stream (videoMs). Each target is removed first and must exist afterwards: ffmpeg exits 0
+ * without writing a frame when the seek lands past the last frame, and a stale JPEG from an earlier run would be sent instead.
+ */
+export async function keyframes(work: string, s: Shot, videoMs: number): Promise<Uint8Array[]> {
   await mkdir(`${work}/frames`, { recursive: true })
-  const files = keyframeTimes(s.startMs, s.endMs).map((t, k) => ({ t, f: `${work}/frames/shot_${s.index}_${k}.jpg` }))
-  for (const { t, f } of files) await execa('ffmpeg', keyframeArgs(`${work}/mezz.mp4`, t / 1000, f))
+  const files = clampKeyframeTimes(keyframeTimes(s.startMs, s.endMs), videoMs).map((t, k) => ({ t, f: `${work}/frames/shot_${s.index}_${k}.jpg` }))
+  for (const { t, f } of files) {
+    await rm(f, { force: true })
+    const { stderr } = await execa('ffmpeg', keyframeArgs(`${work}/mezz.mp4`, t / 1000, f))
+    if (!(await stat(f).catch(() => null))) throw new Error(`keyframes: ffmpeg wrote no frame for shot ${s.index} at ${t} ms (${f}): ${stderr || '(no stderr)'}`)
+  }
   return Promise.all(files.map(({ f }) => readFile(f)))
 }
+
+/**
+ * Duration (ms) of the mezz's first video stream, from ffprobe of mezz.mp4 — not probe.json, which describes source.mp4 and
+ * whose format.duration (what shots end at) is the longest stream, often the audio. https://ffmpeg.org/ffprobe.html
+ */
+export async function videoDurationMs(mezz: string): Promise<number> {
+  const { stdout } = await execa('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=duration', '-of', 'default=noprint_wrappers=1:nokey=1', mezz])
+  return parseVideoDurationMs(stdout)
+}
+/** Pure (tested): ffprobe's `stream=duration` value in seconds → whole ms; throws on N/A or empty. */
+export function parseVideoDurationMs(stdout: string): number {
+  const sec = parseFloat(stdout.trim().split('\n')[0] ?? '')
+  if (!Number.isFinite(sec) || sec <= 0) throw new Error(`ffprobe gave no video stream duration: ${JSON.stringify(stdout)}`)
+  return Math.round(sec * 1000)
+}
+
+/** A seek this close to the end of the video stream can land after the last frame (≥ 1 frame down to 10 fps). */
+export const KEYFRAME_END_GUARD_MS = 100
+/** Pure (tested): no key-frame time later than videoMs − KEYFRAME_END_GUARD_MS (never below 0). */
+export const clampKeyframeTimes = (times: number[], videoMs: number) => times.map((t) => Math.min(t, Math.max(0, videoMs - KEYFRAME_END_GUARD_MS)))
 
 /** Raters found cuts land ~2 frames late (Gate C), so sampling stops this far before the shot's end. */
 export const KEYFRAME_TAIL_MS = 100

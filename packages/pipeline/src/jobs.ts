@@ -3,7 +3,7 @@ import type { PrismaClient } from '@prisma/client'
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { metered } from './cost'
-import { ctxFor, ORDER, runStep, type Ctx } from './steps'
+import { ctxFor, runStep, SLUG_RE, STEPS, type Ctx } from './steps'
 import type { Shot } from './steps/02-shots'
 import type { Gap } from './steps/03-speech'
 import type { Described } from './steps/04-describe'
@@ -45,7 +45,7 @@ export type Db = Pick<PrismaClient, 'title' | 'job' | 'shot' | 'gap' | '$transac
 export interface Deps { boss: Boss; db: Db; run?: (step: JobStep, ctx: Ctx) => Promise<void>; timeoutMs?: number }
 
 /** Steps 6–10 in order, unchanged. */
-const STEPS_6_10 = ORDER.slice(ORDER.indexOf('voice'))
+const STEPS_6_10 = STEPS.slice(STEPS.indexOf('voice'))
 export const runJobStep = async (step: JobStep, ctx: Ctx) => { if (step !== 'finish') return runStep(step, ctx); for (const s of STEPS_6_10) await runStep(s, ctx) }
 
 /** Creates (idempotent) and updates the queues, then one worker per step and one for the dead letters. */
@@ -79,6 +79,7 @@ export async function handleJob(step: JobStep, job: StepJob, { boss, db, run = r
   try {
     const t = await db.title.findUniqueOrThrow({ where: { id: titleId }, include: { assets: { where: { kind: 'source' } } } })
     if (!t.assets[0]) throw new Error(`title ${titleId} has no source asset`)
+    if (!SLUG_RE.test(t.slug)) throw new Error(`title ${titleId}: invalid slug "${t.slug}" (work dir and S3 keys): must match ${SLUG_RE.source}`)
     await db.title.update({ where: { id: titleId }, data: { status: 'processing' } })
     const ctx: Ctx = { ...ctxFor({ slug: t.slug, source: `s3://${process.env.S3_BUCKET_MEDIA}/${t.assets[0].s3Key}`, language: t.language as 'en' | 'de', voice: t.voice }), signal }
     const { costUsd } = await metered(() => untilAborted(async () => { await run(step, ctx); signal.throwIfAborted(); await persist(step, titleId, ctx.work, db) }, signal), signal)

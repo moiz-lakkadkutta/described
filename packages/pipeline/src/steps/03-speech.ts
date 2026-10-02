@@ -32,7 +32,7 @@ interface StartedJob { jobName: string; marker: string; billed?: boolean }
 type Transcribe = Pick<TranscribeClient, 'send'>
 const status = async (tc: Transcribe, jobName: string, abortSignal?: AbortSignal) => {
   const r = await tc.send(new GetTranscriptionJobCommand({ TranscriptionJobName: jobName }), { abortSignal })
-  return { status: r.TranscriptionJob?.TranscriptionJobStatus as string | undefined, reason: r.TranscriptionJob?.FailureReason }
+  return { status: r.TranscriptionJob?.TranscriptionJobStatus as string | undefined, failureReason: r.TranscriptionJob?.FailureReason }
 }
 
 /**
@@ -59,26 +59,32 @@ export async function transcribe(ctx: Ctx, marker: string, tc: Transcribe = new 
     started.billed = true
     await writeFile(jobFile, JSON.stringify(started))
   }
-  try { await pollTranscription(() => status(tc, started.jobName, ctx.signal), { signal: ctx.signal }) } catch (e) { if (!(e instanceof TranscribeFailed)) await bill(); throw e }
+  try { await waitForTranscription(() => status(tc, started.jobName, ctx.signal), { jobName: started.jobName, signal: ctx.signal }) } catch (e) { if (!(e instanceof TranscribeFailed)) await bill(); throw e }
   await bill()
   await download(`s3://${bucket}/work/${ctx.slug}/transcript.json`, `${ctx.work}/transcript.json`)
 }
 
 export class TranscribeFailed extends Error {}
 
-/** Longest wait for one Transcribe job (TRANSCRIBE_TIMEOUT_MS, default 60 min) — inside the speech queue's 2 h expiry. */
-export const TRANSCRIBE_TIMEOUT_MS = () => Number(process.env.TRANSCRIBE_TIMEOUT_MS) || 60 * 60 * 1000
-
-/** Polls until COMPLETED; throws on FAILED, on timeout, or when the job's signal aborts. */
-export async function pollTranscription(get: () => Promise<{ status?: string; reason?: string }>, { timeoutMs = TRANSCRIBE_TIMEOUT_MS(), intervalMs = 5000, signal }: { timeoutMs?: number; intervalMs?: number; signal?: AbortSignal } = {}) {
-  const deadline = Date.now() + timeoutMs
+/** A minute of clip transcribes in well under a minute; 30 min means the job is stuck. */
+export const TRANSCRIBE_TIMEOUT_MS = 30 * 60_000
+/**
+ * Polls until COMPLETED; throws TranscribeFailed on FAILED (with FailureReason), or after timeoutMs, or when signal (the job's
+ * deadline) aborts. Clock and sleep are injectable for tests.
+ * Status values and FailureReason — https://docs.aws.amazon.com/transcribe/latest/APIReference/API_TranscriptionJob.html
+ */
+export async function waitForTranscription(
+  getStatus: () => Promise<{ status?: string; failureReason?: string }>,
+  { jobName = 'transcription job', timeoutMs = TRANSCRIBE_TIMEOUT_MS, pollMs = 5000, now = Date.now, sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms)), signal }: { jobName?: string; timeoutMs?: number; pollMs?: number; now?: () => number; sleep?: (ms: number) => Promise<void>; signal?: AbortSignal } = {},
+): Promise<void> {
+  const deadline = now() + timeoutMs
   for (;;) {
     signal?.throwIfAborted()
-    const { status, reason } = await get()
+    const { status, failureReason } = await getStatus()
     if (status === 'COMPLETED') return
-    if (status === 'FAILED') throw new TranscribeFailed(`Transcribe failed: ${reason}`)
-    if (Date.now() + intervalMs > deadline) throw new Error(`Transcribe still ${status} after ${Math.round(timeoutMs / 1000)} s`)
-    await new Promise((r) => setTimeout(r, intervalMs))
+    if (status === 'FAILED') throw new TranscribeFailed(`Transcribe ${jobName} FAILED: ${failureReason ?? '(no FailureReason)'}`)
+    if (now() >= deadline) throw new Error(`Transcribe ${jobName} not finished after ${timeoutMs / 60_000} min (last status ${status})`)
+    await sleep(pollMs)
   }
 }
 
