@@ -11,7 +11,8 @@ export async function pack(ctx: Ctx) {
   const hasCaptions = /-->/.test(await readFile(`${ctx.work}/captions.vtt`, 'utf8'))
   // no sdh.json (a work dir from before the text step wrote it) → treat as degraded rather than advertise Rich captions
   const { degraded } = JSON.parse(await readFile(`${ctx.work}/sdh.json`, 'utf8').catch((e: NodeJS.ErrnoException) => { if (e.code === 'ENOENT') return '{"degraded":true}'; throw e })) as { degraded: boolean }
-  await execa('packager', buildPackagerArgs(ctx.language, hasCaptions, hasCaptions && !degraded), { cwd: ctx.work, stdio: 'inherit' })
+  const hasDescriptions = /-->/.test(await readFile(`${ctx.work}/descriptions.vtt`, 'utf8'))
+  await execa('packager', buildPackagerArgs(ctx.language, hasCaptions, hasCaptions && !degraded, hasDescriptions), { cwd: ctx.work, stdio: 'inherit' })
 }
 
 /**
@@ -21,9 +22,10 @@ export async function pack(ctx: Ctx) {
  * Packager v3.9.3 rejects a zero-cue WebVTT input (`Packaging Error: 6 (END_OF_STREAM)`, DESC-001 dry run), so when the clip
  * has no dialogue (`hasCaptions=false`) the captions and SDH descriptors are omitted; the whole-file VTTs are still published.
  * `hasSdh=false` (the SDH step degraded to plain captions, work/sdh.json) omits only the "Rich captions" descriptor, so the
- * manifest never claims describes-music-and-sound for a track that has none.
+ * manifest never claims describes-music-and-sound for a track that has none. `hasDescriptions=false` (fit placed no cue, so
+ * descriptions.vtt is header-only) omits the Description text descriptor for the same zero-cue reason.
  */
-export function buildPackagerArgs(language: 'en' | 'de', hasCaptions: boolean, hasSdh: boolean): string[] {
+export function buildPackagerArgs(language: 'en' | 'de', hasCaptions: boolean, hasSdh: boolean, hasDescriptions: boolean): string[] {
   const captions = [
     ...(hasCaptions ? [`in=captions.vtt,stream=text,segment_template=hls/captions/$Number$.vtt,playlist_name=captions.m3u8,hls_group_id=text,hls_name=Captions,language=${language}`] : []),
     ...(hasCaptions && hasSdh ? [`in=sdh.vtt,stream=text,segment_template=hls/sdh/$Number$.vtt,playlist_name=sdh.m3u8,hls_group_id=text,hls_name=Rich captions,language=${language},hls_characteristics=public.accessibility.transcribes-spoken-dialog;public.accessibility.describes-music-and-sound`] : []),
@@ -33,7 +35,7 @@ export function buildPackagerArgs(language: 'en' | 'de', hasCaptions: boolean, h
     `in=mezz.mp4,stream=audio,segment_template=hls/audio_main/$Number$.m4s,init_segment=hls/audio_main/init.mp4,playlist_name=audio_main.m3u8,hls_group_id=audio,hls_name=Original,language=${language}`,
     `in=audio_ad.m4a,stream=audio,segment_template=hls/audio_ad/$Number$.m4s,init_segment=hls/audio_ad/init.mp4,playlist_name=audio_ad.m3u8,hls_group_id=audio,hls_name=Audio description,language=${language},hls_characteristics=public.accessibility.describes-video,roles=description`,
     ...captions,
-    `in=descriptions.vtt,stream=text,segment_template=hls/descriptions/$Number$.vtt,playlist_name=descriptions.m3u8,hls_group_id=text,hls_name=Description text,language=${language},roles=description`,
+    ...(hasDescriptions ? [`in=descriptions.vtt,stream=text,segment_template=hls/descriptions/$Number$.vtt,playlist_name=descriptions.m3u8,hls_group_id=text,hls_name=Description text,language=${language},roles=description`] : []),
     '--segment_duration', '4', '--hls_master_playlist_output', 'hls/master.m3u8',
   ]
 }
