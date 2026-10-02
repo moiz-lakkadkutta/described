@@ -10,7 +10,7 @@ Stream under test: `https://dco7qa0c4m1pw.cloudfront.net/published/sintel-90-210
 ## 0. Before you start
 
 - [ ] `curl -s http://localhost:4000/titles/sintel-90-210 -H 'x-device-id: x' | jq '.data | {voice, resumeS, synopsis}'` shows
-      `"voice": "Joanna"`, `"resumeS": null` and a synopsis (DESC-006 restored these fields; before it the status line read `Description on · undefined`).
+      `"voice": "Joanna"`, `"resumeS": null` and a synopsis (the status line reads the voice from here; if `voice` is missing, the API build predates fix 5bca731/81a2629).
 - [ ] `curl -s https://dco7qa0c4m1pw.cloudfront.net/published/sintel-90-210/master.m3u8` lists two `TYPE=AUDIO` renditions
       (Original; Audio description with `CHARACTERISTICS="public.accessibility.describes-video"`) and the SUBTITLES renditions
       Captions / Rich captions (`…describes-music-and-sound`) / Description text. Note which are present — the sheet's
@@ -76,12 +76,13 @@ Stream under test: `https://dco7qa0c4m1pw.cloudfront.net/published/sintel-90-210
 
 ## 5. Back saves, Play resumes
 
+- [ ] Home → **▶ Play with description**, press **Back** before the film appears ("Loading…"): Title opens; the app does not close.
 - [ ] Start a title never played, press **Back** at once: no `PUT /me/progress` (nothing to resume).
 - [ ] Play to about `3:00`, press **Back**: Title appears with **Play with description** focused.
 - [ ] API log shows `PUT /me/progress` with `positionS` ≈ 180; `psql` / Prisma Studio `Progress` row matches.
 - [ ] **Play with description** again: playback starts at ≈ `3:00` (Fire OS seeks once the stream is up — the first frame may show `0:00` for a moment; note it: ________).
 - [ ] Force-stop and relaunch the app, open Sintel, Play: still resumes at ≈ `3:00` (resume point comes from `GET /titles/:slug` → `resumeS`).
-- [ ] Home: **Continue watching** lists Sintel after a relaunch (the row is not refreshed in-session yet).
+- [ ] Back to Home: **Continue watching** lists Sintel without a relaunch (Home refetches the catalog after a save); focus stays where it was.
 - [ ] While watching, the API log shows a `PUT /me/progress` about every 10 s of playback — not several per second, and in order (each later than the last).
 - [ ] Seek to the last 20 s, let it end, press **Back**, Play: starts from `0:00`.
 

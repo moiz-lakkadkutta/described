@@ -1,9 +1,9 @@
 import { createRequire } from 'node:module'
-import { createRepeatTracker } from '../src/keys'
+import { createKeyHub } from '../src/keys'
 
 const require = createRequire(import.meta.url)
 const keyEvent = require('../plugins/withKeyEvent.js') as { patch: (s: string) => string }
-const localApi = require('../plugins/withLocalApi.js') as { cleartextHost: (u?: string) => string | null; securityConfig: (h: string) => string }
+const localApi = require('../plugins/withLocalApi.js') as { cleartextHost: (u?: string) => string | null; securityConfig: (h: string) => string; debugSecurityConfig: () => string }
 
 const players: { listener?: (s: object) => void; removed: boolean; uri: string }[] = []
 vi.mock('expo-audio', () => ({
@@ -14,13 +14,39 @@ vi.mock('expo-audio', () => ({
 }))
 const androidId = vi.fn(() => 'a1b2c3')
 vi.mock('expo-application', () => ({ getAndroidId: () => androidId() }))
+// react-native's DeviceEventEmitter as react-native-keyevent drives it; the kit maps Android keycodes.
+const emitter = vi.hoisted(() => {
+  const l: Record<string, ((e: { keyCode: number }) => void)[]> = {}
+  return { l, emit: (ev: string, keyCode: number) => (l[ev] ?? []).forEach((f) => f({ keyCode })) }
+})
+vi.mock('react-native', () => ({ DeviceEventEmitter: { addListener: (ev: string, f: (e: { keyCode: number }) => void) => { (emitter.l[ev] ??= []).push(f); return { remove() {} } } } }))
+vi.mock('@moizp/vega-media-kit/platform', () => ({ mapKey: (c: number) => ({ 23: 'select', 22: 'right', 4: 'back' } as Record<number, string>)[c] }))
 
-describe('Select repeat', () => {
+describe('key hub', () => {
   it('a held key reports repeat until it is released', () => {
-    const t = createRepeatTracker()
-    expect([t.down(23), t.down(23), t.down(23)]).toEqual([false, true, true])
-    t.up(23)
-    expect(t.down(23)).toBe(false)
+    const hub = createKeyHub(); const seen: boolean[] = []
+    hub.subscribe((_, r) => seen.push(r))
+    hub.down(23); hub.down(23); hub.down(23); hub.up(23); hub.down(23)
+    expect(seen).toEqual([false, true, true, false])
+  })
+  it('a Select held across a route change is no new press on the next screen', async () => {
+    const { keySource } = await import('../src/remote')
+    const first: [string, boolean | undefined][] = [], next: [string, boolean | undefined][] = []
+    const unsubscribe = keySource((k, r) => first.push([k, r]))
+    emitter.emit('onKeyDown', 23) // Select opens Title…
+    unsubscribe() // …the Home navigator goes away
+    keySource((k, r) => next.push([k, r])) // Title's navigator subscribes
+    emitter.emit('onKeyDown', 23) // auto-repeat of the same held press
+    emitter.emit('onKeyUp', 23)
+    emitter.emit('onKeyDown', 23) // a real new press
+    expect(first).toEqual([['select', false]])
+    expect(next).toEqual([['select', true], ['select', false]])
+  })
+  it('unmapped keys are not delivered', async () => {
+    const { keySource } = await import('../src/remote')
+    const got: string[] = []; const off = keySource((k) => got.push(k))
+    emitter.emit('onKeyDown', 999); emitter.emit('onKeyDown', 22); emitter.emit('onKeyUp', 22); off()
+    expect(got).toEqual(['right'])
   })
 })
 
@@ -76,5 +102,9 @@ describe('config plugins', () => {
     const xml = localApi.securityConfig('192.168.1.20')
     expect(xml).toContain('<base-config cleartextTrafficPermitted="false" />')
     expect(xml).toContain('<domain includeSubdomains="false">192.168.1.20</domain>')
+    expect(xml.match(/<domain /g)).toHaveLength(1) // release: the API host and nothing else
+  })
+  it('debug builds keep cleartext open for the Metro dev server', () => {
+    expect(localApi.debugSecurityConfig()).toContain('<base-config cleartextTrafficPermitted="true" />')
   })
 })

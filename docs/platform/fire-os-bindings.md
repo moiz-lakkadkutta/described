@@ -69,13 +69,14 @@ URL. It is de-duplicated per activity (same URL with no trip to the background �
 - Format (packages/contracts/src/deepLink.ts, shared by API and app):
   `described://title/{slug}` → Title; `described://play/{slug}` → Player at saved progress;
   `described://play/{slug}?t=754` → Player at 754 s. Parsed by hand (Hermes' URL polyfill is unreliable for custom
-  schemes); bad slugs, other schemes and hosts are ignored.
+  schemes); bad slugs, other schemes and hosts are ignored; a non-finite `?t=` is ignored and one above 24 h is capped.
 - Routing (packages/shared-ui/src/platform/launch.ts): Root holds the link until the catalog has loaded and first run
   is done, then navigates. A title missing from the catalog leaves the viewer on Home (never the offline screen).
   Play links start with description per `prefs.adDefault`. `?t=` is clamped with Player's own `clampSeek`
   (0 to 1 s before the end) and travels as the player route's `startAtS`, which Player uses instead of the saved
   position — without the resume-near-end rule (a saved point in the last 30 s starts over; an explicit `?t=` is
   honoured). The route key includes `startAtS`, so a play link for the title already playing remounts the Player.
+  A link that replaces a playing Player first saves its position through the same step as Back (`exitPlayer` in Root).
 - Test on the stick: `adb shell am start -a android.intent.action.VIEW -d "described://title/sintel-90-210"`.
   The Fire TV launcher's ADB test page uses the same `am start` form —
   https://developer.amazon.com/docs/catalog/test-launcher-integration-with-adb.html
@@ -146,14 +147,16 @@ uses the framework `android.media.session` API, API 21+):
   progress). Skips use DESC-006's `SEEK_STEP_S`. Buffering counts as playing, so "pause" pauses a stalled film.
 - **One path per media key** (`apps/expo/src/platform/mediaSession.ts`, tested key by key):
   `MEDIA_PLAY` 126, `MEDIA_PAUSE` 127, `MEDIA_STOP` 86 take the framework's default mapping in the session
-  (→ `onPlay / onPause / onStop`; Alexa may send these), and while the session is active the key source skips them
-  (`setKeySkip(ownsKey)`). `PLAY_PAUSE` 85, `FAST_FORWARD` 90, `REWIND` 89 are relative: the session swallows them
+  (→ `onPlay / onPause / onStop`; Alexa may send these), and the key source skips them (`setKeySkip(keySkipFor(…))`)
+  only while a Player is published **and** native has reported `onSessionState { active: true }` — so a publish that
+  found no React context (`ensure()` → null) or a backgrounded app never strands those keys. `PLAY_PAUSE` 85, `FAST_FORWARD` 90, `REWIND` 89 are relative: the session swallows them
   (logs `control=button`) and Player's key handling owns them (toggle, ◄► seek with commit). Without an active session
   every key stays on the key path. `createMediaSession(native, { acceptButtons: true })` moves the relative keys to the
   session and off the key path, if the device check shows Alexa sending them.
   **Device-dependent:** this relies on Android handing an unconsumed media key from the focused activity to the
   active session (MainActivity's `onKeyDown` does not consume media keys). If §4 of the device check shows 126/127
-  doing nothing, remove the `setKeySkip` line in apps/expo/App.tsx (keys go back to the key path).
+  doing nothing, set `MEDIA_SESSION_OWNS_KEYS = false` in apps/expo/src/platform/mediaSession.ts (one value; keys go
+  back to the key path).
 - **Background.** The session goes inactive when the activity leaves the foreground (`OnActivityEntersBackground`) and
   active again on return (`OnActivityEntersForeground`) if the Player still holds it, so Alexa never controls a hidden
   app. A `destroyed` flag stops queued work and late callbacks after the module is torn down.
@@ -186,6 +189,6 @@ default; behaviour unverified); "Alexa, resume" during an extended-description p
 | Catalog feed | apps/api/src/lib/fireTvCatalog.ts, route in apps/api/src/routes/catalog.ts |
 | Launch routing | packages/shared-ui/src/platform/launch.ts (Root: `launches` prop + `useLaunchRoute`) |
 | Transport, now-playing, watch activity | packages/shared-ui/src/platform/nowPlaying.ts (Root: `usePlatformNowPlaying` on Player's `onNowPlaying`) |
-| Media-key ownership | apps/expo/src/platform/mediaSession.ts (`ownsKey`), apps/expo/src/remote.ts (`setKeySkip`) |
+| Media-key ownership | apps/expo/src/platform/mediaSession.ts (`ownsKey`, `keySkipFor`, `MEDIA_SESSION_OWNS_KEYS`), apps/expo/src/remote.ts (`setKeySkip`) → the key hub's `setSkip` in apps/expo/src/keys.ts (skipped codes reach no subscriber) |
 | Fire OS wiring | apps/expo/src/platform/*.ts, apps/expo/App.tsx (`configurePlatform`, `launches`) |
 | Native media session | apps/expo/modules/described-media-session |

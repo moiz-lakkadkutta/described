@@ -83,7 +83,9 @@ describe('chrome', () => {
     expect(r.root.findByProps({ testID: 'bar' }).props.style.opacity).toBe(0)
     const line = r.root.findByProps({ testID: 'status-line' })
     for (let n: ReactTestInstance | null = line; n; n = n.parent) expect(Object.assign({}, ...[n.props.style].flat(3).filter(Boolean)).opacity ?? 1).toBe(1)
-    expect(status()).toBe('Description on · Joanna · Captions off') // no text track is on screen yet
+    expect(status()).toBe('Description on · Joanna') // tracks not known yet: nothing claimed about captions
+    report('onTracks', { audio: tracks.audio, text: [] })
+    expect(status()).toBe('Description on · Joanna · Captions off') // known, and none on screen
   })
 })
 
@@ -307,9 +309,9 @@ describe('track sheet', () => {
     expect(defaultFocus()).toEqual([strings.player.surface(title.name)])
     press('up')
     expect(r.root.findAllByProps({ testID: 'track-sheet' })).toHaveLength(1)
-    expect(a11yCalls).toContain(strings.tracks.heading) // the panel's name is spoken; each item names its section
     expect(surface()).toBeUndefined()
-    expect(defaultFocus()).toEqual([strings.tracks.a11y.ad('Joanna')])
+    // The panel's name rides on the first item's announcement; each item names its section.
+    expect(defaultFocus()).toEqual([`${strings.tracks.heading}. ${strings.tracks.a11y.ad('Joanna')}`])
     press('menu')
     expect(r.root.findAllByProps({ testID: 'track-sheet' })).toHaveLength(0)
     expect(defaultFocus()).toEqual([strings.player.surface(title.name)])
@@ -321,7 +323,7 @@ describe('track sheet', () => {
     expect(p.onBack).not.toHaveBeenCalled()
     expect(r.root.findAllByProps({ testID: 'track-sheet' })).toHaveLength(0)
     press('menu')
-    expect(defaultFocus()).toEqual([strings.tracks.a11y.rich])
+    expect(defaultFocus()).toEqual([`${strings.tracks.heading}. ${strings.tracks.a11y.rich}`])
   })
   it("while open, ◄► leave the film alone; Play/Pause still toggles it (like the media session's PLAY/PAUSE)", () => {
     mount(); report('onState', 'playing'); press('menu')
@@ -334,12 +336,14 @@ describe('track sheet', () => {
   it('selected = teal ring + ✓; sections in spec order', () => {
     mount(); press('menu')
     expect(focusables().map(label)).toEqual([
-      strings.tracks.a11y.original, strings.tracks.a11y.ad('Joanna'),
+      strings.tracks.a11y.original, `${strings.tracks.heading}. ${strings.tracks.a11y.ad('Joanna')}`,
       strings.tracks.a11y.off, strings.tracks.a11y.plain, strings.tracks.a11y.rich, strings.tracks.a11y.descText,
       strings.tracks.a11y.extendedOn,
     ])
     const selected = focusables().filter((n) => n.props.accessibilityState.selected).map(label)
-    expect(selected).toEqual([strings.tracks.a11y.ad('Joanna'), strings.tracks.a11y.rich, strings.tracks.a11y.extendedOn])
+    expect(selected).toEqual([`${strings.tracks.heading}. ${strings.tracks.a11y.ad('Joanna')}`, strings.tracks.a11y.rich, strings.tracks.a11y.extendedOn])
+    act(() => byLabel(strings.tracks.a11y.original)!.props.onFocus()) // once focus moves, the name is not repeated
+    expect(focusables().map(label)).toContain(strings.tracks.a11y.ad('Joanna'))
     const rich = byLabel(strings.tracks.a11y.rich)!
     const styles = rich.findAll((x) => (x.type as unknown) === 'View').map((x) => Object.assign({}, ...[x.props.style].flat(3).filter(Boolean)))
     expect(styles.some((st) => st.borderColor === tokens.color.interactive)).toBe(true)

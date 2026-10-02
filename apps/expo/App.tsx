@@ -6,14 +6,14 @@ import { keySource, setKeySkip } from './src/remote'
 import { speak, stopSpeaking } from './src/audio'
 import { deviceId } from './src/deviceId'
 import { launchSource } from './src/platform/launch'
-import { createMediaSession } from './src/platform/mediaSession'
+import { createMediaSession, keySkipFor } from './src/platform/mediaSession'
 import { nativeMediaSession } from './src/platform/nativeMediaSession'
 import { playbackReporter } from './src/platform/personalization'
 // Fire OS entry. Platform-specific wiring (fonts, keys, audio, IAP, camera) goes here, never in shared-ui.
 configureRemote(keySource)
 // DESC-008: Alexa transport through the media session, watch activity (no-op until Fire TV catalog integration).
 const mediaSession = createMediaSession(nativeMediaSession)
-setKeySkip((code) => mediaSession?.ownsKey(code) ?? false) // one path per media key (src/platform/mediaSession.ts)
+setKeySkip(keySkipFor(mediaSession)) // one path per media key; MEDIA_SESSION_OWNS_KEYS is the device-check switch
 configurePlatform({ mediaSession, reporter: playbackReporter })
 const id = deviceId()
 export default function App() {

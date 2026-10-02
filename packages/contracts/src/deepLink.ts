@@ -14,6 +14,8 @@ export const DEEP_LINK_SCHEME = 'described'
 export type LaunchTarget = { kind: 'title'; slug: string } | { kind: 'play'; slug: string; startAtS?: number }
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,127}$/
+/** `?t=` above this is capped (24 h): no title is longer, and it keeps an absurd value away from the player. */
+export const MAX_START_S = 24 * 60 * 60
 
 export const titleLink = (slug: string) => `${DEEP_LINK_SCHEME}://title/${slug}`
 export const playLink = (slug: string, startAtS?: number) =>
@@ -31,8 +33,8 @@ export function parseDeepLink(url: string | null | undefined): LaunchTarget | nu
   if (host === 'title') return { kind: 'title', slug }
   if (host !== 'play') return null
   const t = query(m[4] ?? '').get('t')
-  const startAtS = t !== undefined && /^\d+(\.\d+)?$/.test(t) ? Number(t) : undefined
-  return startAtS !== undefined && startAtS > 0 ? { kind: 'play', slug, startAtS } : { kind: 'play', slug }
+  const n = t !== undefined && /^\d+(\.\d+)?$/.test(t) ? Number(t) : NaN // a 400-digit string parses to Infinity
+  return Number.isFinite(n) && n > 0 ? { kind: 'play', slug, startAtS: Math.min(n, MAX_START_S) } : { kind: 'play', slug }
 }
 
 function query(q: string): Map<string, string> {

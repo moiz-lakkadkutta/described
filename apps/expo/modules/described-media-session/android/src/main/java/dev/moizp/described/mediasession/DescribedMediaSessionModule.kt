@@ -38,7 +38,7 @@ class DescribedMediaSessionModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("DescribedMediaSession")
-    Events("onTransport")
+    Events("onTransport", "onSessionState")
 
     /** durationS ≤ 0 means unknown. Call on every play/pause/seek; the system extrapolates position while playing. */
     Function("setNowPlaying") { title: String, durationS: Double, positionS: Double, playing: Boolean ->
@@ -51,11 +51,11 @@ class DescribedMediaSessionModule : Module() {
     }
     OnActivityEntersBackground {
       foreground = false
-      main.post { session?.let { if (it.isActive) { it.isActive = false; Log.d(TAG, "session inactive (background)") } } }
+      main.post { session?.let { if (it.isActive) { it.isActive = false; Log.d(TAG, "session inactive (background)"); emitState(false) } } }
     }
     OnActivityEntersForeground {
       foreground = true
-      main.post { if (!destroyed) session?.let { if (!it.isActive) { it.isActive = true; Log.d(TAG, "session active (foreground)") } } }
+      main.post { if (!destroyed) session?.let { if (!it.isActive) { it.isActive = true; Log.d(TAG, "session active (foreground)"); emitState(true) } } }
     }
     OnDestroy {
       destroyed = true
@@ -70,6 +70,15 @@ class DescribedMediaSessionModule : Module() {
     if (positionS != null) body["positionS"] = positionS
     if (keyCode != null) body["keyCode"] = keyCode
     runCatching { sendEvent("onTransport", body) }.onFailure { Log.w(TAG, "transport dropped: ${it.message}") }
+  }
+
+  /**
+   * Whether a session exists and is active, so JS only takes media keys off the key path when this side can really
+   * handle them (ensure() can return null; the activity can be in the background).
+   */
+  private fun emitState(active: Boolean) {
+    if (destroyed) return
+    runCatching { sendEvent("onSessionState", mapOf("active" to active)) }.onFailure { Log.w(TAG, "state dropped: ${it.message}") }
   }
 
   private fun ensure(): MediaSession? {
@@ -105,7 +114,12 @@ class DescribedMediaSessionModule : Module() {
 
   private fun update(title: String, durationS: Double, positionS: Double, playing: Boolean) {
     if (destroyed) return
-    val s = ensure() ?: return
+    val s = ensure()
+    if (s == null) {
+      Log.w(TAG, "no session (no React context)")
+      emitState(false)
+      return
+    }
     val meta = MediaMetadata.Builder().putString(MediaMetadata.METADATA_KEY_TITLE, title)
     if (durationS > 0) meta.putLong(MediaMetadata.METADATA_KEY_DURATION, (durationS * 1000).toLong())
     s.setMetadata(meta.build())
@@ -123,6 +137,7 @@ class DescribedMediaSessionModule : Module() {
     if (foreground && !s.isActive) {
       s.isActive = true
       Log.d(TAG, "session active: $title")
+      emitState(true)
     }
   }
 
@@ -132,6 +147,7 @@ class DescribedMediaSessionModule : Module() {
     s.isActive = false
     s.release()
     Log.d(TAG, "session released")
+    emitState(false)
   }
 
   companion object {
