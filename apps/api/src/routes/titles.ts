@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import { serializeVtt } from '@moizp/vega-media-kit/core'
 import { db } from '../lib/db'
 import { env } from '../lib/env'
 import { notFound, ok } from '../lib/http'
@@ -30,13 +31,22 @@ titles.get('/:slug', async (req, res, next) => {
 /** Description cues in canonical order — start, then end — so `d{n}` is the n-th (packages/pipeline/src/cues.ts). */
 const cueOrder = [{ startMs: 'asc' as const }, { endMs: 'asc' as const }]
 
-/** Descriptions as WebVTT with {extended=1} meta so the app can pause-speak-resume. */
+/** One line of cue text: whitespace (blank lines too) collapsed, no `-->` or `{…}` that a parser would read as timing or meta. */
+export const vttText = (t: string) => t.replace(/-->/g, '→').replace(/[{}]/g, '').replace(/\s+/g, ' ').trim()
+
+/**
+ * Descriptions as WebVTT with {extended=1} meta: the app's source for Extended mode (DESC-007). Cue ids are `d{n}` by
+ * position in cueOrder — the same n the audio route takes — and the app uses the parsed id, so a cue the parser drops
+ * (text that cleans to nothing) cannot shift the others. Serialised by the kit, like the pipeline's descriptions.vtt.
+ */
 titles.get('/:slug/descriptions.vtt', async (req, res, next) => {
   try {
     const t = await db.title.findUnique({ where: { slug: req.params.slug }, include: { cues: { orderBy: cueOrder } } })
-    if (!t) throw notFound('Title')
-    const ts = (ms: number) => new Date(ms).toISOString().slice(11, 23)
-    const body = ['WEBVTT', '', ...t.cues.flatMap((c: (typeof t.cues)[number], i: number) => [`d${i + 1}`, `${ts(c.startMs)} --> ${ts(c.endMs)}`, `${c.text}${c.extended ? ' {extended=1;words=' + c.wordCount + '}' : ''}`, ''])].join('\n')
+    if (!t || t.status !== 'published') throw notFound('Title')
+    const body = serializeVtt(t.cues.map((c: (typeof t.cues)[number], i: number) => ({
+      trackId: 'descriptions', id: `d${i + 1}`, start: c.startMs / 1000, end: c.endMs / 1000, text: vttText(c.text),
+      ...(c.extended ? { meta: { extended: '1', words: String(c.wordCount) } } : {}),
+    })))
     res.type('text/vtt').send(body)
   } catch (e) { next(e) }
 })

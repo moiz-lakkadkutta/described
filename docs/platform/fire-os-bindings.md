@@ -168,7 +168,12 @@ fails on it, exclude it — the app works as before, without Alexa transport:
 ```
 
 **Known gaps (device check):** near-field Alexa overlay should pause or duck (audio focus — RNV requests focus by
-default; behaviour unverified); "Alexa, resume" during an extended-description pause resumes video over narration.
+default; behaviour unverified).
+
+**Extended description (DESC-007):** during a pause–speak–resume, "Alexa, resume" (or Play) ends the description at once
+— the clip stops, then the film plays — so video never plays over the narration. "Alexa, pause" / the session-owned Pause
+key (127) always reach the Player (`transportAction` no longer drops pause while the kit reports paused) and keep the film
+paused after the clip.
 
 ## What the human needs to do
 

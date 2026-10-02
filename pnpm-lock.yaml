@@ -28,6 +28,9 @@ importers:
       '@described/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@moizp/vega-media-kit':
+        specifier: link:../../../vega-media-kit
+        version: link:../../../vega-media-kit
       '@prisma/client':
         specifier: ^6.0.0
         version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)

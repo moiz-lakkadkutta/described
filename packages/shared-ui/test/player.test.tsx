@@ -7,6 +7,7 @@ import type { Prefs } from '@described/contracts'
 import { configureRemote } from '../src/focus/remote'
 import { BUFFERING_ANNOUNCE_MS, PENDING_SEEK_MS, Player, type PlayerProps } from '../src/screens/Player'
 import { SEEK_COMMIT_MS } from '../src/playback'
+import { createNowPlayingSink } from '../src/platform'
 import { strings } from '../src/strings'
 import { tokens } from '../src/theme/tokens'
 import { a11yCalls, back } from './stubs/react-native'
@@ -511,10 +512,54 @@ describe('Extended mode (DESC-007)', () => {
       act(() => r.unmount()); kit.reset(); act(() => { r = TestRenderer.create(<></>) })
     }
   })
+  it('a cue crossed just as the viewer paused (kit already says paused) stays paused after the clip', async () => {
+    await start(); tick(18, 19.75)
+    report('onState', 'paused'); tick(20, 20) // a last tick after the viewer's pause
+    expect(au.speak).toHaveBeenCalledWith(clip('d2'))
+    await act(async () => { au.end() })
+    expect(kit.ref.play).not.toHaveBeenCalled()
+  })
+  it('right after the Player resumes from a clip, a lagging paused state is not taken for the viewer\'s', async () => {
+    const close = vtt.replace('00:00:40.000 --> 00:00:40.833', '00:00:21.000 --> 00:00:21.833')
+    await start({}, close); tick(19.75, 20); report('onState', 'paused')
+    await act(async () => { au.end() }); expect(kit.ref.play).toHaveBeenCalledTimes(1)
+    tick(20.25, 21) // ticks resume before onState('playing') arrives
+    expect(au.speak).toHaveBeenLastCalledWith(clip('d3'))
+    await act(async () => { au.end() })
+    expect(kit.ref.play).toHaveBeenCalledTimes(2)
+  })
+  it('a failed descriptions read is retried after 1, 2 and 4 s, then gives up; a 404 is final', async () => {
+    let fail = 3
+    const f = vi.fn((url: string) => (url === descUrl ? (fail-- > 0 ? Promise.reject(new Error('net')) : Promise.resolve({ ok: true, status: 200, text: async () => vtt })) : new Promise(() => {})))
+    vi.stubGlobal('fetch', f)
+    au = audio()
+    mount({ cueAudioUrl, descriptionsUrl: descUrl, speak: au.speak, stopSpeaking: au.stopSpeaking, prefetch: au.prefetch }); await flush()
+    for (const ms of [1000, 2000, 4000]) { await act(async () => { vi.advanceTimersByTime(ms) }); await flush() }
+    expect(f.mock.calls.filter((c) => c[0] === descUrl)).toHaveLength(4)
+    report('onState', 'playing'); tick(19.75, 20)
+    expect(au.speak).toHaveBeenCalledWith(clip('d2'))
+    act(() => r.unmount())
+    const g = vi.fn((url: string) => (url === descUrl ? Promise.resolve({ ok: false, status: 404, text: async () => '' }) : new Promise(() => {})))
+    vi.stubGlobal('fetch', g)
+    mount({ cueAudioUrl, descriptionsUrl: descUrl, speak: au.speak }); await flush()
+    await act(async () => { vi.advanceTimersByTime(10_000) }); await flush()
+    expect(g.mock.calls.filter((c) => c[0] === descUrl)).toHaveLength(1)
+  })
   it('keys during the pause are still consumed (spatial navigation does not also move)', async () => {
     await atCue(); moves.length = 0
     press('playPause'); press('pause'); press('playPause')
     expect(moves).toEqual([])
+  })
+  it('"Alexa, pause" / the session-owned Pause key during the clip, through createNowPlayingSink: stays paused after the clip', async () => {
+    for (const kind of ['pause', 'stop'] as const) {
+      let send!: (t: { kind: string }) => void
+      const sink = createNowPlayingSink(() => ({ mediaSession: { setNowPlaying: () => {}, onTransport: (cb) => { send = cb as never; return () => {} } } }))
+      await atCue({ onNowPlaying: sink }); report('onState', 'paused') // the kit reports paused while the clip speaks
+      act(() => send({ kind }))
+      await act(async () => { au.end() })
+      expect(kit.ref.play).not.toHaveBeenCalled(); expect(bar()).toBe(false)
+      act(() => r.unmount()); kit.reset(); act(() => { r = TestRenderer.create(<></>) })
+    }
   })
   it('Select twice during the pause undoes the pause: it resumes after the clip', async () => {
     await atCue()
@@ -548,7 +593,7 @@ describe('Extended mode (DESC-007)', () => {
   it('a cue at 0:00 is spoken when the film starts from the beginning', async () => {
     const at0 = vtt.replace('00:00:20.000 --> 00:00:20.833', '00:00:00.000 --> 00:00:00.833')
     await start({}, at0); tick(0.25, 0.25)
-    expect(au.speak).toHaveBeenCalledWith(clip('d1'))
+    expect(au.speak).toHaveBeenCalledWith(clip('d2')) // its own id, though it now sorts first
   })
   it('the crossing counts even if onState still says buffering (it lags the tick)', async () => {
     await start(); tick(18, 19.75)

@@ -27,10 +27,13 @@ export function ordered(cues: readonly FitCue[]): (FitCue & { i: number })[] {
   return cues.map((c, i) => ({ ...c, i })).sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs)
 }
 
+/** One line of cue text: whitespace collapsed, no `-->` or `{…}` a parser would read as timing or meta (as apps/api does). */
+export const vttText = (t: string) => t.replace(/-->/g, '→').replace(/[{}]/g, '').replace(/\s+/g, ' ').trim()
+
 /** descriptions.vtt: every cue (≥ 833 ms on screen), extended ones with `{extended=1;words=N}` meta. */
 export function descriptionsVtt(cues: readonly FitCue[]): string {
   return serializeVtt(ordered(cues).map((c, n) => ({
-    trackId: 'desc', id: vttCueId(n), start: c.startMs / 1000, end: Math.max(c.endMs, c.startMs + 833) / 1000, text: c.text,
+    trackId: 'desc', id: vttCueId(n), start: c.startMs / 1000, end: Math.max(c.endMs, c.startMs + 833) / 1000, text: vttText(c.text),
     ...(c.extended ? { meta: { extended: '1', words: String(c.wordCount) } } : {}),
   })))
 }

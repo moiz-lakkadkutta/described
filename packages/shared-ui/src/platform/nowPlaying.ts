@@ -60,7 +60,9 @@ export type PlayerAction = { kind: 'play' } | { kind: 'pause' } | { kind: 'seek'
 export function transportAction(t: Transport, p: { playing: boolean; positionS: number }): PlayerAction | null {
   switch (t.kind) {
     case 'play': return p.playing ? null : { kind: 'play' }
-    case 'pause': case 'stop': return p.playing ? { kind: 'pause' } : null
+    // Always: the Player's pause is idempotent, and during an extended pause (the kit reports paused while the clip
+    // speaks) it is what keeps the film paused after the clip.
+    case 'pause': case 'stop': return { kind: 'pause' }
     case 'toggle': return { kind: p.playing ? 'pause' : 'play' }
     case 'seekBy': return { kind: 'seek', toS: p.positionS + t.dir * SEEK_STEP_S }
     case 'seekTo': return { kind: 'seek', toS: t.s }

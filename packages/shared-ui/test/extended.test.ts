@@ -15,9 +15,10 @@ describe('extended cues from the description track', () => {
   it('only {extended=1} cues, with d{n} = their place among all description cues', () => {
     expect(cues.map((c) => [c.id, c.start])).toEqual([['d2', 20], ['d3', 40]])
   })
-  it('counts places, not identifiers (packaging may drop cue ids)', () => {
-    const noIds = VTT.replace(/^d\d\n/gm, '')
-    expect(extendedCues(parseVtt(noIds, { trackId: 'x' })).map((c) => c.id)).toEqual(['d2', 'd3'])
+  it('uses the VTT\'s own ids: a cue the parser drops does not shift the others', () => {
+    const dropped = VTT.replace('A girl climbs a snowy ridge.', '<c></c>') // cleans to nothing: parseVtt drops d1
+    expect(parseVtt(dropped, { trackId: 'x' }).map((c) => c.id)).toEqual(['d2', 'd3'])
+    expect(extendedCues(parseVtt(dropped, { trackId: 'x' })).map((c) => c.id)).toEqual(['d2', 'd3'])
   })
 })
 

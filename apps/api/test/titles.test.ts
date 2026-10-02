@@ -1,4 +1,5 @@
 import request from 'supertest'
+import { parseVtt } from '@moizp/vega-media-kit/core'
 const findUnique = vi.fn()
 vi.mock('../src/lib/db', () => ({ db: { title: { findUnique: (...a: unknown[]) => findUnique(...a) } } }))
 const { createApp } = await import('../src/app')
@@ -57,7 +58,7 @@ describe('GET /titles/:slug/cues/:cueId/audio (Extended mode, DESC-007)', () => 
 
 describe('GET /titles/:slug/descriptions.vtt (the app\'s source for d{n})', () => {
   it('numbers cues d1… in start-then-end order and marks extended ones', async () => {
-    findUnique.mockResolvedValueOnce({ cues: [
+    findUnique.mockResolvedValueOnce({ status: 'published', cues: [
       { startMs: 1000, endMs: 1100, text: 'Words appear: Berlin.', extended: true, wordCount: 3 },
       { startMs: 1000, endMs: 4000, text: 'A dragon lands.', extended: false, wordCount: 3 },
     ] })
@@ -65,5 +66,27 @@ describe('GET /titles/:slug/descriptions.vtt (the app\'s source for d{n})', () =
     expect(res.type).toBe('text/vtt')
     expect(res.text).toBe('WEBVTT\n\nd1\n00:00:01.000 --> 00:00:01.100\nWords appear: Berlin. {extended=1;words=3}\n\nd2\n00:00:01.000 --> 00:00:04.000\nA dragon lands.\n')
     expect(findUnique.mock.calls.at(-1)![0].include.cues.orderBy).toEqual([{ startMs: 'asc' }, { endMs: 'asc' }])
+  })
+  it('a blank line, an arrow or text that cleans to nothing cannot move a cue onto another\'s clip', async () => {
+    findUnique.mockResolvedValueOnce({ status: 'published', cues: [
+      { startMs: 1000, endMs: 3000, text: 'A girl climbs.\n\nSnow falls.', extended: false, wordCount: 5 },
+      { startMs: 4000, endMs: 6000, text: '<c></c>', extended: false, wordCount: 0 },
+      { startMs: 7000, endMs: 7100, text: 'Words appear: 10:00 --> 11:00 {x}', extended: true, wordCount: 6 },
+      { startMs: 9000, endMs: 9100, text: 'A dragon lands.', extended: true, wordCount: 3 },
+    ] })
+    const res = await request(createApp()).get('/titles/sintel-90-210/descriptions.vtt')
+    const parsed = parseVtt(res.text, { trackId: 'd' })
+    expect(parsed.map((c) => [c.id, c.text, c.meta?.extended])).toEqual([
+      ['d1', 'A girl climbs. Snow falls.', undefined], // one cue, whitespace collapsed
+      // d2 cleans to nothing and is dropped by the parser; the others keep their own ids
+      ['d3', 'Words appear: 10:00 → 11:00 x', '1'],
+      ['d4', 'A dragon lands.', '1'],
+    ])
+  })
+  it('404 unless the title is published, like the clip route', async () => {
+    findUnique.mockResolvedValueOnce({ status: 'processing', cues: [] })
+    expect((await request(createApp()).get('/titles/sintel-90-210/descriptions.vtt')).status).toBe(404)
+    findUnique.mockResolvedValueOnce(null)
+    expect((await request(createApp()).get('/titles/nope/descriptions.vtt')).status).toBe(404)
   })
 })

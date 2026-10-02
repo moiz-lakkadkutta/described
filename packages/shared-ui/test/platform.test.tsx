@@ -34,12 +34,13 @@ describe('transport → player action', () => {
   const at = (playing: boolean, positionS = 100) => ({ playing, positionS })
   it.each<[Transport, boolean, unknown]>([
     [{ kind: 'pause' }, true, { kind: 'pause' }],
-    [{ kind: 'pause' }, false, null],
+    [{ kind: 'pause' }, false, { kind: 'pause' }], // paused for an extended clip: the viewer's pause must still land
     [{ kind: 'play' }, false, { kind: 'play' }],
     [{ kind: 'play' }, true, null],
     [{ kind: 'toggle' }, true, { kind: 'pause' }],
     [{ kind: 'toggle' }, false, { kind: 'play' }],
     [{ kind: 'stop' }, true, { kind: 'pause' }],
+    [{ kind: 'stop' }, false, { kind: 'pause' }],
     [{ kind: 'seekBy', dir: 1 }, true, { kind: 'seek', toS: 100 + SEEK_STEP_S }],
     [{ kind: 'seekBy', dir: -1 }, false, { kind: 'seek', toS: 100 - SEEK_STEP_S }],
     [{ kind: 'seekTo', s: 300 }, true, { kind: 'seek', toS: 300 }],

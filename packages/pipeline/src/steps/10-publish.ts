@@ -23,7 +23,9 @@ export async function publish(ctx: Ctx, { upload = s3Upload }: PublishDeps = {})
   for (const v of ['captions.vtt', 'sdh.vtt', 'descriptions.vtt']) jobs.push(() => upload(`${ctx.work}/${v}`, `${base}/${v}`, { ContentType: contentType(v), CacheControl: cacheControl(v) }))
   // Clip keys carry a hash of the bytes (../cues): immutable for a year, so a changed clip must get a new key.
   const clips = new Map<number, string>()
-  for (const f of (await readdir(ctx.work)).filter((f) => /^cue_\d+\.mp3$/.test(f))) {
+  // Only this run's cues: a cue_{i}.mp3 left over from an earlier, longer run (i ≥ cues.json length) is not published.
+  const count = (JSON.parse(await readFile(`${ctx.work}/cues.json`, 'utf8')) as unknown[]).length
+  for (const f of (await readdir(ctx.work)).filter((f) => /^cue_\d+\.mp3$/.test(f) && Number(/\d+/.exec(f)![0]) < count)) {
     const i = Number(/\d+/.exec(f)![0]), key = cueAudioKey(ctx.slug, i, clipHash(await readFile(`${ctx.work}/${f}`)))
     clips.set(i, key)
     jobs.push(() => upload(`${ctx.work}/${f}`, `s3://${process.env.S3_BUCKET_MEDIA!}/${key}`, { ContentType: contentType(f), CacheControl: cacheControl(f) }))

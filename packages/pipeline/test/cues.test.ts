@@ -56,6 +56,10 @@ describe('extended cues are capped at EXTENDED_WORDS (25) all the way to the VTT
 })
 
 describe('cue ids', () => {
+  it('cue text is one line: a blank line, an arrow or braces cannot break the VTT', () => {
+    const vtt = descriptionsVtt([cue(0, 2000, false, 'A girl climbs.\n\nSnow falls.'), cue(3000, 3100, true, 'Words appear: 1 --> 2 {x}')])
+    expect(parseVtt(vtt, { trackId: 'd' }).map((c) => [c.id, c.text, c.meta?.extended])).toEqual([['d1', 'A girl climbs. Snow falls.', undefined], ['d2', 'Words appear: 1 → 2 x', '1']])
+  })
   it('two cues on the same millisecond: d{n} follows start then end everywhere; each row keeps its own clip', () => {
     const cues = [cue(1000, 4000), cue(1000, 1100, true, 'Words appear: Berlin.')] // cues.json order: placed, then extended
     const parsed = parseVtt(descriptionsVtt(cues), { trackId: 'd' })
@@ -100,6 +104,13 @@ describe('publish and DescriptionCue rows (no AWS, no Postgres: upload and datab
     expect(h0).toMatch(/^[0-9a-f]{12}$/); expect(h0).not.toBe(h1)
     expect(keys).toEqual(expect.arrayContaining([`s3://media/published/x/cues/cue_0.${h0}.mp3`, `s3://media/published/x/cues/cue_1.${h1}.mp3`, 's3://media/published/x/descriptions.vtt']))
     expect(JSON.parse(readFileSync(join(dir, CLIPS_FILE), 'utf8'))).toEqual({ 0: `published/x/cues/cue_0.${h0}.mp3`, 1: `published/x/cues/cue_1.${h1}.mp3` })
+  })
+  it('a stale cue_{i}.mp3 from an earlier, longer run (i beyond cues.json) is not published', async () => {
+    const upload = vi.fn(async () => {})
+    const dir = work(); writeFileSync(join(dir, 'cue_7.mp3'), 'old clip')
+    await publish(ctx(dir), { upload })
+    expect(upload.mock.calls.map((c) => (c as unknown as [string, string])[1]).some((k) => k.includes('cue_7'))).toBe(false)
+    expect(Object.keys(JSON.parse(readFileSync(join(dir, CLIPS_FILE), 'utf8')))).toEqual(['0', '1'])
   })
   it('writeDescriptionCues replaces the title\'s rows, each with its own published clip', async () => {
     const dir = work(); await publish(ctx(dir), { upload: vi.fn(async () => {}) })

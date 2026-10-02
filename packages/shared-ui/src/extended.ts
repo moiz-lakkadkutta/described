@@ -4,10 +4,9 @@ import type { Cue } from '@moizp/vega-media-kit/core'
  * Extended mode without React (DESC-007): which `{extended=1}` description cue a position tick starts, and which one
  * to prefetch. Player.tsx owns the pause → speak → resume around it.
  *
- * Cue id: `d{n}`, n = 1-based position of the cue among ALL the title's description cues ordered by start, then end —
- * the order the kit's parseVtt gives. The pipeline numbers its VTT identifiers and DescriptionCue rows the same way
- * (packages/pipeline/src/cues.ts), and GET /titles/:slug/cues/d{n}/audio redirects to that row's clip. The app counts
- * positions rather than trusting the identifier, so it holds even if packaging drops cue ids.
+ * Cue id: `d{n}` as the VTT says. GET /titles/:slug/descriptions.vtt writes it (n = position by start, then end, the
+ * same n GET /titles/:slug/cues/d{n}/audio takes); the app takes the parsed id rather than counting cues, so a cue the
+ * parser drops (text that cleans to nothing) cannot shift the others onto the wrong clip.
  */
 export interface ExtendedCue { id: string; start: number; end: number; text: string }
 
@@ -19,12 +18,11 @@ export const PREFETCH_AHEAD_S = 10
  */
 export const MAX_TICK_S = 1.5
 
-/** The extended cues of a whole description track, with their `d{n}` ids (see above). */
+/** The extended cues of a whole description track, by their own `d{n}` ids (see above). */
 export function extendedCues(track: readonly Cue[]): ExtendedCue[] {
   return [...track].sort((a, b) => a.start - b.start || a.end - b.end)
-    .map((c, i) => ({ c, id: `d${i + 1}` }))
-    .filter(({ c }) => c.meta?.extended === '1')
-    .map(({ c, id }) => ({ id, start: c.start, end: c.end, text: c.text }))
+    .filter((c) => c.meta?.extended === '1')
+    .map((c) => ({ id: c.id, start: c.start, end: c.end, text: c.text }))
 }
 
 /**

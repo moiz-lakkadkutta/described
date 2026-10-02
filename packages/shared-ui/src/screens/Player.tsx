@@ -26,6 +26,8 @@ export const BUFFERING_ANNOUNCE_MS = 2000
  */
 export const PENDING_SEEK_NEAR_S = 2
 export const PENDING_SEEK_MS = 5000
+/** Retries of a failed descriptions read (after 1, 2, 4 s). */
+export const DESCRIPTIONS_RETRIES = 3
 /** Height of the bottom chrome (bar, time, status line) in px at 1080p; captions sit above it while it shows. */
 const CHROME_BOTTOM = 176
 const bands = scrimBands()
@@ -124,6 +126,8 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
   const ext = useRef<{ token: object; userPaused: boolean } | null>(null)
   /** Extended cues crossed while another was speaking (two close cues): spoken next, in order. */
   const queue = useRef<ExtendedCue[]>([])
+  /** The kit's `paused` is ours (an extended pause) until it reports `playing` again: not the viewer's pause. */
+  const ownPause = useRef(false)
   const seeked = useRef(false)
   const prefetched = useRef<string | null>(null)
   const stopRef = useRef(stopSpeaking)
@@ -184,11 +188,16 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
   useEffect(() => {
     if (!extendedOn || extCues) return
     let live = true
-    fetch(descriptionsUrl!)
-      .then(async (r) => { if (!r.ok) throw new Error(`descriptions ${r.status}`); return r.text() })
-      .then((vtt) => { if (live) setExtCues(extendedCues(parseVtt(vtt, { trackId: 'descriptions' }))) })
-      .catch(() => {}) // no descriptions: no pauses
-    return () => { live = false }
+    let timer: ReturnType<typeof setTimeout> | undefined
+    // A failed read is retried after 1, 2 and 4 s; a 404 (no such published title) is final. Then: no pauses.
+    const load = (attempt: number) => {
+      fetch(descriptionsUrl!)
+        .then(async (r) => { if (r.status === 404) return null; if (!r.ok) throw new Error(`descriptions ${r.status}`); return r.text() })
+        .then((vtt) => { if (live && vtt !== null) setExtCues(extendedCues(parseVtt(vtt, { trackId: 'descriptions' }))) })
+        .catch(() => { if (live && attempt < DESCRIPTIONS_RETRIES) timer = setTimeout(() => load(attempt + 1), 1000 * 2 ** attempt) })
+    }
+    load(0)
+    return () => { live = false; clearTimeout(timer) }
   }, [extendedOn, descriptionsUrl, extCues])
   useEffect(() => {
     if (!extCues) return
@@ -210,6 +219,7 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
     ext.current = { token, userPaused }
     prefetched.current = null
     setDescribing(true); announce(strings.player.extendedBar)
+    ownPause.current = true
     ref.current?.pause()
     speak(cueAudioUrl!(title.slug, cue.id)).catch(() => {}).then(() => {
       const viewerPaused = ext.current?.token === token && ext.current.userPaused
@@ -230,7 +240,7 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
     if (t.upcoming && prefetched.current !== t.upcoming.id) { prefetched.current = t.upcoming.id; prefetch(cueAudioUrl!(title.slug, t.upcoming.id)) }
     if (!t.triggers.length || scrubRef.current !== null) return
     queue.current.push(...t.triggers)
-    if (!ext.current) startExtended(queue.current.shift()!)
+    if (!ext.current) startExtended(queue.current.shift()!, stateRef.current === 'paused' && !ownPause.current) // crossed as the viewer paused: stay paused after
   }
 
   // Chrome hides after 4 s of playing with no key; it stays while paused, loading, stopped or the sheet is open.
@@ -345,6 +355,7 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
 
   const onState = (s: PlayerState) => {
     setState(s)
+    if (s === 'playing') ownPause.current = false
     // The kit's Fire OS adapter does not apply `startAt` (react-native-video has no start position), so the resume
     // point is sought once the load is up. Harmless where startAt already worked.
     if ((s === 'ready' || s === 'playing') && !seekedToStart.current) {
