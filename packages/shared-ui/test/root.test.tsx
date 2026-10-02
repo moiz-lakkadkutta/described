@@ -239,6 +239,55 @@ describe('Root', () => {
     expect(saves).toEqual([300, 310])
   })
 
+  it('Back while the player is still loading the title goes to Title, not out of the app', async () => {
+    const s = api(); s.hold.push('/titles/sintel-90-210')
+    const r = await mount()
+    press(r, 'Play Sintel with audio description'); await flush() // Home hero → player route, title not loaded
+    expect(text(r)).toContain(strings.player.loading)
+    let handled = false
+    act(() => { handled = back.press() })
+    expect(handled).toBe(true)
+    await act(async () => { s.held.get('/titles/sintel-90-210')!.resolve(await ok(title)) }); await flush()
+    expect(text(r)).toContain(strings.title.playWithout)
+  })
+
+  it('Back from the offline screen on the player route goes to Title', async () => {
+    const s = api(); const r = await mount()
+    s.down = true
+    press(r, 'Play Sintel with audio description'); await flush()
+    expect(focusables(r).map((n) => n.props['aria-label'])).toEqual([strings.a11y.retry])
+    let handled = false
+    act(() => { handled = back.press() })
+    expect(handled).toBe(true)
+  })
+
+  it('a late title answer from a player route you left is ignored too', async () => {
+    const s = api(); s.hold.push('/titles/sintel-90-210')
+    const r = await mount()
+    press(r, 'Play Sintel with audio description'); await flush()
+    act(() => { back.press() }); await flush() // → Title (still loading)
+    act(() => { back.press() }); await flush() // → Home
+    press(r, 'Open Tears of Steel'); await flush()
+    await act(async () => { s.held.get('/titles/sintel-90-210')!.reject(new Error('network')) }); await flush()
+    expect(text(r)).not.toContain(strings.a11y.retry)
+    expect(r.root.findByType(Title).props.title.slug).toBe('tears-of-steel')
+  })
+
+  it('Continue watching is refetched on the way back to Home after a progress save', async () => {
+    const s = api(); const r = await mount()
+    await onTitle(r)
+    press(r, 'Play Sintel with audio description'); await flush()
+    act(() => r.root.find((n) => (n.type as unknown) === 'KitPlayer').props.onPosition(200))
+    act(() => { back.press() }); await flush() // saves 200, → Title
+    s.calls.length = 0
+    act(() => { back.press() }); await flush() // → Home
+    expect(s.calls).toEqual(['/catalog'])
+    s.calls.length = 0
+    act(() => { back.press() }); await flush() // Home: left to the platform, nothing refetched
+    await onTitle(r); act(() => { back.press() }); await flush()
+    expect(s.calls).not.toContain('/catalog') // no save since: no refetch
+  })
+
   it('Player status line names the caption setting in words', async () => {
     api(); const r = await mount()
     await onTitle(r)

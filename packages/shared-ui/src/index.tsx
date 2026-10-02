@@ -113,12 +113,14 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
       switch (route.name) {
         case 'reading': setRoute({ name: 'title', slug: route.slug }); return true
         case 'title': case 'settings': setRoute({ name: 'home' }); return true
-        case 'player': return false // Player owns Back: it closes the track sheet or saves the position first
+        // A mounted Player owns Back (it closes the track sheet or saves the position first). Without one — the title
+        // still loading, or the offline screen — Back goes to Title rather than leaving the app.
+        case 'player': if (!current || offline) { setRoute({ name: 'title', slug: route.slug }); return true } return false
         default: return false
       }
     })
     return () => sub.remove()
-  }, [route])
+  }, [route, current, offline])
 
   const savePrefs = (p: Partial<Prefs>) => { setPrefs((cur) => ({ ...cur, ...p })); void api('/me/prefs', { method: 'PUT', body: JSON.stringify(p) }).catch(() => {}) }
   // Progress: PUT /me/progress every PROGRESS_SAVE_S of movement while playing, and on Back (then back to Title,
@@ -128,11 +130,22 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   useEffect(() => { savedAt.current = null; savedThisPlay.current = false }, [key])
   // One PUT at a time, in order, so an older position can never land after a newer one.
   const progressQueue = useRef<Promise<unknown>>(Promise.resolve())
+  const catalogStale = useRef(false)
   const saveProgress = (slug: string, positionS: number) => {
-    savedAt.current = positionS; savedThisPlay.current = true
+    savedAt.current = positionS; savedThisPlay.current = true; catalogStale.current = true
     const body = JSON.stringify({ titleSlug: slug, positionS: Math.max(0, Math.round(positionS)) })
     progressQueue.current = progressQueue.current.then(() => api('/me/progress', { method: 'PUT', body })).catch(() => {})
   }
+  // Continue watching: after a save, Home refetches the catalog once the queued saves have landed. The old catalog
+  // stays on screen meanwhile (no skeleton), so Home's focus memory is untouched.
+  const onHome = route.name === 'home'
+  useEffect(() => {
+    if (!onHome || !catalogStale.current) return
+    catalogStale.current = false
+    let live = true, done = false
+    void progressQueue.current.then(() => api<Catalog>('/catalog')).then((c) => { done = true; if (live) setCatalog(c) }).catch(() => { done = true })
+    return () => { live = false; if (!done) catalogStale.current = true } // left Home first: refetch next time
+  }, [onHome, api])
   const leavePlayer = (t: TitleDetail, positionS: number) => {
     // Nothing watched and nothing saved before: no row (it would only say "0 s").
     if (!(positionS < 1 && !t.resumeS && !savedThisPlay.current)) saveProgress(t.slug, positionS)

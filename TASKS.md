@@ -29,6 +29,7 @@ It is the demo, it unblocks DESC-006–009, and it needs no pipeline work: Sinte
   - kit: the Fire OS adapter's seek should set position.current (and honour startAt), so getPosition is right before the next onProgress; the Player works around it with a pending-seek position and a resume seek
 - [ ] DESC-007 · week 2 · Extended mode: per-cue Polly audio, prefetch 10 s, pause–speak–resume, ochre bar, setting
 - [ ] DESC-008 · week 2 · Platform bindings: Content Launcher catalog + intents, Personalization, Media Controls, Alexa pause
+  - exactly one path owns the media keys (Play/Pause, FF/RW): the Player's subscribeKeys today; Media Controls / MediaSession must not handle the same key again (two toggles = no change)
 - [ ] DESC-009 · week 2 · First run + Settings + full VoiceView pass
   - decide where `prefs.adDefault` applies (since DESC-005 the play action picks AD; nothing reads the setting)
 - [ ] DESC-010 · week 3 · Five titles processed; physical 4K Select; TTFF < 2 s (Vega build deferred, decision 0004)

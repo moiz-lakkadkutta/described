@@ -35,6 +35,7 @@ export const strings = {
   },
   player: {
     statusOn: (voice: string, cap: string) => `Description on · ${voice} · ${cap}`, statusOff: (cap: string) => `Description off · ${cap}`, captionsOff: 'Captions off',
+    statusOnNoCaptions: (voice: string) => `Description on · ${voice}`, statusOffNoCaptions: 'Description off',
     loading: 'Loading…', error: 'Playback stopped. Press Select to try again, Back for the title.', extendedBar: 'Describing…',
     ended: 'The end. Press Select to watch again, Back for the title.',
     surface: (name: string) => `Play or pause ${name}`, surfaceHint: 'Left and right skip 10 seconds. Menu changes audio and captions.',
