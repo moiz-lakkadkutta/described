@@ -5,7 +5,7 @@ import type { Cue, KitPlayerRef, PlayerError, PlayerState, Tracks } from '@moizp
 import type { RemoteKey } from '@moizp/vega-media-kit/platform'
 import type { Prefs, TitleDetail } from '@described/contracts'
 import { Focusable, T } from '../components'
-import { subscribeKeys } from '../focus/remote'
+import { subscribeKeys } from '../focus/keys'
 import {
   audioTrackFor, characteristicsByUri, clampSeek, clock, crossfadeAudio, resumePoint, seekStep, statusLine, textSelection,
   SEEK_COMMIT_MS, SEEK_REPEAT_MS, SEEK_STEP_S,
@@ -205,20 +205,22 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
     if (t && ref.current) void crossfadeAudio(ref.current, t.id)
   }
 
-  // Raw keys (Select reaches the surface through spatial navigation; Back through BackHandler).
-  const onKey = useRef<(k: RemoteKey, repeat: boolean) => void>(() => {})
+  // Raw keys (Select reaches the surface through spatial navigation; Back through BackHandler). A key the player acts
+  // on is consumed, so spatial navigation does not also move focus (◄► seek, ▲ opens the sheet). In the sheet only
+  // Menu is taken; ▲▼ and Select move through it.
+  const onKey = useRef<(k: RemoteKey, repeat: boolean) => boolean>(() => false)
   onKey.current = (k, repeat) => {
-    if (k === 'back') return
-    if (sheet) { if (k === 'menu' && !repeat) closeSheet(); return }
+    if (k === 'back') return false
+    if (sheet) { if (k === 'menu') { if (!repeat) closeSheet(); return true } return false }
     showChrome()
     switch (k) {
-      case 'playPause': if (!repeat) toggle(); break
-      case 'play': play(); break
-      case 'pause': ref.current?.pause(); break
-      case 'left': case 'rewind': seekBy(-1, repeat); break
-      case 'right': case 'fastForward': seekBy(1, repeat); break
-      case 'up': case 'menu': if (!repeat) openSheet(); break
-      default: break
+      case 'playPause': if (!repeat) toggle(); return true
+      case 'play': play(); return true
+      case 'pause': ref.current?.pause(); return true
+      case 'left': case 'rewind': seekBy(-1, repeat); return true
+      case 'right': case 'fastForward': seekBy(1, repeat); return true
+      case 'up': case 'menu': if (!repeat) openSheet(); return true
+      default: return false
     }
   }
   useEffect(() => subscribeKeys((k, repeat) => onKey.current(k, repeat)), [])

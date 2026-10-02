@@ -11,7 +11,16 @@ export const SpatialNavigationFocusableView = ({ children, viewProps, onSelect, 
 export const SpatialNavigationNode = ({ children, orientation, onActive }: { children: React.ReactNode | ((s: State) => React.ReactNode); orientation?: string; onActive?: Fn }) =>
   React.createElement('Node', { orientation, onActive }, render(children))
 export const SpatialNavigationScrollView = ({ children }: { children: React.ReactNode }) => React.createElement('ScrollView', null, children)
-export const SpatialNavigationRoot = ({ children }: { children: React.ReactNode }) => <>{children}</>
+/** Subscribes to the configured remote while mounted, like the real root (useRemoteControl); moves are dropped. */
+export const SpatialNavigationRoot = ({ children }: { children: React.ReactNode }) => {
+  React.useEffect(() => {
+    const c = remote.config
+    if (!c) return
+    const handle = c.remoteControlSubscriber(() => {})
+    return () => c.remoteControlUnsubscriber(handle)
+  }, [])
+  return <>{children}</>
+}
 export const DefaultFocus = ({ children, enable = true }: { children: React.ReactNode; enable?: boolean }) => React.createElement('DefaultFocus', { enable }, children)
 export const useLockSpatialNavigation = () => ({ lock: () => { stub.locks++ }, unlock: () => { stub.locks-- } })
 export const remote: { config?: { remoteControlSubscriber: (cb: (d: string | null) => void) => unknown; remoteControlUnsubscriber: (s: unknown) => void } } = {}

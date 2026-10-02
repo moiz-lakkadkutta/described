@@ -11,6 +11,7 @@ import { strings } from '../src/strings'
 import { tokens } from '../src/theme/tokens'
 import { a11yCalls, back } from './stubs/react-native'
 import { kit } from './stubs/kit'
+import { remote } from './stubs/space-navigation'
 import { title } from './fixtures'
 
 const master = readFileSync(path.resolve(__dirname, 'fixtures/master.m3u8'), 'utf8')
@@ -21,6 +22,10 @@ const idOf = (label: string) => [...tracks.audio, ...tracks.text].find((t) => t.
 /** A fake platform key source: `press('right')`, `press('right', true)` for an auto-repeat while held. */
 const listeners = new Set<(k: never, repeat?: boolean) => void>()
 configureRemote((onKey) => { listeners.add(onKey as never); return () => listeners.delete(onKey as never) })
+// Spatial navigation's subscription, as SpatialNavigationRoot makes it: keys reach Player's handler through it, and
+// `moves` records what spatial navigation got after the handlers.
+const moves: string[] = []
+remote.config!.remoteControlSubscriber((d) => { if (d) moves.push(d) })
 const press = (k: string, repeat = false) => act(() => { for (const l of [...listeners]) l(k as never, repeat) })
 
 const prefs: Prefs = { adDefault: true, extendedMode: true, voice: 'Joanna', captionKind: 'sdh', captionScale: 100, captionStyle: 'box', firstRunDone: true }
@@ -378,5 +383,26 @@ describe('extended cues stay with DESC-007', () => {
     report('onCue', [{ trackId: idOf('Description text'), id: 'd1', start: 0, end: 1, text: 'A dragon.', meta: { extended: '1' } }])
     expect(kit.ref.pause).not.toHaveBeenCalled()
     expect(p.speak).not.toHaveBeenCalled()
+  })
+})
+
+describe('keys and spatial navigation (one key path, DESC-009 phase 2)', () => {
+  it('◄► seek, ▲, Menu and Play/Pause are consumed: spatial navigation does not also move', () => {
+    mount(); moves.length = 0
+    press('left'); press('right'); press('up'); press('menu'); press('menu'); press('playPause')
+    expect(moves).toEqual([])
+  })
+  it('in the track sheet ▲▼ and Select still move focus; only Menu is taken (it closes the sheet)', () => {
+    mount(); press('menu'); moves.length = 0
+    press('down'); press('up'); press('select')
+    expect(moves).toEqual(['down', 'up', 'enter'])
+    press('menu')
+    expect(r.root.findAllByProps({ testID: 'track-sheet' })).toHaveLength(0)
+    expect(moves).toEqual(['down', 'up', 'enter'])
+  })
+  it('Select on the surface is left to spatial navigation', () => {
+    mount(); moves.length = 0
+    press('select')
+    expect(moves).toEqual(['enter'])
   })
 })

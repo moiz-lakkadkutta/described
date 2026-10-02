@@ -1,6 +1,6 @@
 import { pickInitialFocus } from '../src/focus/memory'
 import { configureRemote, setDpadGate, toDirection } from '../src/focus/remote'
-import { addKeyHandler } from '../src/focus/keys'
+import { subscribeKeys as addKeyHandler } from '../src/focus/keys'
 import { remote } from './stubs/space-navigation'
 
 describe('pickInitialFocus', () => {
