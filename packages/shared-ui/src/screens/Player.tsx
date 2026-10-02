@@ -36,6 +36,8 @@ const announce = (s: string) => AccessibilityInfo.announceForAccessibility(s)
  */
 export interface PlayerSession {
   slug: string; name: string; state: PlayerState; adOn: boolean; durationS: number | null
+  /** Committed seeks so far (keys, transport, resume): a new value means the position jumped, so bindings republish it. */
+  seeks: number
   /** `seek` is the Player's own seek (clamped, resume-aware), so transport seeks behave like ◄►. */
   controls: { play(): void; pause(): void; seek(s: number): void; getPosition(): number }
 }
@@ -83,6 +85,7 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
   const [chrome, setChrome] = useState(true)
   const [poke, setPoke] = useState(0)
   const [describing, setDescribing] = useState(false)
+  const [seeks, setSeeks] = useState(0)
 
   const pos = useRef(0)
   const startAt = useRef(startAtS != null ? clampSeek(startAtS, title.durationS) : resumePoint(title.resumeS, title.durationS))
@@ -108,7 +111,7 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
     clearPending()
     pendingSeek.current = { target, timer: setTimeout(() => { pendingSeek.current = null }, PENDING_SEEK_MS) }
     ref.current?.seek(target)
-    pos.current = target; setPosition(target)
+    pos.current = target; setPosition(target); setSeeks((n) => n + 1)
   }, [title.durationS, clearPending])
 
   // Rich vs plain captions is an HLS characteristic the kit's TextTrack does not carry: read it from the master.
@@ -162,8 +165,8 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
   }, [seekTo])
   const { slug, name, durationS } = title
   useEffect(() => {
-    onNowPlaying?.({ slug, name, state, adOn, durationS, controls: { play, pause: () => ref.current?.pause(), seek: seekTo, getPosition } })
-  }, [onNowPlaying, slug, name, durationS, state, adOn, play, seekTo, getPosition])
+    onNowPlaying?.({ slug, name, state, adOn, durationS, seeks, controls: { play, pause: () => ref.current?.pause(), seek: seekTo, getPosition } })
+  }, [onNowPlaying, slug, name, durationS, state, adOn, seeks, play, seekTo, getPosition])
   useEffect(() => () => onNowPlaying?.(null), [onNowPlaying])
   useEffect(() => () => { clearTimeout(commit.current); clearPending() }, [clearPending])
 

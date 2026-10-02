@@ -2,6 +2,7 @@
   "expo": {
     "name": "Described",
     "slug": "described",
+    "scheme": "described",
     "version": "0.1.0",
     "orientation": "landscape",
     "userInterfaceStyle": "dark",

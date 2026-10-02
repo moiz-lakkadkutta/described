@@ -8,9 +8,13 @@ export type KeyListener = (code: number, repeat: boolean) => void
 export function createKeyHub() {
   const held = new Set<number>()
   const listeners = new Set<KeyListener>()
+  // Codes another path owns right now (DESC-008: the active media session's PLAY / PAUSE / STOP). Held state is still
+  // tracked, so repeats stay right if ownership changes mid-press; no subscriber ever sees a skipped code.
+  let skip: (code: number) => boolean = () => false
   return {
-    down(code: number) { const repeat = held.has(code); held.add(code); listeners.forEach((l) => l(code, repeat)) },
+    down(code: number) { const repeat = held.has(code); held.add(code); if (skip(code)) return; listeners.forEach((l) => l(code, repeat)) },
     up(code: number) { held.delete(code) },
     subscribe(l: KeyListener) { listeners.add(l); return () => { listeners.delete(l) } },
+    setSkip(f: (code: number) => boolean) { skip = f },
   }
 }

@@ -31,7 +31,15 @@ It is the demo, it unblocks DESC-006–009, and it needs no pipeline work: Sinte
   - kit: the Fire OS adapter's seek should set position.current (and honour startAt), so getPosition is right before the next onProgress; the Player works around it with a pending-seek position and a resume seek
 - [ ] DESC-007 · week 2 · Extended mode: per-cue Polly audio, prefetch 10 s, pause–speak–resume, ochre bar, setting
 - [ ] DESC-008 · week 2 · Platform bindings: Content Launcher catalog + intents, Personalization, Media Controls, Alexa pause
-  - exactly one path owns the media keys (Play/Pause, FF/RW): the Player's subscribeKeys today; Media Controls / MediaSession must not handle the same key again (two toggles = no change)
+  - research + decisions: docs/platform/fire-os-bindings.md; device check: docs/device-checks/DESC-008.md (not run yet)
+  - [x] deep links `described://title/{slug}`, `described://play/{slug}?t=…` (scheme intent filter, Root routing)
+  - [x] Alexa transport via a local MediaSession module (`apps/expo/modules/described-media-session`) — Kotlin not compiled yet; exclude it from autolinking if the release build fails
+  - [x] draft catalog feed `GET /catalog/fire-tv.xml` (CDF shape, unverified against the XSD)
+  - submission time, human + Amazon developer account: ask for catalog integration (select partners only; new partners use EMBER, not CDF); if accepted, upload the feed and do Fire TV launcher integration (`com.amazon.device.CAPABILITIES` broadcast)
+  - not before freeze: Content Personalization (Fire TV Integration SDK jar + data integration service; needs catalog integration) — reporter stays a no-op
+  - merged with DESC-006: bindings consume Player's `onNowPlaying` in Root; one handler per media key (session: 126/127/86, Player keys: 85/89/90)
+  - Vega Content Launcher / journalctl transcript (KICKOFF) deferred with Vega (decision 0004)
+  - exactly one path owns the media keys (Play/Pause, FF/RW): the Player's subscribeKeys today; Media Controls / MediaSession must not handle the same key again (two toggles = no change) — done in DESC-008: the session owns 126/127/86 only while native reports it active, the key hub skips them; Player's subscribeKeys owns 85/89/90
 - [ ] DESC-009 · week 2 · First run + Settings + full VoiceView pass
   - decide where `prefs.adDefault` applies (since DESC-005 the play action picks AD; nothing reads the setting)
 - [ ] DESC-010 · week 3 · Five titles processed; physical 4K Select; TTFF < 2 s (Vega build deferred, decision 0004)

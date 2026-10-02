@@ -16,3 +16,4 @@ export type CatalogItem = z.infer<typeof CatalogItem>
 export type Catalog = z.infer<typeof Catalog>
 export type TitleDetail = z.infer<typeof TitleDetail>
 export type Prefs = z.infer<typeof Prefs>
+export * from './deepLink'

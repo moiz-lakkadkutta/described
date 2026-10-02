@@ -8,6 +8,7 @@ import { setDpadGate } from './focus/remote'
 import { nextCaptionKind, type SampleState } from './models'
 import { FirstRun } from './screens/FirstRun'
 import { Home } from './screens/Home'
+import { usePlatformNowPlaying, useLaunchRoute, type LaunchRoute, type LaunchSource } from './platform'
 import { Player, type PlayerSession } from './screens/Player'
 import { Settings } from './screens/Settings'
 import { Reading, Title } from './screens/Title'
@@ -19,6 +20,9 @@ export * from './components'
 export { configureRemote } from './focus'
 export type { KeySource } from './focus'
 export type { PlayerSession } from './screens/Player'
+export * from './platform'
+export { parseDeepLink } from '@described/contracts'
+export type { LaunchTarget } from '@described/contracts'
 
 type Route = { name: 'home' } | { name: 'title'; slug: string } | { name: 'reading'; slug: string } | { name: 'player'; slug: string; withAd: boolean; startAtS?: number } | { name: 'settings' } | { name: 'firstRun' }
 const noSpeech = async () => {}
@@ -47,6 +51,8 @@ export interface RootProps {
   stopSpeaking?: () => void
   /** The film on screen and its controls, `null` when the player closes — for Media Controls / Alexa (DESC-008). */
   onNowPlaying?: (session: PlayerSession | null) => void
+  /** Deep links (`described://title/…`, `described://play/…`) the app is opened with (DESC-008). Pass a stable function. */
+  launches?: LaunchSource
 }
 
 /**
@@ -54,7 +60,7 @@ export interface RootProps {
  * with fresh focus and its DefaultFocus / focus memory decides where focus lands.
  * Platform entries (apps/expo, apps/vega) pass apiBaseUrl, scale, fonts state and audio; they call configureRemote first.
  */
-export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded = true, speak = noSpeech, stopSpeaking = noStop, onNowPlaying }: RootProps) {
+export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded = true, speak = noSpeech, stopSpeaking = noStop, onNowPlaying, launches }: RootProps) {
   const [route, setRoute] = useState<Route>({ name: 'home' })
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [title, setTitle] = useState<TitleDetail | null>(null)
@@ -65,6 +71,10 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   const [sample, setSample] = useState<SampleState>('idle')
   const shouldHandle = useDpad()
   useEffect(() => { setDpadGate(shouldHandle) }, [shouldHandle])
+  // Media session, Alexa transport and watch activity consume the Player's now-playing; the prop still sees every update.
+  // Root keeps the latest session too: a deep link that replaces the Player saves its position first (exitPlayer).
+  const playerSession = useRef<PlayerSession | null>(null)
+  const nowPlaying = usePlatformNowPlaying((s) => { playerSession.current = s; onNowPlaying?.(s) })
 
   const api = useCallback(async <R,>(path: string, init?: RequestInit): Promise<R> => {
     const ctl = new AbortController()
@@ -146,12 +156,24 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
     void progressQueue.current.then(() => api<Catalog>('/catalog')).then((c) => { done = true; if (live) setCatalog(c) }).catch(() => { done = true })
     return () => { live = false; if (!done) catalogStale.current = true } // left Home first: refetch next time
   }, [onHome, api])
-  const leavePlayer = (t: TitleDetail, positionS: number) => {
+  /**
+   * Leaving a mounted Player — its Back, or a deep link that replaces it: save the position (which marks the catalog
+   * stale, so Home refetches Continue watching), then go to `next` (Title on Back). With no Player mounted (title still
+   * loading, offline) Root's own Back goes to Title and a deep link just navigates: there is no position to save.
+   */
+  const exitPlayer = (t: TitleDetail, positionS: number, next: Route = { name: 'title', slug: t.slug }) => {
     // Nothing watched and nothing saved before: no row (it would only say "0 s").
     if (!(positionS < 1 && !t.resumeS && !savedThisPlay.current)) saveProgress(t.slug, positionS)
     setTitle({ ...t, resumeS: positionS })
-    setRoute({ name: 'title', slug: t.slug })
+    setRoute(next)
   }
+  // A deep link during playback takes the same save path as Back (position as Back reads it: 0 once the film ended).
+  const launchTo = (r: LaunchRoute) => {
+    const s = playerSession.current
+    if (route.name === 'player' && !offline && current && s?.slug === current.slug) exitPlayer(current, s.state === 'ended' ? 0 : s.controls.getPosition(), r)
+    else setRoute(r)
+  }
+  useLaunchRoute(launches, { catalog, holding: offline || route.name === 'firstRun', adDefault: prefs.adDefault, navigate: launchTo })
   const toggleList = (s: string) => setMyList((l) => { const n = new Set(l); if (n.has(s)) n.delete(s); else n.add(s); return n })
   const rail = <Rail current={route.name === 'settings' ? 'settings' : 'home'} items={[{ key: 'home', label: strings.rail.home }, { key: 'described', label: strings.rail.described }, { key: 'list', label: strings.rail.list }, { key: 'settings', label: strings.rail.settings }]} onSelect={(k) => setRoute(k === 'settings' ? { name: 'settings' } : { name: 'home' })} /> // TODO(DESC-011): Described and My list screens; both open Home until then
 
@@ -181,9 +203,9 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
       )
       // TODO(DESC-007): pass `speak` once extended cues carry their own audio; today Player would play the sample clip.
       case 'player': return current ? (
-        <Player title={current} prefs={prefs} withAd={route.withAd} startAtS={route.startAtS} scale={scale} speak={noSpeech} onPrefs={savePrefs} onNowPlaying={onNowPlaying}
+        <Player title={current} prefs={prefs} withAd={route.withAd} startAtS={route.startAtS} scale={scale} speak={noSpeech} onPrefs={savePrefs} onNowPlaying={nowPlaying}
           onProgress={(s) => { if (savedAt.current === null) savedAt.current = s; else if (Math.abs(s - savedAt.current) >= PROGRESS_SAVE_S) saveProgress(current.slug, s) }}
-          onBack={(s) => leavePlayer(current, s)} />
+          onBack={(s) => exitPlayer(current, s)} />
       ) : <Screen><T variant="body">{strings.player.loading}</T></Screen>
       default: return <Screen rail={rail}><Home catalog={catalog} myList={myList} onOpen={(s) => setRoute({ name: 'title', slug: s })} onPlay={(s, withAd) => setRoute({ name: 'player', slug: s, withAd })} onToggleList={toggleList} /></Screen>
     }

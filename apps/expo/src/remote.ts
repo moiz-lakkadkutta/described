@@ -11,5 +11,7 @@ import { createKeyHub } from './keys'
 export const keys = createKeyHub()
 DeviceEventEmitter.addListener('onKeyDown', (e: { keyCode: number }) => keys.down(e.keyCode))
 DeviceEventEmitter.addListener('onKeyUp', (e: { keyCode: number }) => keys.up(e.keyCode))
+/** Keys another path handles right now (the media session's PLAY / PAUSE / STOP while it is active, DESC-008). */
+export const setKeySkip = (f: (keyCode: number) => boolean) => keys.setSkip(f)
 
 export const keySource: KeySource = (onKey) => keys.subscribe((code, repeat) => { const k = mapKey(code); if (k) onKey(k, repeat) })
