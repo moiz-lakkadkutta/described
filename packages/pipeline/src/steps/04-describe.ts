@@ -25,7 +25,7 @@ export const DEFAULT_DESCRIBE_MODEL_ID = 'qwen.qwen3-vl-235b-a22b'
  * Called directly per shot, no agent layer (docs/decisions/0005-describe-direct-bedrock.md); shots run DESCRIBE_CONCURRENCY at a time,
  * replies are cached per shot (cachedDescribe), and the "nothing new" dedupe runs afterwards in time order (dedupe).
  */
-export async function describeShots(ctx: Ctx, send: Converse = bedrockConverse()) {
+export async function describeShots(ctx: Ctx, send: Converse = bedrockConverse(ctx.signal)) {
   const shots = JSON.parse(await readFile(`${ctx.work}/shots.json`, 'utf8')) as Shot[]
   const gaps = JSON.parse(await readFile(`${ctx.work}/gaps.json`, 'utf8')) as Gap[]
   const words = JSON.parse(await readFile(`${ctx.work}/words.json`, 'utf8').catch(() => '[]')) as Word[]
@@ -38,9 +38,9 @@ export async function describeShots(ctx: Ctx, send: Converse = bedrockConverse()
   await writeFile(`${ctx.work}/described.json`, JSON.stringify(dedupe(shots, replies), null, 2))
 }
 
-/** Converse via the SDK; tests inject their own. */
+/** Converse via the SDK, aborted with the job's signal; tests inject their own. */
 export type Converse = (input: ConverseCommandInput) => Promise<Pick<ConverseCommandOutput, 'output' | 'usage' | 'stopReason'>>
-export const bedrockConverse = (): Converse => { const c = new BedrockRuntimeClient({ region: process.env.BEDROCK_REGION ?? 'us-east-1' }); return (i) => c.send(new ConverseCommand(i)) }
+export const bedrockConverse = (abortSignal?: AbortSignal): Converse => { const c = new BedrockRuntimeClient({ region: process.env.BEDROCK_REGION ?? 'us-east-1' }); return (i) => c.send(new ConverseCommand(i), { abortSignal }) }
 
 /** Shots described at once (DESCRIBE_CONCURRENCY, default 4) — Converse quotas are per minute, so keep this small. */
 export const describeConcurrency = () => Math.max(1, Number(process.env.DESCRIBE_CONCURRENCY) || 4)
@@ -79,17 +79,19 @@ export function describeCacheKey(modelId: string, system: string, frames: Uint8A
 
 /**
  * Raw reply for one shot from {work}/cache/describe/{key}.json, else one Converse call whose reply + usage is stored there.
- * A cache hit costs nothing; a miss adds its usage to the job's meter. An unreadable or truncated file is a miss; writes are
- * atomic (temp file + rename), so a crash mid-write never leaves one.
+ * A cache hit costs nothing and reports 0 tokens for this run (the original usage stays in the file); a miss adds its usage to
+ * the job's meter. A reply cut off at max_tokens is not cached. An unreadable or truncated file is a miss; writes are atomic
+ * (temp file + rename), so a crash mid-write never leaves one.
  */
 export async function cachedDescribe(work: string, modelId: string, system: string, frames: Uint8Array[], send: Converse): Promise<RawReply> {
   const file = `${work}/cache/describe/${describeCacheKey(modelId, system, frames)}.json`
   const hit = await readFile(file, 'utf8').then((t) => { try { return JSON.parse(t) as RawReply } catch { return undefined } }, () => undefined)
-  if (hit && typeof hit.text === 'string' && hit.usage) return { ...hit, cached: true }
+  if (hit && typeof hit.text === 'string' && hit.usage) return { ...hit, usage: { inputTokens: 0, outputTokens: 0 }, cached: true }
   const r = await send(buildDescribeRequest(system, frames, modelId))
   // usage.inputTokens / outputTokens — https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html
   const reply: RawReply = { text: replyText(r.output), usage: { inputTokens: r.usage?.inputTokens ?? 0, outputTokens: r.usage?.outputTokens ?? 0 }, stopReason: r.stopReason }
   meter()?.bedrock(modelId, reply.usage)
+  if (reply.stopReason === 'max_tokens') return reply
   await mkdir(dirname(file), { recursive: true })
   const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`
   await writeFile(tmp, JSON.stringify(reply))

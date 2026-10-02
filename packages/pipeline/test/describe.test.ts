@@ -126,6 +126,19 @@ describe('describe cache', () => {
     expect(send).toHaveBeenCalledTimes(2)
     expect((await readdir(join(work, 'cache/describe'))).filter((f) => f.endsWith('.tmp'))).toEqual([]) // written via temp + rename
   })
+  it('reports 0 tokens for this run on a hit (the file keeps the original usage) and never caches a max_tokens reply', async () => {
+    const work = await mkdtemp(join(tmpdir(), 'desc-'))
+    const send = vi.fn<Converse>(async () => reply('Snow falls.'))
+    await cachedDescribe(work, 'm', 'sys', frames, send)
+    const hit = await cachedDescribe(work, 'm', 'sys', frames, send)
+    expect(hit.usage).toEqual({ inputTokens: 0, outputTokens: 0 })
+    expect(dedupe([{ index: 0, startMs: 0, endMs: 1000 }], [hit])[0]).toMatchObject({ tokens: 0, outputTokens: 0 })
+    const [file] = await readdir(join(work, 'cache/describe'))
+    expect(JSON.parse(readFileSync(join(work, 'cache/describe', file!), 'utf8')).usage).toEqual({ inputTokens: 2000, outputTokens: 10 })
+    const cut = vi.fn<Converse>(async () => ({ ...reply('A woman in a red'), stopReason: 'max_tokens' as const }))
+    for (let i = 0; i < 2; i++) expect(await cachedDescribe(work, 'm', 'other', frames, cut)).toMatchObject({ text: 'A woman in a red', stopReason: 'max_tokens' })
+    expect(cut).toHaveBeenCalledTimes(2)
+  })
   it('treats a truncated or malformed cache file as a miss and rewrites it', async () => {
     const work = await mkdtemp(join(tmpdir(), 'desc-'))
     const file = join(work, 'cache/describe', `${describeCacheKey('m', 'sys', frames)}.json`)

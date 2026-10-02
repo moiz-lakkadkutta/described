@@ -27,16 +27,20 @@ export function bedrockUsd(modelId: string, usage: { inputTokens?: number; outpu
 export const transcribeUsd = (seconds: number) => (Math.max(15, Math.ceil(seconds)) / 60) * TRANSCRIBE_PER_MIN
 export const pollyUsd = (chars: number) => (chars * POLLY_NEURAL_PER_M_CHARS) / 1e6
 
-/** Running cost of one job. Steps add to the meter of the job they run in (metered()); outside a job, meter() is undefined. */
+/**
+ * Running cost of one job. Steps add to the meter of the job they run in (metered()); outside a job, meter() is undefined.
+ * It also carries the job's abort signal to AWS calls made outside a step's ctx (the Nova Lite helpers in prompts.ts).
+ */
 export class Meter {
   usd = 0
+  constructor(readonly signal?: AbortSignal) {}
   bedrock(modelId: string, usage: { inputTokens?: number; outputTokens?: number } | undefined) { this.usd += bedrockUsd(modelId, usage) }
   add(usd: number) { this.usd += usd }
 }
 const store = new AsyncLocalStorage<Meter>()
 export const meter = () => store.getStore()
 /** Runs fn with a fresh meter; the cost is returned even when fn throws (attached as err.costUsd). */
-export async function metered<T>(fn: () => Promise<T>): Promise<{ value: T; costUsd: number }> {
-  const m = new Meter()
+export async function metered<T>(fn: () => Promise<T>, signal?: AbortSignal): Promise<{ value: T; costUsd: number }> {
+  const m = new Meter(signal)
   try { return { value: await store.run(m, fn), costUsd: m.usd } } catch (e) { if (e && typeof e === 'object') (e as { costUsd?: number }).costUsd = m.usd; throw e }
 }
