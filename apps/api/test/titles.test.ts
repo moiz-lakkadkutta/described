@@ -26,3 +26,30 @@ describe('GET /titles/:slug', () => {
     expect(findUnique.mock.calls.at(-1)![0].include.progress).toEqual({ where: { profile: { deviceId: 'fireos-abc' } } })
   })
 })
+
+describe('GET /titles/:slug/cues/:cueId/audio (Extended mode, DESC-007)', () => {
+  it('d{n} redirects to the n-th cue\'s published clip on the CDN', async () => {
+    findUnique.mockResolvedValueOnce({ status: 'published', cues: [{ pollyKey: 'published/sintel-90-210/cues/cue_6.mp3' }] })
+    const res = await request(createApp()).get('/titles/sintel-90-210/cues/d7/audio')
+    expect(res.status).toBe(302)
+    expect(res.headers.location).toMatch(/^https:\/\/[^/]+\/published\/sintel-90-210\/cues\/cue_6\.mp3$/)
+    const q = findUnique.mock.calls.at(-1)![0]
+    expect(q.where).toEqual({ slug: 'sintel-90-210' })
+    expect(q.select.cues).toMatchObject({ orderBy: [{ startMs: 'asc' }, { endMs: 'asc' }], skip: 6, take: 1 })
+  })
+  it('404 when the cue has no clip — nothing is synthesised at request time', async () => {
+    findUnique.mockResolvedValueOnce({ status: 'published', cues: [{ pollyKey: null }] })
+    expect((await request(createApp()).get('/titles/sintel-90-210/cues/d1/audio')).status).toBe(404)
+  })
+  it('404 past the last cue, for an unknown or unpublished title, and for an id that is not d{n}', async () => {
+    findUnique.mockResolvedValueOnce({ status: 'published', cues: [] })
+    expect((await request(createApp()).get('/titles/sintel-90-210/cues/d99/audio')).status).toBe(404)
+    findUnique.mockResolvedValueOnce(null)
+    expect((await request(createApp()).get('/titles/nope/cues/d1/audio')).status).toBe(404)
+    findUnique.mockResolvedValueOnce({ status: 'processing', cues: [{ pollyKey: 'k.mp3' }] })
+    expect((await request(createApp()).get('/titles/sintel-90-210/cues/d1/audio')).status).toBe(404)
+    const calls = findUnique.mock.calls.length
+    for (const id of ['d0', 'x1', 'ckabc123', 'd1.mp3']) expect((await request(createApp()).get(`/titles/sintel-90-210/cues/${id}/audio`)).status).toBe(404)
+    expect(findUnique.mock.calls.length).toBe(calls) // rejected before the database
+  })
+})

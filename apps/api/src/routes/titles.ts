@@ -27,10 +27,13 @@ titles.get('/:slug', async (req, res, next) => {
   } catch (e) { next(e) }
 })
 
+/** Description cues in canonical order — start, then end — so `d{n}` is the n-th (packages/pipeline/src/cues.ts). */
+const cueOrder = [{ startMs: 'asc' as const }, { endMs: 'asc' as const }]
+
 /** Descriptions as WebVTT with {extended=1} meta so the app can pause-speak-resume. */
 titles.get('/:slug/descriptions.vtt', async (req, res, next) => {
   try {
-    const t = await db.title.findUnique({ where: { slug: req.params.slug }, include: { cues: { orderBy: { startMs: 'asc' } } } })
+    const t = await db.title.findUnique({ where: { slug: req.params.slug }, include: { cues: { orderBy: cueOrder } } })
     if (!t) throw notFound('Title')
     const ts = (ms: number) => new Date(ms).toISOString().slice(11, 23)
     const body = ['WEBVTT', '', ...t.cues.flatMap((c: (typeof t.cues)[number], i: number) => [`d${i + 1}`, `${ts(c.startMs)} --> ${ts(c.endMs)}`, `${c.text}${c.extended ? ' {extended=1;words=' + c.wordCount + '}' : ''}`, ''])].join('\n')
@@ -38,10 +41,17 @@ titles.get('/:slug/descriptions.vtt', async (req, res, next) => {
   } catch (e) { next(e) }
 })
 
+/**
+ * The Polly clip of description cue `d{n}` (the n-th of the title, see cueOrder), for Extended mode (DESC-007): a 302 to
+ * the clip the pipeline published (10-publish sets pollyKey). Never synthesises at request time — no clip, 404.
+ */
 titles.get('/:slug/cues/:cueId/audio', async (req, res, next) => {
   try {
-    const c = await db.descriptionCue.findUnique({ where: { id: req.params.cueId } })
-    if (!c?.pollyKey) throw notFound('Cue audio')
-    res.redirect(302, cdn(c.pollyKey))
+    const n = /^d([1-9]\d{0,5})$/.exec(req.params.cueId)
+    if (!n) throw notFound('Cue audio')
+    const t = await db.title.findUnique({ where: { slug: req.params.slug }, select: { status: true, cues: { orderBy: cueOrder, skip: Number(n[1]) - 1, take: 1, select: { pollyKey: true } } } })
+    const key = t?.status === 'published' ? t.cues[0]?.pollyKey : null
+    if (!key) throw notFound('Cue audio')
+    res.set('Cache-Control', 'public, max-age=300').redirect(302, cdn(key))
   } catch (e) { next(e) }
 })
