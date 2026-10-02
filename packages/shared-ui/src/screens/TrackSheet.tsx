@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { View } from 'react-native'
 import { SpatialNavigationNode } from 'react-tv-space-navigation'
 import { Focusable, T } from '../components'
@@ -31,12 +31,18 @@ const captionItems: { kind: CaptionKind; text: string; label: string }[] = [
  */
 export function TrackSheet({ voice, adOn, captionKind, extendedMode, initial, onAudio, onCaptions, onExtended, onFocusItem }: TrackSheetProps) {
   const first: SheetItem = initial ?? (adOn ? 'ad' : 'original')
-  const item = (id: SheetItem, text: string, label: string, selected: boolean, onPress: () => void) => (
-    <Focusable key={id} label={label} selected={selected} defaultFocus={id === first} onFocus={() => onFocusItem(id)} onPress={onPress} testID={`sheet:${id}`}
+  // The panel's name rides on the first item's announcement (one utterance; a separate announce would be cut off
+  // by the focus announcement). Once focus has moved, items read their own labels only.
+  const [named, setNamed] = useState(false)
+  const item = (id: SheetItem, text: string, base: string, selected: boolean, onPress: () => void) => {
+    const label = !named && id === first ? `${S.heading}. ${base}` : base
+    return (
+    <Focusable key={id} label={label} selected={selected} defaultFocus={id === first} onFocus={() => { onFocusItem(id); if (id !== first) setNamed(true) }} onPress={onPress} testID={`sheet:${id}`}
       style={{ paddingVertical: px(14), paddingHorizontal: px(24), backgroundColor: tokens.color.surface1 }} focusedStyle={{ backgroundColor: tokens.color.surface3 }}>
       <T variant="body">{text}</T>
     </Focusable>
-  )
+    )
+  }
   const heading = (text: string) => <T variant="label" color={tokens.color.textSecondary} style={{ marginTop: px(24), marginBottom: px(4) }}>{text.toUpperCase()}</T>
   return (
     <View style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: px(640), backgroundColor: tokens.color.surface1, paddingHorizontal: px(48), paddingVertical: px(tokens.layout.safeY) }}

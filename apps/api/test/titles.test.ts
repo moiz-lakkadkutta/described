@@ -26,6 +26,12 @@ describe('GET /titles/:slug', () => {
     expect(res.body.data.resumeS).toBe(321)
     expect(findUnique.mock.calls.at(-1)![0].include.progress).toEqual({ where: { profile: { deviceId: 'fireos-abc' } } })
   })
+  it("badges carry 'extended' when the title has extended cues, as /catalog does", async () => {
+    findUnique.mockResolvedValueOnce(row)
+    expect((await request(createApp()).get('/titles/sintel-90-210')).body.data.badges).toEqual(['ad', 'sdh', 'extended'])
+    findUnique.mockResolvedValueOnce({ ...row, _count: { cues: 0 } })
+    expect((await request(createApp()).get('/titles/sintel-90-210')).body.data.badges).toEqual(['ad', 'sdh'])
+  })
 })
 
 describe('GET /titles/:slug/cues/:cueId/audio (Extended mode, DESC-007)', () => {

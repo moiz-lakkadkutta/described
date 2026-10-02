@@ -1,7 +1,8 @@
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { FAILED_QUEUE, handleDeadLetter, handleJob, JOB_STEPS, persist, QUEUE_OPTIONS, queueName, registerPipeline, type Db, type JobStep } from '../src/jobs'
+import { EventEmitter } from 'node:events'
+import { FAILED_QUEUE, handleDeadLetter, stopOnSignals, handleJob, JOB_STEPS, persist, QUEUE_OPTIONS, queueName, registerPipeline, type Db, type JobStep } from '../src/jobs'
 import { meter } from '../src/cost'
 import type { Ctx } from '../src/steps'
 
@@ -16,7 +17,8 @@ function fakes() {
     job: {
       upsert: vi.fn(async ({ where, create, update }: { where: { id: string }; create: Record<string, unknown>; update: Record<string, unknown> }) => { const r = jobs.get(where.id); if (r) inc(r, update); else jobs.set(where.id, { costUsd: 0, ...create }) }),
       update: vi.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => inc(jobs.get(where.id)!, data)),
-      updateMany: vi.fn(async ({ where, data }: { where: { status: { in: string[] } }; data: Record<string, unknown> }) => { for (const r of jobs.values()) if (where.status.in.includes(r.status as string)) inc(r, data) }),
+      findUnique: vi.fn(async ({ where }: { where: { id: string } }) => jobs.get(where.id) ?? null),
+      count: vi.fn(async ({ where }: { where: { id: { not: string }; startedAt: { gt: Date } } }) => [...jobs.values()].filter((r) => r.id !== where.id.not && (r.startedAt as Date) > where.startedAt.gt).length),
     },
     shot: {
       deleteMany: vi.fn(async () => { shots = [] }), createMany: vi.fn(async ({ data }: { data: Array<Record<string, unknown>> }) => { shots.push(...data) }),
@@ -77,15 +79,38 @@ describe('pipeline jobs', () => {
     expect(warn).toHaveBeenCalled()
     warn.mockRestore()
   })
-  it('dead letter: closes running rows and fails the title', async () => {
+  it('dead letter: closes only its own row and fails the title', async () => {
     const f = fakes()
-    f.jobs.set('d1', { titleId: 't1', step: 'describe', status: 'running' })
-    f.jobs.set('s1', { titleId: 't1', step: 'shots', status: 'done' })
+    f.jobs.set('d1', { id: 'd1', titleId: 't1', step: 'describe', status: 'running', startedAt: new Date(1000) })
+    f.jobs.set('o1', { id: 'o1', titleId: 't1', step: 'shots', status: 'running', startedAt: new Date(500) }) // someone else's row
     f.title.status = 'processing'
-    await handleDeadLetter('t1', f.db)
+    await handleDeadLetter({ titleId: 't1', step: 'describe', jobId: 'd1' }, f.db)
     expect(f.jobs.get('d1')).toMatchObject({ status: 'failed', error: expect.stringContaining('dead letter') })
-    expect(f.jobs.get('s1')!.status).toBe('done')
+    expect(f.jobs.get('o1')!.status).toBe('running')
     expect(f.title.status).toBe('failed')
+  })
+  it('dead letter: leaves the title alone when a newer job has started (a forced re-run)', async () => {
+    const f = fakes()
+    f.jobs.set('d1', { id: 'd1', titleId: 't1', step: 'describe', status: 'retrying', startedAt: new Date(1000) })
+    f.jobs.set('n1', { id: 'n1', titleId: 't1', step: 'probe', status: 'running', startedAt: new Date(2000) })
+    f.title.status = 'processing'
+    await handleDeadLetter({ titleId: 't1', step: 'describe', jobId: 'd1' }, f.db)
+    expect(f.jobs.get('d1')!.status).toBe('failed')
+    expect(f.title.status).toBe('processing')
+  })
+  it('marks the Job row done before enqueueing the next step, which carries its own id in its data', async () => {
+    const f = fakes()
+    await handleJob('fit', job('f2'), { boss: f.boss as never, db: f.db, run: vi.fn(async () => {}) })
+    const done = f.raw.job.update.mock.invocationCallOrder[0]!
+    expect(done).toBeLessThan(f.boss.send.mock.invocationCallOrder[0]!)
+    const [queue, data, opts] = f.boss.send.mock.calls[0] as unknown as [string, { jobId: string }, { id: string }]
+    expect([queue, data, opts]).toEqual(['pipeline-finish', { titleId: 't1', step: 'finish', jobId: opts.id }, { id: expect.any(String), singletonKey: 't1' }])
+  })
+  it('does not enqueue the next step when marking the Job row done fails', async () => {
+    const f = fakes()
+    f.raw.job.update.mockRejectedValueOnce(new Error('db down'))
+    await expect(handleJob('fit', job('f3'), { boss: f.boss as never, db: f.db, run: vi.fn(async () => {}) })).rejects.toThrow('db down')
+    expect(f.boss.send).not.toHaveBeenCalled()
   })
   it('enqueues the next step by titleId and records a Job row with cost per step', async () => {
     const f = fakes()
@@ -98,7 +123,7 @@ describe('pipeline jobs', () => {
       }
     })
     expect(ran).toEqual([['fit', 'work/sintel'], ['finish', 'work/sintel']])
-    expect(f.boss.send).toHaveBeenCalledWith('pipeline-finish', { titleId: 't1' }, { singletonKey: 't1' })
+    expect(f.boss.send).toHaveBeenCalledWith('pipeline-finish', { titleId: 't1', step: 'finish', jobId: expect.any(String) }, { id: expect.any(String), singletonKey: 't1' })
     expect(f.boss.send).toHaveBeenCalledTimes(1) // nothing after finish
     expect(f.jobs.get('j4')).toMatchObject({ titleId: 't1', step: 'fit', status: 'done', costUsd: 0.01, startedAt: expect.any(Date), finishedAt: expect.any(Date) })
     expect(f.title.status).toBe('published')
@@ -168,4 +193,18 @@ describe('pipeline jobs', () => {
     expect(f.boss.send).not.toHaveBeenCalled()
   })
   it('names queues pipeline-<step>', () => { expect(queueName('probe')).toBe('pipeline-probe') })
+  it('stops pg-boss gracefully once on SIGTERM/SIGINT, then closes and exits', async () => {
+    const proc = Object.assign(new EventEmitter(), { exit: vi.fn() })
+    const boss = { stop: vi.fn(async () => {}) }
+    const close = vi.fn(async () => {})
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    stopOnSignals(boss, close, proc as never)
+    proc.emit('SIGTERM'); proc.emit('SIGINT')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(boss.stop).toHaveBeenCalledTimes(1)
+    expect(boss.stop).toHaveBeenCalledWith({ graceful: true, timeout: 30_000 })
+    expect(close).toHaveBeenCalled()
+    expect(proc.exit).toHaveBeenCalledWith(0)
+    vi.restoreAllMocks()
+  })
 })

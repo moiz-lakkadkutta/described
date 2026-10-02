@@ -25,20 +25,24 @@ export async function sdh(ctx: Ctx) {
   await writeFile(`${ctx.work}/descriptions.vtt`, descriptionsVtt(cues)) // ids d{n}: see ../cues
 }
 
-/** Sentence/clause segmentation to ≤ 42 chars × 2 lines, 1–7 s, ≤ 20 cps. An overlong sentence breaks after its last `,;:` word. */
+/**
+ * Sentence/clause segmentation to ≤ 42 chars × 2 lines, 1–7 s, ≤ 20 cps. An overlong sentence breaks after its last `,;:` word.
+ * "Overlong" means the buffer plus the next word would need more than maxLines lines under the same greedy breaker wrap() uses —
+ * a character budget (maxChars × maxLines) is not enough: long words at a break leave lines short, and the third line was dropped.
+ */
 export function segment(words: Word[], maxChars = 42, maxLines = 2, maxS = 7): Cue[] {
   const out: Cue[] = []
   let buf: Word[] = []
+  const text = (ws: Word[]) => ws.map((w) => w.text).join(' ').replace(/\s([,.!?])/g, '$1')
   const flush = () => {
     if (!buf.length) return
-    const text = wrap(buf.map((w) => w.text).join(' ').replace(/\s([,.!?])/g, '$1'), maxChars, maxLines)
-    out.push({ trackId: 'captions', id: `c${out.length + 1}`, start: buf[0]!.start, end: Math.max(buf.at(-1)!.end, buf[0]!.start + 1), text, ...(buf[0]!.speaker ? { speaker: buf[0]!.speaker } : {}) })
+    out.push({ trackId: 'captions', id: `c${out.length + 1}`, start: buf[0]!.start, end: Math.max(buf.at(-1)!.end, buf[0]!.start + 1), text: wrap(text(buf), maxChars, maxLines), ...(buf[0]!.speaker ? { speaker: buf[0]!.speaker } : {}) })
     buf = []
   }
-  const len = () => buf.map((x) => x.text).join(' ').length
+  const overflows = (w: Word) => greedyLines(text([...buf, w]), maxChars).length > maxLines
   for (const w of words) {
     // overflow: flush up to the last clause boundary and re-test the carried rest; no boundary → flush everything
-    while (buf.length && len() + w.text.length + 1 > maxChars * maxLines) { const j = lastClause(buf); if (j < 0) { flush(); break } const rest = buf.slice(j + 1); buf = buf.slice(0, j + 1); flush(); buf = rest }
+    while (buf.length && overflows(w)) { const j = lastClause(buf); if (j < 0) { flush(); break } const rest = buf.slice(j + 1); buf = buf.slice(0, j + 1); flush(); buf = rest }
     if (buf.length && (w.end - buf[0]!.start > maxS || (buf[0]!.speaker && w.speaker !== buf[0]!.speaker))) flush()
     buf.push(w)
     if (/[.!?]$/.test(w.text)) flush()
@@ -48,19 +52,24 @@ export function segment(words: Word[], maxChars = 42, maxLines = 2, maxS = 7): C
 }
 /** Index of the last word ending a clause (`,;:`), ignoring the first quarter of the buffer (a lone "No," opener would be a 1 s cue); -1 when none. */
 const lastClause = (buf: Word[]) => { for (let j = buf.length - 2; j >= Math.max(1, Math.ceil(buf.length / 4) - 1); j--) if (/[,;:]$/.test(buf[j]!.text)) return j; return -1 }
-/** Greedy wrap, but a first line ending at a clause boundary (≥ half a line long) wins when the rest still fits the remaining lines. */
+/** Greedy line breaker: each line takes words while it stays ≤ maxChars (a single longer word gets a line of its own). */
+const greedyLines = (t: string, maxChars: number) => { const lines: string[] = []; let cur = ''; for (const w of t.split(' ')) { if ((cur + ' ' + w).trim().length > maxChars && cur) { lines.push(cur); cur = w } else cur = (cur + ' ' + w).trim() } if (cur) lines.push(cur); return lines }
+/**
+ * Greedy wrap, but a first line ending at a clause boundary (≥ half a line long) wins when the rest still fits the remaining lines.
+ * Never drops text: input that needs more than maxLines greedy lines is a segment() bug, so it throws.
+ */
 export function wrap(text: string, maxChars: number, maxLines: number): string {
-  const greedy = (t: string) => { const lines: string[] = []; let cur = ''; for (const w of t.split(' ')) { if ((cur + ' ' + w).trim().length > maxChars && cur) { lines.push(cur); cur = w } else cur = (cur + ' ' + w).trim() } if (cur) lines.push(cur); return lines }
-  const lines = greedy(text)
+  const lines = greedyLines(text, maxChars)
+  if (lines.length > maxLines) throw new Error(`wrap: text needs ${lines.length} lines, more than ${maxLines}: ${JSON.stringify(text)}`)
   if (lines.length > 1) {
     const ws = text.split(' ')
     for (let k = ws.length - 1; k > 0; k--) {
       const head = ws.slice(0, k).join(' ')
       if (head.length > maxChars || !/[,;:]$/.test(head)) continue
-      const rest = greedy(ws.slice(k).join(' '))
+      const rest = greedyLines(ws.slice(k).join(' '), maxChars)
       if (head.length >= maxChars / 2 && rest.length <= maxLines - 1) return [head, ...rest].join('\n')
       break
     }
   }
-  return lines.slice(0, maxLines).join('\n')
+  return lines.join('\n')
 }

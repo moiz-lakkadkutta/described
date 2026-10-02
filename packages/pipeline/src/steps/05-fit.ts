@@ -60,15 +60,15 @@ async function capExtended(text: string, shorten: (text: string, maxWords: numbe
  */
 export const introducesNew = (description: string) => /\b(words appear|night\.|day\.|a (man|woman|girl|boy)|rooftop|room|street)\b/i.test(description)
 
-/** Words a shortening may add without changing a fact. No pronouns: an added "her" or "he" can name the wrong person. */
-const STOPWORDS = new Set(['a', 'an', 'the', 'and', 'or', 'of', 'in', 'on', 'at', 'to', 'into', 'onto', 'by', 'with', 'from', 'for', 'as', 'is', 'are', 'its', 'this', 'that', 'then'])
+/** The only words a shortening may add. Prepositions and pronouns change facts ("runs from" → "runs to", an added "her"). */
+const STOPWORDS = new Set(['a', 'an', 'the', 'and'])
 /** Dropping any of these flips the meaning, so a shortening must keep every one the original has. */
 const NEGATIONS = new Set(['not', 'no', 'never', 'without', 'nobody', 'nothing', 'none', 'neither', 'nor', "n't", "don't", "doesn't", "isn't", "aren't", "can't", "won't"])
 const tokens = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}\s'-]/gu, ' ').split(/\s+/).filter(Boolean)
 
 /**
  * A shortening keeps the facts when its content words appear in the original in the same order (exact tokens, case-insensitive,
- * punctuation stripped — "wing" → "wings" fails, "dog chases cat" → "cat chases dog" fails), only STOPWORDS are added, and every
+ * punctuation stripped — "wing" → "wings" fails, "dog chases cat" → "cat chases dog" fails), only a/an/the/and are added, and every
  * negation of the original survives.
  */
 export function preservesFacts(original: string, shortened: string): boolean {
@@ -83,23 +83,33 @@ export function preservesFacts(original: string, shortened: string): boolean {
   return true
 }
 
-/** Size, shape, age and manner words dropped first. Colours stay: they are facts the prompt asks for. */
-const ADJECTIVES = new Set(['large', 'small', 'big', 'little', 'tiny', 'huge', 'giant', 'tall', 'short', 'long', 'wide', 'narrow', 'thick', 'thin', 'heavy', 'old', 'young', 'ancient', 'empty', 'full', 'bright', 'dim', 'faint', 'soft', 'rough', 'smooth', 'sharp', 'wooden', 'snowy', 'rocky', 'icy', 'dusty', 'muddy', 'wet', 'dry', 'distant', 'nearby', 'vast', 'massive', 'slender', 'ornate', 'simple', 'various', 'several'])
+/** Size, shape, age and texture words dropped first. Colours stay (facts the prompt asks for); so do words that are often nouns or facts (giant, full, empty). */
+const ADJECTIVES = new Set(['large', 'small', 'big', 'little', 'tiny', 'huge', 'tall', 'short', 'long', 'wide', 'narrow', 'thick', 'thin', 'heavy', 'old', 'young', 'ancient', 'bright', 'dim', 'faint', 'soft', 'rough', 'smooth', 'sharp', 'wooden', 'snowy', 'rocky', 'icy', 'dusty', 'muddy', 'wet', 'dry', 'distant', 'nearby', 'vast', 'massive', 'slender', 'ornate', 'simple', 'various', 'several'])
 /** Clause boundaries: after a comma/semicolon/sentence end, or before a joining word (kept with the clause it opens). */
 const CLAUSE = /(?<=[,;.!?])\s+|\s+(?=(?:and|while|as|then|who|which|holding|wearing)\b)/i
 const KEEP_BEFORE = new Set(['is', 'are', 'looks', 'seems', 'becomes'])
+/** Manner adverbs only, listed (a -ly rule ate "Emily" and "butterfly"); never nearly/almost/barely/only, which carry facts. */
+const ADVERBS = new Set(['slowly', 'quickly', 'suddenly', 'gently', 'quietly', 'softly', 'carefully', 'briefly', 'slightly', 'rapidly', 'swiftly', 'steadily', 'firmly', 'tightly', 'calmly', 'silently', 'gracefully', 'cautiously'])
+const ARTICLES = new Set(['a', 'an', 'the'])
+const JOINERS = new Set(['and', 'while', 'as', 'then', 'who', 'which'])
+/** After the candidate: a present-tense verb in house style ("walks", "runs") or a joining word — so the candidate is a noun (the subject). A candidate that itself ends the clause ("the old.") has punctuation and is never dropped. */
+const verbOrEnd = (next: string) => JOINERS.has(next.toLowerCase().replace(/[^a-z]/g, '')) || /^\p{Ll}+[^s]s[,;.!?]?$/u.test(next)
 
 /**
- * Deterministic shortening (PLAN §4.3): drop adjectives and -ly adverbs that modify a following word, then drop clauses from the
- * end (sentence by sentence) until the text fits. Only removes words, so it never changes a fact. May still not fit; fit() decides.
+ * Deterministic shortening (PLAN §4.3): drop listed adjectives and adverbs that modify a following word, then drop clauses from
+ * the end (sentence by sentence) until the text fits. Never drops a capitalised word mid-sentence (a name), nor an adjective used
+ * as a noun ("the old walks": after an article, before a verb or the clause end). Only removes words. May still not fit; fit() decides.
  */
 export function shortenDeterministic(text: string, maxWords: number): string {
   if (words(text) <= maxWords) return text
   const w = text.trim().split(/\s+/)
   const lean = w.filter((x, i) => {
-    const bare = x.toLowerCase().replace(/[^a-z]/g, '')
-    const modifies = i < w.length - 1 && /^[\p{L}]+$/u.test(x) && !KEEP_BEFORE.has((w[i - 1] ?? '').toLowerCase())
-    return !(modifies && (ADJECTIVES.has(bare) || (/ly$/.test(bare) && bare.length > 4 && !['only', 'family', 'belly', 'jelly'].includes(bare))))
+    const prev = (w[i - 1] ?? '').toLowerCase(), next = w[i + 1]
+    const opensSentence = i === 0 || /[.!?]$/.test(prev)
+    if (next === undefined || !/^\p{L}+$/u.test(x) || KEEP_BEFORE.has(prev) || (/^\p{Lu}/u.test(x) && !opensSentence)) return true
+    const bare = x.toLowerCase()
+    if (ADVERBS.has(bare)) return false
+    return !(ADJECTIVES.has(bare) && !((ARTICLES.has(prev) || opensSentence) && verbOrEnd(next)))
   }).join(' ').replace(/(^|[.!?]\s+)(\p{Ll})/gu, (_, a: string, c: string) => a + c.toUpperCase()) // "Large white rock." → "White rock."
   if (words(lean) <= maxWords) return lean
   const clauses = lean.split(CLAUSE)

@@ -99,6 +99,7 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
   const [error, setError] = useState(false)
   const [attempt, setAttempt] = useState(0)
   const [tracks, setTracks] = useState<Tracks>({ audio: [], text: [] })
+  const [tracksKnown, setTracksKnown] = useState(false)
   const [chars, setChars] = useState<Map<string, string[]> | null>(null)
   const [cues, setCues] = useState<Cue[]>([])
   const [adOn, setAdOn] = useState(withAd) // the chosen action wins over the default
@@ -284,7 +285,7 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
   }
   const retry = () => {
     startAt.current = getPosition(); seekedToStart.current = false; clearPending()
-    setError(false); setState('idle'); setTracks({ audio: [], text: [] }); setAttempt((a) => a + 1)
+    setError(false); setState('idle'); setTracks({ audio: [], text: [] }); setTracksKnown(false); setAttempt((a) => a + 1)
   }
   const seekBy = (dir: 1 | -1, repeat: boolean) => {
     const now = Date.now()
@@ -304,8 +305,8 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
     }, SEEK_COMMIT_MS)
   }
   const openSheet = () => {
-    if (endExtended('cancel')) ref.current?.play()
-    setSheet(true); announce(strings.tracks.heading)
+    if (endExtended('cancel')) ref.current?.play() // Menu during an extended pause: the clip stops, the film plays on
+    setSheet(true) // TrackSheet folds its name into the first item's announcement
   }
   const closeSheet = () => { setSheet(false); showChrome() }
   const chooseAudio = (on: boolean) => {
@@ -368,7 +369,7 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
   const shownPos = scrub ?? position
   const duration = title.durationS ?? 0
   const fraction = duration ? Math.min(1, shownPos / duration) : 0
-  const status = statusLine({ state, error, adOn, voice: title.voice, caption: selection.kind }) // what is really on screen
+  const status = statusLine({ state, error, adOn, voice: title.voice, caption: tracksKnown ? selection.kind : null }) // what is really on screen; nothing before the tracks are known
   const visibleCues = cues.filter((c) => c.trackId === selection.shown)
   const insetY = tokens.layout.safeY + (chromeShown ? CHROME_BOTTOM : 0)
 
@@ -380,7 +381,7 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
         source={{ uri: title.manifestUrl, type: 'hls' }}
         autoplay startAt={startAt.current}
         preferredAudio={{ role: adOn ? 'description' : 'main' }}
-        onTracks={(t: Tracks) => { tracksRef.current = t; setTracks(t) }}
+        onTracks={(t: Tracks) => { tracksRef.current = t; setTracks(t); setTracksKnown(true) }}
         onCue={setCues} onState={onState} onError={onError}
         onPosition={(s: number) => {
           const p = pendingSeek.current

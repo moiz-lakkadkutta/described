@@ -41,7 +41,7 @@ const LITE = () => process.env.NOVA_LITE_MODEL_ID ?? 'amazon.nova-lite-v1:0'
 
 /** The model half of fit's shortening; fit accepts its reply only through safeShorten (no new content words). */
 export async function shortenWithNovaLite(text: string, maxWords: number, language: 'en' | 'de'): Promise<string> {
-  const r = await client().send(new ConverseCommand({ modelId: LITE(), system: [{ text: `Shorten audio description to at most ${maxWords} words. Remove adjectives first, then clauses. Keep present tense and the most plot-relevant fact. ${language === 'de' ? 'German.' : 'English.'} Reply with the sentence only.` }], messages: [{ role: 'user', content: [{ text }] }], inferenceConfig: { maxTokens: 80, temperature: 0 } }))
+  const r = await client().send(new ConverseCommand({ modelId: LITE(), system: [{ text: `Shorten audio description to at most ${maxWords} words. Remove adjectives first, then clauses. Keep present tense and the most plot-relevant fact. ${language === 'de' ? 'German.' : 'English.'} Reply with the sentence only.` }], messages: [{ role: 'user', content: [{ text }] }], inferenceConfig: { maxTokens: 80, temperature: 0 } }), { abortSignal: meter()?.signal })
   meter()?.bedrock(LITE(), r.usage)
   return (r.output?.message?.content?.[0]?.text ?? text).trim()
 }
@@ -67,7 +67,7 @@ export async function sdhWithNovaLite(captions: Cue[], descriptions: FitCue[], l
     // https://docs.aws.amazon.com/nova/latest/userguide/concept-chapter-servicename.html · https://docs.aws.amazon.com/bedrock/latest/userguide/structured-output.html
     toolConfig: { tools: [{ toolSpec: { name: 'emit_sdh', description: 'Return the SDH cue list', inputSchema: { json: SDH_TOOL_SCHEMA } } }], toolChoice: { tool: { name: 'emit_sdh' } } },
     inferenceConfig: { maxTokens: 4000, temperature: 0 },
-  }))
+  }), { abortSignal: meter()?.signal })
   meter()?.bedrock(LITE(), r.usage)
   const content = r.output?.message?.content ?? []
   return readSdhReply(content.find((c) => c.toolUse)?.toolUse?.input ?? content.find((c) => c.text)?.text ?? '', captions)

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readdir, writeFile } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildDescribeRequest, cachedDescribe, dedupe, describeCacheKey, describeConcurrency, keyframeArgs, keyframeTimes, knownNames, mapLimit, parseDescription, replyText, type Converse, type RawReply } from '../src/steps/04-describe'
+import { buildDescribeRequest, cachedDescribe, clampKeyframeTimes, dedupe, describeCacheKey, describeConcurrency, KEYFRAME_END_GUARD_MS, keyframeArgs, keyframeTimes, knownNames, mapLimit, parseDescription, parseVideoDurationMs, replyText, type Converse, type RawReply } from '../src/steps/04-describe'
 import { wordsFromTranscribe, type Word } from '../src/steps/03-speech'
 import { metered } from '../src/cost'
 import { describeSystemPrompt } from '../src/prompts'
@@ -61,6 +61,18 @@ describe('key frames', () => {
   // Gate C raters: cuts land ~2 frames late, so the tail of a shot can already show the next one.
   it('keeps clear of the last 100 ms so frames of the next shot are not sent', () => {
     for (const [a, b] of [[0, 1000], [0, 1500], [3000, 4600], [0, 8000], [0, 30000]] as const) expect(Math.max(...keyframeTimes(a, b))).toBeLessThan(b - 100)
+  })
+  // shots end at format.duration (the longest stream); the mezz video stream can end earlier, and a seek past it writes no JPEG.
+  it('clamps key-frame times to just before the end of the video stream', () => {
+    expect(KEYFRAME_END_GUARD_MS).toBe(100)
+    expect(clampKeyframeTimes([500, 1500, 59950, 60200], 60000)).toEqual([500, 1500, 59900, 59900])
+    expect(clampKeyframeTimes([500, 1500], 60000)).toEqual([500, 1500])
+    expect(clampKeyframeTimes([50], 80)).toEqual([0])
+  })
+  it('reads the video stream duration (ms) from ffprobe output and throws when it is missing', () => {
+    expect(parseVideoDurationMs('59.958333\n')).toBe(59958)
+    expect(() => parseVideoDurationMs('N/A\n')).toThrow(/video stream duration/)
+    expect(() => parseVideoDurationMs('')).toThrow(/video stream duration/)
   })
   it('builds a single-frame ffmpeg grab: seek before input, ≤ 1024 wide keeping aspect, JPEG q 3', () => {
     const args = keyframeArgs('work/x/mezz.mp4', 12.3456, 'work/x/frames/shot_3_0.jpg')
@@ -125,6 +137,19 @@ describe('describe cache', () => {
     await cachedDescribe(work, 'qwen.qwen3-vl-235b-a22b', 'other prompt', frames, send) // new budget or names → new key
     expect(send).toHaveBeenCalledTimes(2)
     expect((await readdir(join(work, 'cache/describe'))).filter((f) => f.endsWith('.tmp'))).toEqual([]) // written via temp + rename
+  })
+  it('reports 0 tokens for this run on a hit (the file keeps the original usage) and never caches a max_tokens reply', async () => {
+    const work = await mkdtemp(join(tmpdir(), 'desc-'))
+    const send = vi.fn<Converse>(async () => reply('Snow falls.'))
+    await cachedDescribe(work, 'm', 'sys', frames, send)
+    const hit = await cachedDescribe(work, 'm', 'sys', frames, send)
+    expect(hit.usage).toEqual({ inputTokens: 0, outputTokens: 0 })
+    expect(dedupe([{ index: 0, startMs: 0, endMs: 1000 }], [hit])[0]).toMatchObject({ tokens: 0, outputTokens: 0 })
+    const [file] = await readdir(join(work, 'cache/describe'))
+    expect(JSON.parse(readFileSync(join(work, 'cache/describe', file!), 'utf8')).usage).toEqual({ inputTokens: 2000, outputTokens: 10 })
+    const cut = vi.fn<Converse>(async () => ({ ...reply('A woman in a red'), stopReason: 'max_tokens' as const }))
+    for (let i = 0; i < 2; i++) expect(await cachedDescribe(work, 'm', 'other', frames, cut)).toMatchObject({ text: 'A woman in a red', stopReason: 'max_tokens' })
+    expect(cut).toHaveBeenCalledTimes(2)
   })
   it('treats a truncated or malformed cache file as a miss and rewrites it', async () => {
     const work = await mkdtemp(join(tmpdir(), 'desc-'))

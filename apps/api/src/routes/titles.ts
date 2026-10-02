@@ -15,7 +15,7 @@ titles.get('/:slug', async (req, res, next) => {
     const sample = t.cues[0]
     ok(res, {
       slug: t.slug, name: t.name, year: t.year, durationS: t.durationS, posterUrl: t.posterKey ? cdn(t.posterKey) : null,
-      badges: ['ad', 'sdh'], extendedCount: t._count.cues, // cues above is the first extended cue only (the sample)
+      badges: ['ad', 'sdh', ...(t._count.cues ? (['extended'] as const) : [])], extendedCount: t._count.cues, // cues above is the first extended cue only (the sample)
       resumeS: t.progress[0]?.positionS ?? null, // this device's saved position (PUT /me/progress); the Player resumes from it
       synopsis: t.synopsis, attribution: t.attribution, voice: t.voice,
       manifestUrl: cdn(`published/${t.slug}/master.m3u8`),

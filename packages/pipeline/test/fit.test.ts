@@ -35,6 +35,10 @@ describe('probe', () => {
     for (const [k, v] of [['-profile:v', 'high'], ['-level:v', '4.0'], ['-maxrate', '16M'], ['-bufsize', '24M'], ['-force_key_frames', 'expr:gte(t,n_forced*4)'], ['-sc_threshold', '0']] as const) expect(pair(args, k)).toBe(v)
     expect(args.at(-1)).toBe('work/x/mezz.mp4')
   })
+  it('maps only the first video and first audio stream and drops subtitle and data streams', () => {
+    const args = mezzanineArgs('work/x', 24)
+    expect(args.slice(0, 9)).toEqual(['-y', '-i', 'work/x/source.mp4', '-map', '0:v:0', '-map', '0:a:0', '-sn', '-dn'])
+  })
   it('caps frame rate at 30 for sources above 30 fps so Level 4.0 holds', () => {
     expect(pair(mezzanineArgs('work/x', 60), '-vf')).toMatch(/,fps=30$/)
     expect(pair(mezzanineArgs('work/x', 25), '-vf')).not.toContain('fps=')
@@ -156,6 +160,21 @@ describe('shortening', () => {
     expect(preservesFacts('A woman hands a man a cup.', 'Woman hands him cup.')).toBe(false)
     expect(preservesFacts('A woman lifts a cup.', 'She lifts cup.')).toBe(false)
   })
+  it('lets a shortening add only a/an/the/and: no direction words', () => {
+    expect(preservesFacts('A girl runs from the dragon.', 'Girl runs to dragon.')).toBe(false)
+    expect(preservesFacts('A girl runs from the dragon.', 'Girl runs from dragon.')).toBe(true)
+    expect(preservesFacts('Girl runs. Dragon follows.', 'The girl runs and the dragon follows.')).toBe(true)
+    expect(preservesFacts('Woman holds bowl.', 'Woman holds bowl in hand.')).toBe(false)
+  })
+  // Second review: the -ly rule ate "Emily" and "butterfly", and "giant" was dropped as an adjective.
+  it('never drops names, nouns ending in -ly, or an adjective used as a noun', () => {
+    expect(shortenDeterministic('Emily slowly opens the heavy wooden door.', 5)).toBe('Emily opens the door.')
+    expect(shortenDeterministic('A butterfly lands on a large leaf.', 6)).toBe('A butterfly lands on a leaf.')
+    expect(shortenDeterministic('A giant walks across the old bridge.', 6)).toBe('A giant walks across the bridge.')
+    expect(shortenDeterministic('The old walks past the young man.', 6)).toBe('The old walks past the man.')
+    expect(shortenDeterministic('Sintel meets Old Tom in a small hut.', 7)).toBe('Sintel meets Old Tom in a hut.')
+    expect(shortenDeterministic('A man nearly falls.', 3)).toBe('A man nearly falls.') // facts-bearing adverbs stay
+  })
   it('falls back to deterministic shortening when the model changes a fact or does not fit', async () => {
     expect(await safeShorten('A dragon with a bloodied wing lands, then roars.', 7, () => 'Dragon with bloodied wings lands.')).toBe('A dragon with a bloodied wing lands.')
     expect(await safeShorten('A dragon with a bloodied wing lands, then roars.', 7, () => 'Dragon with bloodied wing lands.')).toBe('Dragon with bloodied wing lands.')
@@ -198,7 +217,42 @@ describe('captions', () => {
     expect(cues[0]!.text).toBe('I told you to wait.')
     for (const c of cues) { expect(c.text.split('\n').length).toBeLessThanOrEqual(2); for (const l of c.text.split('\n')) expect(l.length).toBeLessThanOrEqual(42) }
   })
-  it('wrap respects limits', () => { expect(wrap('a '.repeat(50).trim(), 42, 2).split('\n').length).toBe(2) })
+  it('wrap respects limits', () => { expect(wrap('a '.repeat(40).trim(), 42, 2).split('\n').length).toBe(2) })
+  it('wrap throws rather than drop text that needs more than maxLines lines', () => {
+    expect(() => wrap('a '.repeat(50).trim(), 42, 2)).toThrow(/3 lines/)
+  })
+  const asTranscribe = (text: string) => wordsFromTranscribe({ results: { items: text.split(' ').map((w, i) => ({ type: 'pronunciation', start_time: String(i * 0.4), end_time: String(i * 0.4 + 0.3), alternatives: [{ content: w }] })) } })
+  const checkCues = (cues: ReturnType<typeof segment>, maxLines = 2, maxChars = 42) => {
+    for (const c of cues) { const lines = c.text.split('\n'); expect(lines.length).toBeLessThanOrEqual(maxLines); for (const l of lines) expect(l.length).toBeLessThanOrEqual(maxChars) }
+  }
+  it('keeps every word of a German line whose long compounds need three greedy lines', () => {
+    const text = 'Selbstverständlich Bundesverfassungsgericht Entscheidungen Verantwortungsbewusstsein'
+    const cues = segment(asTranscribe(text))
+    expect(cues.map((c) => c.text.replace(/\n/g, ' ')).join(' ')).toBe(text)
+    checkCues(cues)
+  })
+  it('keeps every word when a long English word lands on the line break', () => {
+    const text = 'The minister said the agreement was fundamentally incomprehensible to all of them'
+    const cues = segment(asTranscribe(text))
+    expect(cues.map((c) => c.text.replace(/\n/g, ' ')).join(' ')).toBe(text)
+    checkCues(cues)
+  })
+  it('never loses a word and never exceeds maxLines over 300 seeded random word sequences', () => {
+    let seed = 0x5eed
+    const rnd = () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296 }
+    const pick = <T,>(xs: T[]) => xs[Math.floor(rnd() * xs.length)]!
+    for (let run = 0; run < 300; run++) {
+      const n = 1 + Math.floor(rnd() * 40)
+      const words = Array.from({ length: n }, (_, i) => {
+        const len = rnd() < 0.15 ? 12 + Math.floor(rnd() * 14) : 1 + Math.floor(rnd() * 9)
+        const text = Array.from({ length: len }, () => pick([...'abcdefghijklmnopqrstuvwxyzäöüß'])).join('') + (rnd() < 0.2 ? pick([',', ';', ':', '.', '!', '?']) : '')
+        return { start: i * 0.3, end: i * 0.3 + 0.25, text, ...(rnd() < 0.5 ? { speaker: pick(['spk_0', 'spk_1']) } : {}) }
+      })
+      const cues = segment(words)
+      expect(cues.map((c) => c.text.replace(/\n/g, ' ')).join(' ')).toBe(words.map((w) => w.text).join(' '))
+      checkCues(cues)
+    }
+  })
   it('attaches Transcribe punctuation to the preceding word', () => {
     const item = (type: string, content: string, t?: number) => ({ type, alternatives: [{ content }], ...(t === undefined ? {} : { start_time: String(t), end_time: String(t + 0.2) }) })
     expect(wordsFromTranscribe({ results: { items: [item('pronunciation', 'past', 1), item('punctuation', '.'), item('pronunciation', 'It', 2)] } }).map((w) => w.text)).toEqual(['past.', 'It'])
@@ -262,7 +316,7 @@ describe('mix', () => {
 })
 describe('package', () => {
   it('signals the AD rendition and uses real spaces and ;-separated characteristics', () => {
-    const args = buildPackagerArgs('en', true, true)
+    const args = buildPackagerArgs('en', true, true, true)
     const ad = args.find((a) => a.includes('in=audio_ad.m4a'))!
     expect(ad).toContain('hls_characteristics=public.accessibility.describes-video')
     expect(ad).toContain('hls_name=Audio description')
@@ -275,15 +329,20 @@ describe('package', () => {
     for (const a of args) expect(a).not.toMatch(/=\//) // relative paths only; packager runs with cwd = work dir
   })
   it('omits the caption tracks when there is no dialogue (Packager rejects zero-cue VTT)', () => {
-    const text = buildPackagerArgs('de', false, false).filter((a) => a.includes('stream=text'))
+    const text = buildPackagerArgs('de', false, false, true).filter((a) => a.includes('stream=text'))
     expect(text).toHaveLength(1)
     expect(text[0]).toContain('in=descriptions.vtt')
     expect(text[0]).toContain('language=de')
   })
   it('omits the SDH descriptor when the SDH step degraded to plain captions', () => {
-    const args = buildPackagerArgs('en', true, false)
+    const args = buildPackagerArgs('en', true, false, true)
     expect(args.filter((a) => a.includes('stream=text')).map((a) => a.split(',')[0])).toEqual(['in=captions.vtt', 'in=descriptions.vtt'])
     expect(args.join('\n')).not.toContain('describes-music-and-sound')
+  })
+  it('omits the description text track when fit placed nothing', () => {
+    const args = buildPackagerArgs('en', true, true, false)
+    expect(args.filter((a) => a.includes('stream=text')).map((a) => a.split(',')[0])).toEqual(['in=captions.vtt', 'in=sdh.vtt'])
+    expect(args.some((a) => a.includes('in=audio_ad.m4a'))).toBe(true)
   })
 })
 describe('prompts', () => {

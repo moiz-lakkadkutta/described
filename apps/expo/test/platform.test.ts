@@ -3,7 +3,7 @@ import { DEEP_LINK_SCHEME } from '@described/contracts'
 
 import { appState, emitter, linking } from './stubs/react-native'
 const { launchSource, _resetLaunch } = await import('../src/platform/launch')
-const { createMediaSession, fromNative, SESSION_MAPPED_KEYS } = await import('../src/platform/mediaSession')
+const { createMediaSession, fromNative, keySkipFor, MEDIA_SESSION_OWNS_KEYS, SESSION_MAPPED_KEYS } = await import('../src/platform/mediaSession')
 const { keySource, setKeySkip } = await import('../src/remote')
 const flush = async () => { for (let i = 0; i < 3; i++) await Promise.resolve() }
 
@@ -78,22 +78,32 @@ describe('media session: native events → Transport', () => {
   })
 })
 
-describe('media session binding', () => {
-  function native() {
-    let listener: ((e: { control: string; positionS?: number }) => void) | undefined
-    const n = { setNowPlaying: vi.fn(), release: vi.fn(), removed: false,
-      addListener: (_: string, l: typeof listener) => { listener = l; return { remove: () => { n.removed = true } } },
-      emit: (e: { control: string; positionS?: number }) => listener?.(e) }
-    return n
+/** A stand-in for the native module: `ensure` decides whether setNowPlaying really yields an active session. */
+function fakeNative(o: { ensure?: boolean } = {}) {
+  const listeners = new Map<string, Set<(e: never) => void>>()
+  const n = {
+    removed: false, ensure: o.ensure ?? true,
+    setNowPlaying: vi.fn(() => n.emit('onSessionState', { active: n.ensure })),
+    release: vi.fn(() => n.emit('onSessionState', { active: false })),
+    addListener: (name: string, l: (e: never) => void) => {
+      const set = listeners.get(name) ?? new Set(); set.add(l); listeners.set(name, set)
+      return { remove: () => { set.delete(l); n.removed = true } }
+    },
+    emit: (name: string, e: object) => { for (const l of listeners.get(name) ?? []) l(e as never) },
   }
+  return n
+}
+const PLAYING = { title: 'Sintel', durationS: 888, positionS: 0, playing: true }
+
+describe('media session binding', () => {
   it('is absent when the native module is not in the build', () => expect(createMediaSession(null)).toBeUndefined())
   it('publishes now-playing, releases on null, forwards transport', () => {
-    const n = native(); const b = createMediaSession(n)!
+    const n = fakeNative(); const b = createMediaSession(n)!
     b.setNowPlaying({ title: 'Sintel', durationS: null, positionS: -1, playing: true })
     expect(n.setNowPlaying).toHaveBeenCalledWith('Sintel', -1, 0, true)
     b.setNowPlaying(null); expect(n.release).toHaveBeenCalled()
     const cb = vi.fn(); const off = b.onTransport(cb)
-    n.emit({ control: 'pause' }); n.emit({ control: 'button' })
+    n.emit('onTransport', { control: 'pause' }); n.emit('onTransport', { control: 'button' })
     expect(cb.mock.calls).toEqual([[{ kind: 'pause' }]])
     off(); expect(n.removed).toBe(true)
   })
@@ -102,10 +112,9 @@ describe('media session binding', () => {
 describe('one path per media key (key path vs media session)', () => {
   const NATIVE_CONTROL: Record<number, string> = { 126: 'play', 127: 'pause', 86: 'stop' } // DescribedMediaSessionModule default mapping
   function paths(code: number, sessionActive: boolean, acceptButtons = false) {
-    const n = { setNowPlaying: vi.fn(), release: vi.fn(), addListener: () => ({ remove() {} }) }
-    const ms = createMediaSession(n, { acceptButtons })!
-    if (sessionActive) ms.setNowPlaying({ title: 'Sintel', durationS: 888, positionS: 0, playing: true })
-    setKeySkip((c) => ms.ownsKey(c))
+    const ms = createMediaSession(fakeNative(), { acceptButtons })!
+    if (sessionActive) ms.setNowPlaying(PLAYING)
+    setKeySkip(keySkipFor(ms))
     const keys: string[] = []
     const off = keySource((k) => keys.push(k))
     emitter.emit('onKeyDown', { keyCode: code }); emitter.emit('onKeyUp', { keyCode: code })
@@ -131,9 +140,56 @@ describe('one path per media key (key path vs media session)', () => {
     expect(p).toEqual({ key: 0, session: 1 })
   })
   it('release() hands the keys back to the key path', () => {
-    const n = { setNowPlaying: vi.fn(), release: vi.fn(), addListener: () => ({ remove() {} }) }
-    const ms = createMediaSession(n)!
-    ms.setNowPlaying({ title: 'Sintel', durationS: 888, positionS: 0, playing: true }); expect(ms.ownsKey(127)).toBe(true)
+    const ms = createMediaSession(fakeNative())!
+    ms.setNowPlaying(PLAYING); expect(ms.ownsKey(127)).toBe(true)
     ms.setNowPlaying(null); expect(ms.ownsKey(127)).toBe(false)
+  })
+  it('a publish that native could not turn into a session (ensure() → null) leaves the keys on the key path', () => {
+    const ms = createMediaSession(fakeNative({ ensure: false }))!
+    ms.setNowPlaying(PLAYING)
+    expect([126, 127, 86].map((c) => ms.ownsKey(c))).toEqual([false, false, false])
+  })
+  it('the session going inactive (background) or active again (foreground) moves the keys with it', () => {
+    const n = fakeNative(); const ms = createMediaSession(n)!
+    ms.setNowPlaying(PLAYING); expect(ms.ownsKey(127)).toBe(true)
+    n.emit('onSessionState', { active: false }); expect(ms.ownsKey(127)).toBe(false)
+    n.emit('onSessionState', { active: true }); expect(ms.ownsKey(127)).toBe(true)
+  })
+  it('native active without a published Player does not take keys', () => {
+    const n = fakeNative(); const ms = createMediaSession(n)!
+    n.emit('onSessionState', { active: true })
+    expect(ms.ownsKey(127)).toBe(false)
+  })
+  it('MEDIA_SESSION_OWNS_KEYS is the one switch: off keeps every key on the key path', () => {
+    expect(MEDIA_SESSION_OWNS_KEYS).toBe(true)
+    const ms = createMediaSession(fakeNative())!; ms.setNowPlaying(PLAYING)
+    expect(keySkipFor(ms)(127)).toBe(true)
+    expect(keySkipFor(ms, false)(127)).toBe(false)
+    expect(keySkipFor(undefined)(127)).toBe(false)
+  })
+})
+
+describe('key hub skip (setKeySkip)', () => {
+  it('a skipped code reaches no subscriber, but its held state still counts for repeats', async () => {
+    const { createKeyHub } = await import('../src/keys')
+    const hub = createKeyHub()
+    const a: [number, boolean][] = [], b: [number, boolean][] = []
+    hub.subscribe((c, r) => a.push([c, r])); hub.subscribe((c, r) => b.push([c, r]))
+    hub.setSkip((c) => c === 127)
+    hub.down(127); hub.down(85)
+    expect(a).toEqual([[85, false]]); expect(b).toEqual([[85, false]])
+    hub.setSkip(() => false)
+    hub.down(127) // still held from the skipped press: a repeat
+    expect(a.at(-1)).toEqual([127, true])
+    hub.up(127); hub.down(127); expect(a.at(-1)).toEqual([127, false])
+  })
+  it('setKeySkip filters the app hub for every keySource subscriber', () => {
+    const one: string[] = [], two: string[] = []
+    const off1 = keySource((k) => one.push(k)), off2 = keySource((k) => two.push(k))
+    setKeySkip((c) => c === 127)
+    emitter.emit('onKeyDown', { keyCode: 127 }); emitter.emit('onKeyUp', { keyCode: 127 })
+    emitter.emit('onKeyDown', { keyCode: 85 }); emitter.emit('onKeyUp', { keyCode: 85 })
+    setKeySkip(() => false); off1(); off2()
+    expect(one).toEqual(['playPause']); expect(two).toEqual(['playPause'])
   })
 })

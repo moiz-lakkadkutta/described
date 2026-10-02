@@ -129,7 +129,8 @@ describe('Root → Player → media session', () => {
       const path = url.replace('http://api', '')
       if (path === '/catalog') return ok(catalog)
       if (path === '/me/prefs') return ok({ adDefault: true, extendedMode: true, voice: 'Joanna', captionKind: 'sdh', captionScale: 100, firstRunDone: true })
-      if (path.startsWith('/titles/')) return ok(title)
+      if (path === '/titles/big-buck-bunny') return new Promise(() => {}) // a title that never loads: no Player mounts
+      if (path.startsWith('/titles/')) return ok({ ...title, slug: path.slice('/titles/'.length) })
       if (path.startsWith('https://')) return new Promise(() => {}) // master playlist: never lands
       return ok({})
     }))
@@ -162,6 +163,35 @@ describe('Root → Player → media session', () => {
     expect(onNowPlaying).toHaveBeenLastCalledWith(expect.objectContaining({ slug: 'sintel-90-210', seeks: 2 }))
     act(() => r!.unmount()); r = undefined
     expect(now.at(-1)).toBeNull(); expect(onNowPlaying).toHaveBeenLastCalledWith(null)
+  })
+  it('a deep link during playback saves the Player\'s position first, like Back', async () => {
+    let open!: (t: LaunchTarget) => void
+    const launches: LaunchSource = (on) => { open = on; return () => {} }
+    act(() => { r = TestRenderer.create(<Root apiBaseUrl="http://api" scale={0.5} launches={launches} />) })
+    const flush = () => act(async () => { for (let i = 0; i < 8; i++) await Promise.resolve() })
+    const puts = () => (vi.mocked(fetch).mock.calls as unknown as [string, RequestInit | undefined][])
+      .filter(([u, i]) => u.endsWith('/me/progress') && i?.method === 'PUT').map(([, i]) => JSON.parse(String(i!.body)))
+    await flush(); act(() => open({ kind: 'title', slug: 'tears-of-steel' })); await flush()
+    expect(puts()).toEqual([]) // no Player open: nothing to save
+    act(() => open({ kind: 'play', slug: 'sintel-90-210' })); await flush()
+    const kp = () => r!.root.find((n) => (n.type as unknown) === 'KitPlayer').props
+    act(() => { kp().onState('playing') }); act(() => { kp().onPosition(204) })
+    act(() => open({ kind: 'title', slug: 'tears-of-steel' })); await flush()
+    expect(puts()).toEqual([{ titleSlug: 'sintel-90-210', positionS: 204 }])
+    expect(r!.root.findAll((n) => (n.type as unknown) === 'KitPlayer')).toHaveLength(0)
+    expect(JSON.stringify(r!.toJSON())).toContain(strings.title.playWithout)
+  })
+  it('on the player route with no Player mounted (title still loading), a deep link just navigates — nothing to save', async () => {
+    let open!: (t: LaunchTarget) => void
+    const launches: LaunchSource = (on) => { open = on; return () => {} }
+    act(() => { r = TestRenderer.create(<Root apiBaseUrl="http://api" scale={0.5} launches={launches} />) })
+    const flush = () => act(async () => { for (let i = 0; i < 8; i++) await Promise.resolve() })
+    await flush(); act(() => open({ kind: 'play', slug: 'big-buck-bunny' })); await flush()
+    expect(r!.root.findAll((n) => (n.type as unknown) === 'KitPlayer')).toHaveLength(0)
+    act(() => open({ kind: 'title', slug: 'sintel-90-210' })); await flush()
+    const puts = (vi.mocked(fetch).mock.calls as unknown as [string, RequestInit | undefined][]).filter(([u, i]) => u.endsWith('/me/progress') && i?.method === 'PUT')
+    expect(puts).toEqual([])
+    expect(JSON.stringify(r!.toJSON())).toContain(strings.title.playWithout)
   })
   it('a play link for the open title remounts the Player at the new time (review 6)', async () => {
     let open!: (t: LaunchTarget) => void

@@ -79,15 +79,24 @@ Start Sintel from the app and let it play. Watch logcat (`DescribedMediaSession`
 
 With the Player playing. Each key must have exactly one handler (docs/platform/fire-os-bindings.md §4):
 
+**Fallback switch.** Key ownership is one constant: `MEDIA_SESSION_OWNS_KEYS` in apps/expo/src/platform/mediaSession.ts
+(default `true`). JS takes 126 / 127 / 86 off the key path only while a Player is published **and** the native module has
+reported `onSessionState { active: true }` (session created and active, app in the foreground). If a step below fails
+because the session does not get the key, set it to `false`, rebuild, re-run §4, and file a friction log — every media
+key then stays on the key path (Player's handling), and Alexa still works through the session's own callbacks.
+
+- [ ] On play, logcat shows `session active: Sintel` before you press anything (that is when JS starts skipping 126/127/86).
 - [ ] `adb shell input keyevent KEYCODE_MEDIA_PAUSE` → logcat `media button 127 … → default mapping` and `control=pause`;
-      the video pauses once. (JS skips 127 while the session is active.) **If nothing happens**, Android is not handing the
-      key to the session: remove `setKeySkip(...)` in apps/expo/App.tsx, rebuild, and file a friction log.
+      the video pauses once. **If nothing happens**, Android is not handing the key to the session: set
+      `MEDIA_SESSION_OWNS_KEYS = false` (above) and repeat this section.
 - [ ] `adb shell input keyevent KEYCODE_MEDIA_PLAY` → resumes once (`media button 126 …`, `control=play`).
 - [ ] `adb shell input keyevent KEYCODE_MEDIA_PLAY_PAUSE` (85) → logcat `control=button keyCode=85` (swallowed by the session);
       the Player's key handling toggles **exactly once** — no pause-then-play flicker.
 - [ ] `KEYCODE_MEDIA_FAST_FORWARD` / `KEYCODE_MEDIA_REWIND` → the bar jumps ±10 s once per press and the seek commits ~0.3 s later;
       `adb shell dumpsys media_session | grep -A6 DescribedMediaSession` shows the new position after the commit.
 - [ ] Back to Title, then `KEYCODE_MEDIA_PAUSE` on the Title screen → nothing breaks (no session; key path, no Player).
+- [ ] Remote Home while playing (`session inactive (background)`), reopen Described (`session active (foreground)`), then
+      `KEYCODE_MEDIA_PAUSE` → pauses once.
 - [ ] Physical remote ⏯ behaves like the adb key.
 
 ## 5. Catalog feed (Mac, no device)

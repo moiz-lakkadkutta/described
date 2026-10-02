@@ -1,4 +1,6 @@
 import { StartTranscriptionJobCommand, GetTranscriptionJobCommand, TranscribeClient } from '@aws-sdk/client-transcribe'
+import { createHash } from 'node:crypto'
+import { createReadStream } from 'node:fs'
 import { readFile, stat, writeFile } from 'node:fs/promises'
 import { download, upload } from '../s3'
 import type { Ctx } from './index'
@@ -8,9 +10,9 @@ export interface Gap { startMs: number; endMs: number }
 
 /** Transcribe (word timestamps + speaker labels) → dialogue spans → gaps ≥ 1.2 s with 200 ms margins. */
 export async function speechMap(ctx: Ctx) {
-  const marker = await mezzMarker(ctx.work)
-  if (await readFile(`${ctx.work}/transcript.src`, 'utf8').catch(() => '') === marker && await stat(`${ctx.work}/transcript.json`).then(() => true, () => false)) console.log('speech: transcript.json is for this mezzanine; Transcribe skipped')
-  else { await transcribe(ctx); await writeFile(`${ctx.work}/transcript.src`, marker) }
+  const marker = await mezzMarker(ctx.work, ctx.language)
+  if (await readFile(`${ctx.work}/transcript.src`, 'utf8').catch(() => '') === marker && await stat(`${ctx.work}/transcript.json`).then(() => true, () => false)) console.log('speech: transcript.json is for this mezzanine and language; Transcribe skipped')
+  else { await transcribe(ctx, marker); await writeFile(`${ctx.work}/transcript.src`, marker) }
   const words = wordsFromTranscribe(JSON.parse(await readFile(`${ctx.work}/transcript.json`, 'utf8')))
   const probe = JSON.parse(await readFile(`${ctx.work}/probe.json`, 'utf8')) as { format: { duration: string } }
   if (words.length === 0) console.warn('no speech in clip — the whole duration is one gap') // no dialogue (e.g. Sintel 0:00–1:00): words.json = [], gaps = whole clip
@@ -18,36 +20,71 @@ export async function speechMap(ctx: Ctx) {
   await writeFile(`${ctx.work}/gaps.json`, JSON.stringify(gapsFromWords(words, Math.round(parseFloat(probe.format.duration) * 1000)), null, 2))
 }
 
-/** Identifies the mezzanine a transcript was made from (size + mtime), so a retry or re-run does not pay Transcribe again. */
-export const mezzMarker = async (work: string) => { const s = await stat(`${work}/mezz.mp4`); return `${s.size}:${Math.round(s.mtimeMs)}` }
+/** Identifies what a transcript was made from: sha256 of the mezzanine bytes + language. A retry or re-run with both unchanged does not pay Transcribe again. */
+export async function mezzMarker(work: string, language: string): Promise<string> {
+  const h = createHash('sha256')
+  for await (const chunk of createReadStream(`${work}/mezz.mp4`)) h.update(chunk as Buffer)
+  return `${h.digest('hex')}:${language}`
+}
 
-/** The paid part: upload the mezzanine, run one Transcribe job, download its transcript to {work}/transcript.json. */
-async function transcribe(ctx: Ctx) {
+/** {work}/transcribe.job.json: the Transcribe job started for a marker, written before polling, so a retry resumes it instead of paying for another. */
+interface StartedJob { jobName: string; marker: string; billed?: boolean }
+type Transcribe = Pick<TranscribeClient, 'send'>
+const status = async (tc: Transcribe, jobName: string, abortSignal?: AbortSignal) => {
+  const r = await tc.send(new GetTranscriptionJobCommand({ TranscriptionJobName: jobName }), { abortSignal })
+  return { status: r.TranscriptionJob?.TranscriptionJobStatus as string | undefined, failureReason: r.TranscriptionJob?.FailureReason }
+}
+
+/**
+ * The paid part: upload the mezzanine and start one Transcribe job — or resume the one a previous attempt started for the same
+ * marker while it is QUEUED, IN_PROGRESS or COMPLETED — then poll and download its transcript to {work}/transcript.json.
+ * Cost is recorded once per Transcribe job: when it completes, or when we stop waiting on it (it still bills); never when it FAILED.
+ */
+export async function transcribe(ctx: Ctx, marker: string, tc: Transcribe = new TranscribeClient({ region: process.env.AWS_REGION ?? 'eu-central-1' })) {
   const bucket = process.env.S3_BUCKET_MEDIA!
   const key = `work/${ctx.slug}/mezz.mp4`
-  await upload(`${ctx.work}/mezz.mp4`, `s3://${bucket}/${key}`, { ContentType: 'video/mp4' })
-  const tc = new TranscribeClient({ region: process.env.AWS_REGION ?? 'eu-central-1' })
-  const jobName = `${ctx.slug}-${Date.now()}`
-  await tc.send(new StartTranscriptionJobCommand({ TranscriptionJobName: jobName, Media: { MediaFileUri: `s3://${bucket}/${key}` }, LanguageCode: ctx.language === 'de' ? 'de-DE' : 'en-US', Settings: { ShowSpeakerLabels: true, MaxSpeakerLabels: 6 }, OutputBucketName: bucket, OutputKey: `work/${ctx.slug}/transcript.json` }))
-  const probe = JSON.parse(await readFile(`${ctx.work}/probe.json`, 'utf8')) as { format: { duration: string } }
-  meter()?.add(transcribeUsd(parseFloat(probe.format.duration))) // billed once started, whatever happens next
-  await pollTranscription(async () => { const r = await tc.send(new GetTranscriptionJobCommand({ TranscriptionJobName: jobName })); return { status: r.TranscriptionJob?.TranscriptionJobStatus, reason: r.TranscriptionJob?.FailureReason } }, { signal: ctx.signal })
+  const jobFile = `${ctx.work}/transcribe.job.json`
+  let job = JSON.parse(await readFile(jobFile, 'utf8').catch(() => 'null')) as StartedJob | null
+  if (job?.marker !== marker || !['QUEUED', 'IN_PROGRESS', 'COMPLETED'].includes((await status(tc, job.jobName, ctx.signal).catch(() => ({ status: undefined }))).status ?? '')) {
+    await upload(`${ctx.work}/mezz.mp4`, `s3://${bucket}/${key}`, { ContentType: 'video/mp4' })
+    job = { jobName: `${ctx.slug}-${Date.now()}`, marker }
+    await writeFile(jobFile, JSON.stringify(job)) // before Start: a Start that reached AWS but whose reply was lost is still resumed
+    await tc.send(new StartTranscriptionJobCommand({ TranscriptionJobName: job.jobName, Media: { MediaFileUri: `s3://${bucket}/${key}` }, LanguageCode: ctx.language === 'de' ? 'de-DE' : 'en-US', Settings: { ShowSpeakerLabels: true, MaxSpeakerLabels: 6 }, OutputBucketName: bucket, OutputKey: `work/${ctx.slug}/transcript.json` }), { abortSignal: ctx.signal })
+  } else console.log(`speech: resuming Transcribe job ${job.jobName}`)
+  const started = job
+  const bill = async () => {
+    if (started.billed) return
+    const probe = JSON.parse(await readFile(`${ctx.work}/probe.json`, 'utf8')) as { format: { duration: string } }
+    meter()?.add(transcribeUsd(parseFloat(probe.format.duration)))
+    started.billed = true
+    await writeFile(jobFile, JSON.stringify(started))
+  }
+  try { await waitForTranscription(() => status(tc, started.jobName, ctx.signal), { jobName: started.jobName, signal: ctx.signal }) } catch (e) { if (!(e instanceof TranscribeFailed)) await bill(); throw e }
+  await bill()
   await download(`s3://${bucket}/work/${ctx.slug}/transcript.json`, `${ctx.work}/transcript.json`)
 }
 
-/** Longest wait for one Transcribe job (TRANSCRIBE_TIMEOUT_MS, default 60 min) — inside the speech queue's 2 h expiry. */
-export const TRANSCRIBE_TIMEOUT_MS = () => Number(process.env.TRANSCRIBE_TIMEOUT_MS) || 60 * 60 * 1000
+export class TranscribeFailed extends Error {}
 
-/** Polls until COMPLETED; throws on FAILED, on timeout, or when the job's signal aborts. */
-export async function pollTranscription(get: () => Promise<{ status?: string; reason?: string }>, { timeoutMs = TRANSCRIBE_TIMEOUT_MS(), intervalMs = 5000, signal }: { timeoutMs?: number; intervalMs?: number; signal?: AbortSignal } = {}) {
-  const deadline = Date.now() + timeoutMs
+/** A minute of clip transcribes in well under a minute; 30 min means the job is stuck. */
+export const TRANSCRIBE_TIMEOUT_MS = 30 * 60_000
+/**
+ * Polls until COMPLETED; throws TranscribeFailed on FAILED (with FailureReason), or after timeoutMs, or when signal (the job's
+ * deadline) aborts. Clock and sleep are injectable for tests.
+ * Status values and FailureReason — https://docs.aws.amazon.com/transcribe/latest/APIReference/API_TranscriptionJob.html
+ */
+export async function waitForTranscription(
+  getStatus: () => Promise<{ status?: string; failureReason?: string }>,
+  { jobName = 'transcription job', timeoutMs = TRANSCRIBE_TIMEOUT_MS, pollMs = 5000, now = Date.now, sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms)), signal }: { jobName?: string; timeoutMs?: number; pollMs?: number; now?: () => number; sleep?: (ms: number) => Promise<void>; signal?: AbortSignal } = {},
+): Promise<void> {
+  const deadline = now() + timeoutMs
   for (;;) {
     signal?.throwIfAborted()
-    const { status, reason } = await get()
+    const { status, failureReason } = await getStatus()
     if (status === 'COMPLETED') return
-    if (status === 'FAILED') throw new Error(`Transcribe failed: ${reason}`)
-    if (Date.now() + intervalMs > deadline) throw new Error(`Transcribe still ${status} after ${Math.round(timeoutMs / 1000)} s`)
-    await new Promise((r) => setTimeout(r, intervalMs))
+    if (status === 'FAILED') throw new TranscribeFailed(`Transcribe ${jobName} FAILED: ${failureReason ?? '(no FailureReason)'}`)
+    if (now() >= deadline) throw new Error(`Transcribe ${jobName} not finished after ${timeoutMs / 60_000} min (last status ${status})`)
+    await sleep(pollMs)
   }
 }
 

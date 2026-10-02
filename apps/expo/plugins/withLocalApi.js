@@ -3,6 +3,8 @@
 // https://developer.android.com/privacy-and-security/security-config#CleartextTrafficPermitted
 // The host is read from EXPO_PUBLIC_API_URL at prebuild time; an https URL adds nothing. Changing the IP needs
 // `npx expo prebuild --clean`. Remove this plugin once the API is served over HTTPS (media is already HTTPS).
+// Debug builds get a variant config (src/debug/res/xml overrides src/main) that keeps cleartext open, as Expo's
+// debug manifest does, so the Metro dev server (localhost via adb reverse, 10.0.2.2, or the Mac's IP) still loads.
 const fs = require('fs')
 const path = require('path')
 const { withAndroidManifest, withDangerousMod } = require('expo/config-plugins')
@@ -20,14 +22,24 @@ const securityConfig = (host) => `<?xml version="1.0" encoding="utf-8"?>
   </domain-config>
 </network-security-config>
 `
+const debugSecurityConfig = () => `<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug only: Metro dev server and the local API over http. Release uses src/main (API host only). -->
+<network-security-config>
+  <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
+`
 
 function withLocalApi(config) {
   const host = cleartextHost()
   if (!host) return config
   config = withDangerousMod(config, ['android', async (c) => {
-    const dir = path.join(c.modRequest.platformProjectRoot, 'app/src/main/res/xml')
-    fs.mkdirSync(dir, { recursive: true })
-    fs.writeFileSync(path.join(dir, 'network_security_config.xml'), securityConfig(host))
+    const write = (variant, xml) => {
+      const dir = path.join(c.modRequest.platformProjectRoot, `app/src/${variant}/res/xml`)
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, 'network_security_config.xml'), xml)
+    }
+    write('main', securityConfig(host))
+    write('debug', debugSecurityConfig())
     return c
   }])
   return withAndroidManifest(config, (c) => {
@@ -38,3 +50,4 @@ function withLocalApi(config) {
 module.exports = withLocalApi
 module.exports.cleartextHost = cleartextHost
 module.exports.securityConfig = securityConfig
+module.exports.debugSecurityConfig = debugSecurityConfig

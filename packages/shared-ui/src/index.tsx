@@ -10,7 +10,7 @@ import { captionName, nextCaptionKind, type SampleState } from './models'
 import { About } from './screens/About'
 import { FirstRun } from './screens/FirstRun'
 import { Home } from './screens/Home'
-import { usePlatformNowPlaying, useLaunchRoute, type LaunchSource } from './platform'
+import { usePlatformNowPlaying, useLaunchRoute, type LaunchRoute, type LaunchSource } from './platform'
 import { Player, type PlayerSession } from './screens/Player'
 import { Settings } from './screens/Settings'
 import { Reading, Title } from './screens/Title'
@@ -29,10 +29,15 @@ export type { LaunchTarget } from '@described/contracts'
 
 type Route = { name: 'home' } | { name: 'title'; slug: string } | { name: 'reading'; slug: string } | { name: 'player'; slug: string; withAd: boolean; startAtS?: number } | { name: 'settings' } | { name: 'about' } | { name: 'firstRun'; from?: 'settings' }
 const noSpeech = async () => {}
+const noStop = () => {}
 const noop = () => {}
 const defaultPrefs: Prefs = { adDefault: true, extendedMode: true, voice: 'Joanna', captionKind: 'sdh', captionScale: 100, captionStyle: 'box', firstRunDone: false }
 // A player route keys on its audio and start too, so a new deep link to the same title remounts the Player.
 const routeKey = (r: Route) => (r.name === 'player' ? `player:${r.slug}:${r.withAd ? 'ad' : 'main'}:${r.startAtS ?? ''}` : 'slug' in r ? `${r.name}:${r.slug}` : r.name)
+/** The API answered with `success: false`; `status` tells a refusal (4xx) from a server failure (5xx). */
+export class ApiError extends Error { constructor(public status: number) { super(`api ${status}`) } }
+/** The server refused the request itself (validation): resending the same body can never succeed. */
+const refused = (e: unknown) => e instanceof ApiError && e.status >= 400 && e.status < 500
 /** RN Android's own fetch timeout is about 2 minutes; the offline screen should come much sooner. */
 export const FETCH_TIMEOUT_MS = 10_000
 /** While playing, the position is saved after it has moved this far (and always on Back). */
@@ -65,7 +70,7 @@ export interface RootProps {
  * with fresh focus and its DefaultFocus / focus memory decides where focus lands.
  * Platform entries (apps/expo, apps/vega) pass apiBaseUrl, scale, fonts state and audio; they call configureRemote first.
  */
-export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded = true, speak = noSpeech, stopSpeaking = noop, prefetch = noop, onNowPlaying, launches }: RootProps) {
+export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded = true, speak = noSpeech, stopSpeaking = noStop, prefetch = noop, onNowPlaying, launches }: RootProps) {
   const [route, setRoute] = useState<Route>({ name: 'home' })
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [title, setTitle] = useState<TitleDetail | null>(null)
@@ -77,9 +82,10 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   const [about, setAbout] = useState<AboutData | null | 'offline'>(null)
   const shouldHandle = useDpad()
   useEffect(() => { setDpadGate(shouldHandle) }, [shouldHandle])
-  useLaunchRoute(launches, { catalog, holding: offline || route.name === 'firstRun', adDefault: prefs.adDefault, navigate: setRoute })
   // Media session, Alexa transport and watch activity consume the Player's now-playing; the prop still sees every update.
-  const nowPlaying = usePlatformNowPlaying(onNowPlaying)
+  // Root keeps the latest session too: a deep link that replaces the Player saves its position first (exitPlayer).
+  const playerSession = useRef<PlayerSession | null>(null)
+  const nowPlaying = usePlatformNowPlaying((s) => { playerSession.current = s; onNowPlaying?.(s) })
 
   /** Settings changed here but not yet saved; kept until a PUT succeeds and laid over any prefs fetched meanwhile. */
   const unsaved = useRef<Partial<Prefs>>({})
@@ -90,7 +96,7 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
     try {
       const r = await fetch(apiBaseUrl + path, { ...init, signal: ctl.signal, headers: { 'content-type': 'application/json', 'x-device-id': deviceId, ...(init?.headers ?? {}) } })
       const j = (await r.json()) as { success: boolean; data: R }
-      if (!j.success) throw new Error('api')
+      if (!j.success) throw new ApiError(r.status ?? 0)
       // The connection is back: send any settings a failed save left behind (a prefs PUT flushes itself).
       if (!(path === '/me/prefs' && init?.method === 'PUT') && Object.keys(unsaved.current).length) flushPrefs.current()
       return j.data
@@ -109,7 +115,13 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   }, [api, attempt])
   const slug = 'slug' in route ? route.slug : null
   // `attempt` too: Retry on the offline screen must refetch the title, not only the catalog.
-  useEffect(() => { if (slug && title?.slug !== slug) api<TitleDetail>(`/titles/${slug}`).then(setTitle).catch(() => setOffline(true)) }, [slug, api, attempt]) // eslint-disable-line react-hooks/exhaustive-deps
+  // `live`: a late answer for a slug we already left must not replace the title or flip the app offline.
+  useEffect(() => {
+    if (!slug || title?.slug === slug) return
+    let live = true
+    api<TitleDetail>(`/titles/${slug}`).then((t) => { if (live) setTitle(t) }).catch(() => { if (live) setOffline(true) })
+    return () => { live = false }
+  }, [slug, api, attempt]) // eslint-disable-line react-hooks/exhaustive-deps
   const current = title && title.slug === slug ? title : null
   // A live region does not speak on first appearance, so the offline message is announced explicitly.
   useEffect(() => { if (offline) AccessibilityInfo.announceForAccessibility(strings.offline) }, [offline])
@@ -134,9 +146,9 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
         case 'title': case 'settings': setRoute({ name: 'home' }); return true
         case 'about': setRoute({ name: 'settings' }); return true
         case 'firstRun': return false // FirstRun's own listener: previous panel, or Back-Back to skip; never exits
-        // Player owns Back once it is mounted (it closes the track sheet or saves the position first). While the title is
-        // still loading or the offline screen is up there is no Player, so Back goes to Title instead of leaving the app.
-        case 'player': if (current && !offline) return false; setRoute({ name: 'title', slug: route.slug }); return true
+        // A mounted Player owns Back (it closes the track sheet or saves the position first). Without one — the title
+        // still loading, or the offline screen — Back goes to Title rather than leaving the app.
+        case 'player': if (!current || offline) { setRoute({ name: 'title', slug: route.slug }); return true } return false
         default: return false
       }
     })
@@ -145,22 +157,35 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
 
   /** Extended cue `d{n}`'s clip: the API redirects to the published MP3 (404 when the title has none). */
   const cueAudioUrl = useCallback((s: string, cueId: string) => `${apiBaseUrl}/titles/${encodeURIComponent(s)}/cues/${encodeURIComponent(cueId)}/audio`, [apiBaseUrl])
+  // One request queue for every write and the reads that must follow them: settings PUTs, progress PUTs and the
+  // Continue-watching refetch run one at a time, in order, so an older value never lands after a newer one and the
+  // catalog is read only after the saves before it.
+  const requests = useRef(createQueue()).current
   // PUTs go one at a time, in order (createQueue), so quick ◄► presses can't land out of order and persist an older value. A failed
   // PUT keeps its changes in `unsaved`; they go with the next save, the next successful request, or Retry. The failure
   // is announced once per outage.
-  const prefsQueue = useRef(createQueue()).current
   const toldUnsaved = useRef(false)
+  // A refusal (4xx) is not retried: the batch is resent one key at a time so one bad value can't sink the others; each
+  // refused key is dropped, shown again with the server's value, and announced. Network failures and 5xx keep the retry.
+  const put = (body: Partial<Prefs>) => api('/me/prefs', { method: 'PUT', body: JSON.stringify(body) })
+  const settle = (body: Partial<Prefs>) => { for (const k of Object.keys(body) as (keyof Prefs)[]) if (unsaved.current[k] === body[k]) delete unsaved.current[k] }
   flushPrefs.current = () => {
-    void prefsQueue(async () => {
+    void requests(async () => {
       const body = { ...unsaved.current }
-      if (!Object.keys(body).length) return
-      try {
-        await api('/me/prefs', { method: 'PUT', body: JSON.stringify(body) })
-        for (const k of Object.keys(body) as (keyof Prefs)[]) if (unsaved.current[k] === body[k]) delete unsaved.current[k]
-        toldUnsaved.current = false
-      } catch {
-        if (!toldUnsaved.current) { toldUnsaved.current = true; AccessibilityInfo.announceForAccessibility(strings.a11y.notSaved) }
+      const keys = Object.keys(body) as (keyof Prefs)[]
+      if (!keys.length) return
+      const toldOffline = () => { if (!toldUnsaved.current) { toldUnsaved.current = true; AccessibilityInfo.announceForAccessibility(strings.a11y.notSaved) } }
+      try { await put(body); settle(body); toldUnsaved.current = false; return } catch (e) { if (!refused(e)) return toldOffline() }
+      const dropped: (keyof Prefs)[] = []
+      for (const k of keys) {
+        const one = { [k]: body[k] } as Partial<Prefs>
+        if (keys.length === 1) { settle(one); dropped.push(k); break }
+        try { await put(one); settle(one) } catch (e) { if (!refused(e)) return toldOffline(); settle(one); dropped.push(k) }
       }
+      if (!dropped.length) return
+      AccessibilityInfo.announceForAccessibility(strings.a11y.notSavedRefused)
+      // Show the value the server kept for the refused settings.
+      api<Prefs>('/me/prefs').then((p) => setPrefs((cur) => ({ ...cur, ...Object.fromEntries(dropped.filter((k) => !(k in unsaved.current)).map((k) => [k, p[k] ?? defaultPrefs[k]])) }))).catch(() => {})
     })
   }
   const savePrefs = (p: Partial<Prefs>) => {
@@ -173,19 +198,41 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   const savedAt = useRef<number | null>(null)
   const savedThisPlay = useRef(false)
   useEffect(() => { savedAt.current = null; savedThisPlay.current = false }, [key])
-  // One PUT at a time, in order, so an older position can never land after a newer one.
-  const progressQueue = useRef(createQueue()).current
+  // Progress PUTs go through `requests` too, so an older position can never land after a newer one.
+  const catalogStale = useRef(false)
   const saveProgress = (slug: string, positionS: number) => {
-    savedAt.current = positionS; savedThisPlay.current = true
+    savedAt.current = positionS; savedThisPlay.current = true; catalogStale.current = true
     const body = JSON.stringify({ titleSlug: slug, positionS: Math.max(0, Math.round(positionS)) })
-    progressQueue(() => api('/me/progress', { method: 'PUT', body })).catch(() => {})
+    requests(() => api('/me/progress', { method: 'PUT', body })).catch(() => {})
   }
-  const leavePlayer = (t: TitleDetail, positionS: number) => {
+  // Continue watching: after a save, Home refetches the catalog once the queued saves have landed. The old catalog
+  // stays on screen meanwhile (no skeleton), so Home's focus memory is untouched.
+  const onHome = route.name === 'home'
+  useEffect(() => {
+    if (!onHome || !catalogStale.current) return
+    catalogStale.current = false
+    let live = true, done = false
+    void requests(() => api<Catalog>('/catalog')).then((c) => { done = true; if (live) setCatalog(c) }).catch(() => { done = true })
+    return () => { live = false; if (!done) catalogStale.current = true } // left Home first: refetch next time
+  }, [onHome, api])
+  /**
+   * Leaving a mounted Player — its Back, or a deep link that replaces it: save the position (which marks the catalog
+   * stale, so Home refetches Continue watching), then go to `next` (Title on Back). With no Player mounted (title still
+   * loading, offline) Root's own Back goes to Title and a deep link just navigates: there is no position to save.
+   */
+  const exitPlayer = (t: TitleDetail, positionS: number, next: Route = { name: 'title', slug: t.slug }) => {
     // Nothing watched and nothing saved before: no row (it would only say "0 s").
     if (!(positionS < 1 && !t.resumeS && !savedThisPlay.current)) saveProgress(t.slug, positionS)
     setTitle({ ...t, resumeS: positionS })
-    setRoute({ name: 'title', slug: t.slug })
+    setRoute(next)
   }
+  // A deep link during playback takes the same save path as Back (position as Back reads it: 0 once the film ended).
+  const launchTo = (r: LaunchRoute) => {
+    const s = playerSession.current
+    if (route.name === 'player' && !offline && current && s?.slug === current.slug) exitPlayer(current, s.state === 'ended' ? 0 : s.controls.getPosition(), r)
+    else setRoute(r)
+  }
+  useLaunchRoute(launches, { catalog, holding: offline || route.name === 'firstRun', adDefault: prefs.adDefault, navigate: launchTo })
   // App-voice prompts: clips at /prompts/<voice>/<key>.mp3 (API → CloudFront; TODO(DESC-010) generate them with Polly in
   // the pipeline). FirstRun always announces the text too; with VoiceView on the clip is skipped so two voices never
   // talk over each other (same rule as earcons, PLAN §8).
@@ -241,7 +288,7 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
         <Player title={current} prefs={prefs} withAd={route.withAd} startAtS={route.startAtS} scale={scale} onPrefs={savePrefs} onNowPlaying={nowPlaying}
           speak={speak} stopSpeaking={stopSpeaking} prefetch={prefetch} cueAudioUrl={cueAudioUrl} descriptionsUrl={`${apiBaseUrl}/titles/${encodeURIComponent(current.slug)}/descriptions.vtt`}
           onProgress={(s) => { if (savedAt.current === null) savedAt.current = s; else if (Math.abs(s - savedAt.current) >= PROGRESS_SAVE_S) saveProgress(current.slug, s) }}
-          onBack={(s) => leavePlayer(current, s)} />
+          onBack={(s) => exitPlayer(current, s)} />
       ) : <Screen><T variant="body">{strings.player.loading}</T></Screen>
       default: return <Screen rail={rail}><Home catalog={catalog} myList={myList} adDefault={prefs.adDefault} onOpen={(s) => setRoute({ name: 'title', slug: s })} onPlay={(s, withAd) => setRoute({ name: 'player', slug: s, withAd })} onToggleList={toggleList} /></Screen>
     }

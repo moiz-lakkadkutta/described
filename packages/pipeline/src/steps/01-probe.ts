@@ -22,9 +22,11 @@ export async function probe(ctx: Ctx) {
  * VBV inside the level (High: 25 Mbit/s, 31.25 Mbit CPB), and ≤ 30 fps (also when the rate is unknown, sourceFps 0) so 1080p stays under Level 4.0's 245,760 MB/s —
  * the Fire TV Stick decodes "H.264 … High Profile up to Level 4" in hardware and falls back to a software decoder above
  * 1920×1088 (Gate A spike): https://developer.amazon.com/docs/device-specs/device-specifications-fire-tv-streaming-media-player.html
+ * Only the first video and first audio stream are kept (`-map 0:v:0 -map 0:a:0`, `-sn -dn`): a second audio track or a subtitle/data
+ * stream in the source would otherwise reach Packager — https://ffmpeg.org/ffmpeg.html#Advanced-options
  * Filters: https://ffmpeg.org/ffmpeg-filters.html#scale-1 · https://ffmpeg.org/ffmpeg-filters.html#fps-1
  */
 export function mezzanineArgs(work: string, sourceFps: number): string[] {
   const vf = `scale=w='min(1920,iw)':h='min(1080,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2${!(sourceFps > 0 && sourceFps <= 30) ? ',fps=30' : ''}`
-  return ['-y', '-i', `${work}/source.mp4`, '-vf', vf, '-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-profile:v', 'high', '-level:v', '4.0', '-maxrate', '16M', '-bufsize', '24M', '-pix_fmt', 'yuv420p', '-force_key_frames', 'expr:gte(t,n_forced*4)', '-sc_threshold', '0', '-c:a', 'aac', '-ac', '2', '-ar', '48000', '-b:a', '192k', '-movflags', '+faststart', `${work}/mezz.mp4`]
+  return ['-y', '-i', `${work}/source.mp4`, '-map', '0:v:0', '-map', '0:a:0', '-sn', '-dn', '-vf', vf, '-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-profile:v', 'high', '-level:v', '4.0', '-maxrate', '16M', '-bufsize', '24M', '-pix_fmt', 'yuv420p', '-force_key_frames', 'expr:gte(t,n_forced*4)', '-sc_threshold', '0', '-c:a', 'aac', '-ac', '2', '-ar', '48000', '-b:a', '192k', '-movflags', '+faststart', `${work}/mezz.mp4`]
 }

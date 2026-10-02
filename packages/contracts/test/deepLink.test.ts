@@ -1,4 +1,4 @@
-import { DEEP_LINK_SCHEME, parseDeepLink, playLink, titleLink } from '../src/index'
+import { DEEP_LINK_SCHEME, MAX_START_S, parseDeepLink, playLink, titleLink } from '../src/index'
 
 describe('deep links', () => {
   it('builds the two link shapes', () => {
@@ -21,6 +21,12 @@ describe('deep links', () => {
     expect(parseDeepLink('described://play/sintel?t=-5')).toEqual({ kind: 'play', slug: 'sintel' })
     expect(parseDeepLink('described://play/sintel?t=0')).toEqual({ kind: 'play', slug: 'sintel' })
     expect(parseDeepLink('described://play/sintel?t=%E0%A4%A')).toEqual({ kind: 'play', slug: 'sintel' })
+  })
+  it('a non-finite ?t= is ignored and a huge one is capped at 24 h', () => {
+    expect(parseDeepLink(`described://play/sintel?t=${'9'.repeat(400)}`)).toEqual({ kind: 'play', slug: 'sintel' })
+    for (const t of ['Infinity', 'NaN', '1e9', '0x10']) expect(parseDeepLink(`described://play/sintel?t=${t}`)).toEqual({ kind: 'play', slug: 'sintel' })
+    expect(parseDeepLink('described://play/sintel?t=999999')).toEqual({ kind: 'play', slug: 'sintel', startAtS: MAX_START_S })
+    expect(parseDeepLink('described://play/sintel?t=86400')).toEqual({ kind: 'play', slug: 'sintel', startAtS: 86400 })
   })
   it('rejects links that are not ours', () => {
     for (const u of [null, undefined, '', 'https://title/sintel', `${DEEP_LINK_SCHEME}://home`, 'described://title/', 'described://settings/x',

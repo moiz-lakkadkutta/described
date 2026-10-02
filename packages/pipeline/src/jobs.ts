@@ -1,9 +1,10 @@
 import type PgBoss from 'pg-boss'
 import type { PrismaClient } from '@prisma/client'
+import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { metered } from './cost'
 import { writeDescriptionCues } from './cues'
-import { ctxFor, ORDER, runStep, type Ctx } from './steps'
+import { ctxFor, runStep, SLUG_RE, STEPS, type Ctx } from './steps'
 import type { Shot } from './steps/02-shots'
 import type { Gap } from './steps/03-speech'
 import type { Described } from './steps/04-describe'
@@ -35,13 +36,17 @@ export const QUEUE_OPTIONS: Record<JobStep, Omit<PgBoss.Queue, 'name'> & { expir
 }
 export const STEP_MARGIN_S = 60
 
-export interface StepJob { id: string; data: { titleId: string }; retryCount: number; retryLimit: number }
+/** Job data: the dead-letter copy keeps only this, so it names its own step and pg-boss job id (sent as the job's id). */
+export interface StepData { titleId: string; step?: JobStep; jobId?: string }
+export interface StepJob { id: string; data: StepData; retryCount: number; retryLimit: number }
+/** Sends a step for a title with a fresh id that is also in its data. */
+export const sendStep = (boss: Pick<Boss, 'send'>, step: JobStep, titleId: string) => { const id = randomUUID(); return boss.send(queueName(step), { titleId, step, jobId: id } satisfies StepData, { id, singletonKey: titleId }) }
 export type Boss = Pick<PgBoss, 'createQueue' | 'updateQueue' | 'send' | 'work'>
 export type Db = Pick<PrismaClient, 'title' | 'job' | 'shot' | 'gap' | 'descriptionCue' | '$transaction'>
 export interface Deps { boss: Boss; db: Db; run?: (step: JobStep, ctx: Ctx) => Promise<void>; timeoutMs?: number }
 
 /** Steps 6–10 in order, unchanged. */
-const STEPS_6_10 = ORDER.slice(ORDER.indexOf('voice'))
+const STEPS_6_10 = STEPS.slice(STEPS.indexOf('voice'))
 export const runJobStep = async (step: JobStep, ctx: Ctx) => { if (step !== 'finish') return runStep(step, ctx); for (const s of STEPS_6_10) await runStep(s, ctx) }
 
 /** Creates (idempotent) and updates the queues, then one worker per step and one for the dead letters. */
@@ -51,8 +56,8 @@ export async function registerPipeline(deps: Deps) {
     await deps.boss.createQueue(queueName(s), { name: queueName(s), ...QUEUE_OPTIONS[s] })
     await deps.boss.updateQueue(queueName(s), { name: queueName(s), ...QUEUE_OPTIONS[s] })
   }
-  for (const s of JOB_STEPS) await deps.boss.work<{ titleId: string }>(queueName(s), { includeMetadata: true }, async ([job]) => handleJob(s, job!, deps))
-  await deps.boss.work<{ titleId: string }>(FAILED_QUEUE, async ([job]) => handleDeadLetter(job!.data.titleId, deps.db))
+  for (const s of JOB_STEPS) await deps.boss.work<StepData>(queueName(s), { includeMetadata: true }, async ([job]) => handleJob(s, job!, deps))
+  await deps.boss.work<StepData>(FAILED_QUEUE, async ([job]) => handleDeadLetter(job!.data, deps.db))
 }
 
 /** Rejects when the signal aborts, so the handler returns before pg-boss expires the attempt; fn's own work stops at its next signal check. */
@@ -75,18 +80,20 @@ export async function handleJob(step: JobStep, job: StepJob, { boss, db, run = r
   try {
     const t = await db.title.findUniqueOrThrow({ where: { id: titleId }, include: { assets: { where: { kind: 'source' } } } })
     if (!t.assets[0]) throw new Error(`title ${titleId} has no source asset`)
+    if (!SLUG_RE.test(t.slug)) throw new Error(`title ${titleId}: invalid slug "${t.slug}" (work dir and S3 keys): must match ${SLUG_RE.source}`)
     await db.title.update({ where: { id: titleId }, data: { status: 'processing' } })
     const ctx: Ctx = { ...ctxFor({ slug: t.slug, source: `s3://${process.env.S3_BUCKET_MEDIA}/${t.assets[0].s3Key}`, language: t.language as 'en' | 'de', voice: t.voice }), signal }
-    const { costUsd } = await metered(() => untilAborted(async () => { await run(step, ctx); signal.throwIfAborted(); await persist(step, titleId, ctx.work, db) }, signal))
+    const { costUsd } = await metered(() => untilAborted(async () => { await run(step, ctx); signal.throwIfAborted(); await persist(step, titleId, ctx.work, db) }, signal), signal)
     signal.throwIfAborted()
+    // Done first, then enqueue: if this update fails, the retry re-runs an idempotent step instead of starting a second chain.
+    await db.job.update({ where: { id: job.id }, data: { status: 'done', finishedAt: new Date(), costUsd: { increment: costUsd } } })
     const next = JOB_STEPS[JOB_STEPS.indexOf(step) + 1]
-    let note: string | null = null
-    if (next && !(await boss.send(queueName(next), { titleId }, { singletonKey: titleId }))) {
-      note = `${queueName(next)} not queued: a job for this title is already waiting there`
+    if (!next) { await db.title.update({ where: { id: titleId }, data: { status: 'published' } }); return } // Rendition/TextTrack rows: DESC-004
+    if (!(await sendStep(boss, next, titleId))) {
+      const note = `${queueName(next)} not queued: a job for this title is already waiting there`
       console.warn(`pipeline: ${note} (title ${titleId})`)
+      await db.job.update({ where: { id: job.id }, data: { error: note } })
     }
-    await db.job.update({ where: { id: job.id }, data: { status: 'done', finishedAt: new Date(), error: note, costUsd: { increment: costUsd } } })
-    if (!next) await db.title.update({ where: { id: titleId }, data: { status: 'published' } }) // Rendition/TextTrack rows: DESC-004
   } catch (e) {
     const final = job.retryCount >= job.retryLimit
     const costUsd = (e as { costUsd?: number }).costUsd ?? 0
@@ -97,10 +104,15 @@ export async function handleJob(step: JobStep, job: StepJob, { boss, db, run = r
   }
 }
 
-/** A step's retries are spent, possibly without handleJob seeing the end (expired, worker died): close its rows and fail the title. */
-export async function handleDeadLetter(titleId: string, db: Db) {
-  await db.job.updateMany({ where: { titleId, status: { in: ['running', 'retrying'] } }, data: { status: 'failed', finishedAt: new Date(), error: 'retries spent: the last attempt expired or its worker stopped (pg-boss dead letter)' } })
-  await db.title.update({ where: { id: titleId }, data: { status: 'failed' } })
+/**
+ * A step's retries are spent, possibly without handleJob seeing the end (expired, worker died). Closes that job's own row (if it
+ * is still open) and fails the title — unless a newer job for the title has started since, e.g. a forced re-run.
+ */
+export async function handleDeadLetter({ titleId, jobId }: StepData, db: Db) {
+  const row = jobId ? await db.job.findUnique({ where: { id: jobId } }) : null
+  if (row && (row.status === 'running' || row.status === 'retrying')) await db.job.update({ where: { id: row.id }, data: { status: 'failed', finishedAt: new Date(), error: 'retries spent: the last attempt expired or its worker stopped (pg-boss dead letter)' } })
+  const newer = await db.job.count({ where: { titleId, id: { not: jobId ?? '' }, startedAt: { gt: row?.startedAt ?? new Date() } } })
+  if (newer === 0) await db.title.update({ where: { id: titleId }, data: { status: 'failed' } })
 }
 
 const json = async <T>(work: string, f: string) => JSON.parse(await readFile(`${work}/${f}`, 'utf8')) as T
@@ -128,4 +140,18 @@ export async function persist(step: JobStep, titleId: string, work: string, db: 
   } else if (step === 'finish') {
     await writeDescriptionCues(db as never, titleId, work)
   }
+}
+
+/**
+ * SIGTERM/SIGINT: stop taking jobs and let running handlers finish (up to 30 s; anything still running is failed by pg-boss expiry
+ * and retried), then close — https://github.com/timgit/pg-boss/blob/10.1.6/docs/api/ops.md (stop: graceful, timeout ms).
+ */
+export function stopOnSignals(boss: Pick<PgBoss, 'stop'>, close: () => Promise<void>, proc: Pick<NodeJS.Process, 'on' | 'exit'> = process) {
+  let stopping = false
+  for (const sig of ['SIGTERM', 'SIGINT'] as const) proc.on(sig, async () => {
+    if (stopping) return
+    stopping = true
+    console.log(`${sig}: stopping pipeline workers`)
+    try { await boss.stop({ graceful: true, timeout: 30_000 }); await close() } finally { proc.exit(0) }
+  })
 }

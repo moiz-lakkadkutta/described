@@ -14,11 +14,13 @@ import type { FitCue } from './05-fit'
 import { cueAudioFile } from '../cues'
 
 export interface DescribeInput { slug: string; source: string; language: 'en' | 'de'; voice: string; fromStep?: string }
-export const ORDER = ['probe', 'shots', 'speech', 'describe', 'fit', 'voice', 'mix', 'text', 'package', 'publish'] as const
-export type Step = typeof ORDER[number]
+export const STEPS = ['probe', 'shots', 'speech', 'describe', 'fit', 'voice', 'mix', 'text', 'package', 'publish'] as const
+export type Step = typeof STEPS[number]
+/** The slug names the work dir and S3 keys, so it is kept to a path-safe alphabet. */
+export const SLUG_RE = /^[a-z0-9-]{1,64}$/
 export const ctxFor = (input: DescribeInput): Ctx => ({ ...input, work: `work/${input.slug}` })
 
-const STEPS: Record<Step, (ctx: Ctx) => Promise<void>> = {
+const RUNNERS: Record<Step, (ctx: Ctx) => Promise<void>> = {
   probe, shots: detectShots, speech: speechMap, describe: (ctx) => describeShots(ctx), fit: fitDescriptions,
   voice: async (ctx) => { const since = Date.now(); try { await voice(ctx) } finally { meter()?.add(pollyUsd(await pollyChars(ctx.work, since))) } }, mix, text: sdh, package: pack, publish,
 }
@@ -29,15 +31,16 @@ export async function pollyChars(work: string, since = 0): Promise<number> {
   return cues.reduce((n, c, i) => n + (written[i] ? c.text.length : 0), 0)
 }
 /** One step, in-process. Each step reads/writes work/{slug}/ and overwrites its own outputs, so re-running it is safe. */
-export const runStep = (step: Step, ctx: Ctx) => STEPS[step](ctx)
+export const runStep = (step: Step, ctx: Ctx) => RUNNERS[step](ctx)
 
 /** The whole product in one function (the CLI; the worker runs the same steps as pg-boss jobs, src/jobs.ts). --from resumes. */
 export async function runDescribe(input: DescribeInput) {
-  const start = input.fromStep ? ORDER.indexOf(input.fromStep as Step) : 0
-  if (start < 0) throw new Error(`unknown step ${input.fromStep}; one of ${ORDER.join(', ')}`)
+  if (!SLUG_RE.test(input.slug)) throw new Error(`invalid slug "${input.slug}": must match ${SLUG_RE.source}`)
+  const start = input.fromStep ? STEPS.indexOf(input.fromStep as Step) : 0
+  if (start < 0) throw new Error(`unknown step "${input.fromStep}"; valid steps: ${STEPS.join(', ')}`)
   const ctx = ctxFor(input)
   let total = 0
-  for (const s of ORDER.slice(start)) {
+  for (const s of STEPS.slice(start)) {
     console.time(s)
     const { costUsd } = await metered(() => runStep(s, ctx))
     console.timeEnd(s)

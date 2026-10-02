@@ -25,8 +25,9 @@ EXPO_PUBLIC_API_URL=http://<mac-ip>:4000 npx expo run:android --variant release
 ```
 
 - [ ] If `android/` already exists from an earlier build with another API address, run `npx expo prebuild --clean` first:
-      cleartext HTTP is allowed only for the host in `EXPO_PUBLIC_API_URL`, written at prebuild
-      (`android/app/src/main/res/xml/network_security_config.xml` names `<mac-ip>`).
+      in the release build cleartext HTTP is allowed only for the host in `EXPO_PUBLIC_API_URL`, written at prebuild
+      (`android/app/src/main/res/xml/network_security_config.xml` names `<mac-ip>`). Debug builds use
+      `android/app/src/debug/res/xml/network_security_config.xml`, which allows cleartext to any host, so Metro loads.
 - [ ] Build succeeds. `grep -c 'described:keyevent' android/app/src/main/java/dev/moizp/described/MainActivity.kt` prints `1`
       (key forwarding from `plugins/withKeyEvent.js`).
 - [ ] App appears in the Fire TV "Your Apps" row as **Described** and opens.

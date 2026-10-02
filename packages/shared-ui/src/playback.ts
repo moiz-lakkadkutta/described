@@ -89,10 +89,12 @@ export function resumePoint(resumeS: number | null | undefined, durationS: numbe
 }
 
 // ── Status line and time ───────────────────────────────────────────────────────────────────────────────────────────
-export function statusLine(o: { state: PlayerState; error: boolean; adOn: boolean; voice: string; caption: CaptionKind }): string {
+/** `caption: null` until the track list is known: the line claims nothing about captions before then. */
+export function statusLine(o: { state: PlayerState; error: boolean; adOn: boolean; voice: string; caption: CaptionKind | null }): string {
   if (o.error || o.state === 'error') return strings.player.error
   if (o.state === 'ended') return strings.player.ended
   if (o.state === 'loading' || o.state === 'buffering') return strings.player.loading
+  if (o.caption === null) return o.adOn ? strings.player.statusOnNoCaptions(o.voice) : strings.player.statusOffNoCaptions
   const cap = o.caption === 'off' ? strings.player.captionsOff : captionName(o.caption)
   return o.adOn ? strings.player.statusOn(o.voice, cap) : strings.player.statusOff(cap)
 }
