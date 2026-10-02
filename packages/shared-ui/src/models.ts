@@ -56,23 +56,8 @@ export function homeModel(catalog: Catalog | null, myList: ReadonlySet<string>) 
 
 export type SampleState = 'idle' | 'playing'
 const captionNames: Record<Prefs['captionKind'], string> = { off: strings.tracks.off, captions: strings.tracks.plain, sdh: strings.tracks.rich, descriptions: strings.tracks.descText }
-/** What a caption setting is called on screen ("Rich captions", not "sdh"). */
+/** The caption choice as the viewer reads it ("Rich captions"). */
 export const captionName = (k: Prefs['captionKind']) => captionNames[k]
-
-/**
- * Which Player positions to save (DESC-006 replaces this): one save per 10 s span, and none under 1 s when there is a
- * saved position — the first reports of a play come before any resume and would overwrite it with ~0.
- */
-export function progressSaver(resumeS: number | null) {
-  let span = -1
-  return (s: number): boolean => {
-    if (resumeS && s < 1) return false
-    const at = Math.floor(s / 10)
-    if (at === span) return false
-    span = at
-    return true
-  }
-}
 export const nextCaptionKind = (k: Prefs['captionKind']): Prefs['captionKind'] => (['off', 'captions', 'sdh', 'descriptions'] as const)[(['off', 'captions', 'sdh', 'descriptions'].indexOf(k) + 1) % 4]!
 /** The Title screen shows this many synopsis lines; a longer synopsis gets "More". */
 export const SYNOPSIS_LINES = 4

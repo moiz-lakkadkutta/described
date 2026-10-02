@@ -56,11 +56,3 @@ describe('Title model', () => {
   it('Extended badge is singular for one pause', () => expect(titleModel({ ...title, extendedCount: 1 }, { sample: 'idle', inList: false, captionKind: 'sdh' }).badges.at(-1)!.text).toBe('Extended: 1 pause'))
   it('no sample cue → no Hear a sample', () => expect(titleModel({ ...title, sampleCue: null }, { sample: 'idle', inList: false, captionKind: 'sdh' }).actions.map((a) => a.id)).not.toContain('sample'))
 })
-
-describe('progressSaver', () => {
-  it('without a saved position, saves from 0, once per 10 s span; a seek back saves again', async () => {
-    const { progressSaver } = await import('../src/models')
-    const save = progressSaver(null)
-    expect([0, 0.5, 9.9, 10, 10.2, 3].map(save)).toEqual([true, false, false, true, false, true])
-  })
-})
