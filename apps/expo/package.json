@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@described/contracts": "workspace:*",
     "@described/shared-ui": "workspace:*",
     "@moizp/vega-media-kit": "^0.1.0-alpha.0",
     "expo": "~54.0.0",

@@ -1,6 +1,7 @@
 # Tickets (build order) — see docs/PLAN.md §10
 
 Platform: Fire OS only; Vega deferred (decision 0004). Freeze Oct 15, submit Oct 22.
+- Vega note: `apps/vega/App.template.tsx` never calls `configureRemote`, so no D-pad, Settings ◄► or Player keys reach shared-ui there; wire a TVEventHandler key source when the Vega build resumes.
 
 **Next (most impact): DESC-005** — the Described app has never run on the stick (Gate A ran through the kit's harness).
 It is the demo, it unblocks DESC-006–009, and it needs no pipeline work: Sintel is already published.
@@ -29,11 +30,28 @@ It is the demo, it unblocks DESC-006–009, and it needs no pipeline work: Sinte
   - kit: the Fire OS adapter's seek should set position.current (and honour startAt), so getPosition is right before the next onProgress; the Player works around it with a pending-seek position and a resume seek
 - [ ] DESC-007 · week 2 · Extended mode: per-cue Polly audio, prefetch 10 s, pause–speak–resume, ochre bar, setting
 - [ ] DESC-008 · week 2 · Platform bindings: Content Launcher catalog + intents, Personalization, Media Controls, Alexa pause
+  - research + decisions: docs/platform/fire-os-bindings.md; device check: docs/device-checks/DESC-008.md (not run yet)
+  - [x] deep links `described://title/{slug}`, `described://play/{slug}?t=…` (scheme intent filter, Root routing)
+  - [x] Alexa transport via a local MediaSession module (`apps/expo/modules/described-media-session`) — Kotlin not compiled yet; exclude it from autolinking if the release build fails
+  - [x] draft catalog feed `GET /catalog/fire-tv.xml` (CDF shape, unverified against the XSD)
+  - submission time, human + Amazon developer account: ask for catalog integration (select partners only; new partners use EMBER, not CDF); if accepted, upload the feed and do Fire TV launcher integration (`com.amazon.device.CAPABILITIES` broadcast)
+  - not before freeze: Content Personalization (Fire TV Integration SDK jar + data integration service; needs catalog integration) — reporter stays a no-op
+  - merged with DESC-006: bindings consume Player's `onNowPlaying` in Root; one handler per media key (session: 126/127/86, Player keys: 85/89/90)
+  - Vega Content Launcher / journalctl transcript (KICKOFF) deferred with Vega (decision 0004)
 - [ ] DESC-009 · week 2 · First run + Settings + full VoiceView pass
   - decide where `prefs.adDefault` applies (since DESC-005 the play action picks AD; nothing reads the setting)
+    → decided: it picks the primary play action (▶ style + initial focus) on the Home hero and on Title — on: Play with
+      description, off: Play / Play without description. Order and labels unchanged; Player still follows the action pressed.
+  - prompt clips for the app voice (first-run panels, Settings "Hear it") are not generated yet: the app requests
+    `/prompts/<voice>/<key>.mp3` (API → CloudFront `prompts/`); text in `promptText` (packages/contracts). TODO(DESC-010): pipeline step.
+  - kit follow-up: CueTheme has no text shadow, so Caption style "Shadow" is a lighter box for now (`cueShadowBox` token, Player `cueTheme`); add `textShadow` to the kit's CueOverlay, then switch Shadow to it
+  - human VoiceView run-through: `docs/a11y/voiceview-checklist.md` → commit as `docs/a11y/voiceview-2026-10-xx.md`
 - [ ] DESC-010 · week 3 · Five titles processed; physical 4K Select; TTFF < 2 s (Vega build deferred, decision 0004)
   - `build:tv` (EAS) cannot work while the kit comes from the `link:../vega-media-kit` override: EAS uploads only this repo; publish the kit (0.1.0) or vendor it first. Build locally with `expo run:android --variant release` until then
   - re-check hardware decode on the stick with the 1920×818 L4.0 rendition
+  - generate the app-voice prompt clips with Polly in each voice's language: per voice × PromptKey, `LanguageCode = voiceLanguage[voice]`,
+    `Text = promptTextFor(voice, key)` (packages/contracts; de-DE for Vicki and Daniel), neural mp3, upload to `prompts/<voice>/<key>.mp3`
+  - the Settings Voice changes only the app's own prompts (first run, Hear it); description tracks keep the title's voice (`Title.voice`, chosen per title in the pipeline)
 - [ ] DESC-011 · week 4 · Polish, docs/screens, README, docs/aws.md, feedback, feature requests, ≥ 8 friction logs · freeze Oct 15
   - rail: Described (described titles grid) and My list screens + a My list API; both rail items open Home today (DESC-005)
 - [ ] DESC-012 · week 5 · Video + submission (Oct 22)

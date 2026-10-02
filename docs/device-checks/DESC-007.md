@@ -73,7 +73,7 @@ Seek back to ~5 s before a cue each time (◄), let it pause, then:
 - [ ] **Select** (or Play/Pause, or the remote's Pause key): the voice finishes, the bar goes, and the film **stays paused** (your pause wins).
       **Select** again plays.
 - [ ] **Select** twice quickly during the voice: it finishes and the film resumes (the second press undid the pause).
-- [ ] Alexa "pause" during the voice (once DESC-008 lands): same as Select — stays paused after the voice.
+- [ ] Alexa "pause" (or the media session pause) during the voice: same as Select — stays paused after the voice.
 
 ## 4. Seeking over cues
 
@@ -86,7 +86,7 @@ Seek back to ~5 s before a cue each time (◄), let it pause, then:
 - [ ] Menu → **Extended mode · Off**, close, play over an extended cue: no pause, no bar, no clip request in the API log.
       (The description is simply not voiced — extended cues are not in the narration track.) Turn it back **On**: the next cue pauses again.
 - [ ] Menu → **Original** (description off), play over an extended cue: no pause. Back to **Audio description**: pauses again.
-- [ ] Settings → Extended mode Off (DESC-009, once landed), then play: no pauses.
+- [ ] Settings → Extended mode Off, then play: no pauses.
 - [ ] Turn Extended mode Off **during** a pause (Menu opens the sheet, which already ends the pause; then Off): the film keeps playing.
 
 ## 6. Failures never leave the film paused

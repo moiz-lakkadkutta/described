@@ -86,6 +86,9 @@ importers:
 
   apps/expo:
     dependencies:
+      '@described/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@described/shared-ui':
         specifier: workspace:*
         version: link:../../packages/shared-ui

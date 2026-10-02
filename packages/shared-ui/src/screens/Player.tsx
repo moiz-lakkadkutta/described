@@ -5,7 +5,7 @@ import type { Cue, KitPlayerRef, PlayerError, PlayerState, Tracks } from '@moizp
 import type { RemoteKey } from '@moizp/vega-media-kit/platform'
 import type { Prefs, TitleDetail } from '@described/contracts'
 import { Focusable, T } from '../components'
-import { subscribeKeys } from '../focus/remote'
+import { subscribeKeys } from '../focus/keys'
 import {
   audioTrackFor, characteristicsByUri, clampSeek, clock, crossfadeAudio, resumePoint, seekStep, statusLine, textSelection,
   SEEK_COMMIT_MS, SEEK_REPEAT_MS, SEEK_STEP_S,
@@ -38,6 +38,8 @@ const noop = () => {}
  */
 export interface PlayerSession {
   slug: string; name: string; state: PlayerState; adOn: boolean; durationS: number | null
+  /** Committed seeks so far (keys, transport, resume): a new value means the position jumped, so bindings republish it. */
+  seeks: number
   /** `seek` is the Player's own seek (clamped, resume-aware), so transport seeks behave like ◄►. */
   controls: { play(): void; pause(): void; seek(s: number): void; getPosition(): number }
 }
@@ -69,6 +71,16 @@ export interface PlayerProps {
 }
 
 /**
+/**
+ * Captions as Settings chose them: size (100–200 %) and style. Box (default, PLAN §8) is the token box; Shadow is a
+ * lighter box (cueShadowBox), since bare text is unreadable on bright video. TODO(kit): switch Shadow to a text shadow
+ * once CueTheme has one.
+ */
+export const cueTheme = (prefs: Pick<Prefs, 'captionScale' | 'captionStyle'>) => ({
+  fontFamily: tokens.type.caption.family, primaryColor: tokens.color.text, userScale: prefs.captionScale / 100,
+  boxColor: prefs.captionStyle === 'shadow' ? tokens.color.cueShadowBox : tokens.color.cueBox,
+})
+/**
  * Player: full-bleed video through the kit. AD is an audio rendition chosen by role; captions and description text
  * are text tracks chosen by kind and HLS characteristics; the kit's CueOverlay draws them. Chrome (title, bar,
  * time) shows on any key and hides after 4 s of playing without input; the status line always stays. Remote: Select / Play-Pause
@@ -94,6 +106,7 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
   const [chrome, setChrome] = useState(true)
   const [poke, setPoke] = useState(0)
   const [describing, setDescribing] = useState(false)
+  const [seeks, setSeeks] = useState(0)
 
   const pos = useRef(0)
   const startAt = useRef(startAtS != null ? clampSeek(startAtS, title.durationS) : resumePoint(title.resumeS, title.durationS))
@@ -147,7 +160,7 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
     if (releaseAudio()) ref.current?.play()
     pendingSeek.current = { target, timer: setTimeout(() => { pendingSeek.current = null }, PENDING_SEEK_MS) }
     ref.current?.seek(target)
-    pos.current = target; setPosition(target)
+    pos.current = target; setPosition(target); setSeeks((n) => n + 1)
   }, [title.durationS, clearPending, releaseAudio])
 
   // Rich vs plain captions is an HLS characteristic the kit's TextTrack does not carry: read it from the master.
@@ -248,8 +261,8 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
   const pause = useCallback(() => { if (ext.current) ext.current.userPaused = true; else ref.current?.pause() }, [])
   const { slug, name, durationS } = title
   useEffect(() => {
-    onNowPlaying?.({ slug, name, state, adOn, durationS, controls: { play, pause, seek: seekTo, getPosition } })
-  }, [onNowPlaying, slug, name, durationS, state, adOn, play, pause, seekTo, getPosition])
+    onNowPlaying?.({ slug, name, state, adOn, durationS, seeks, controls: { play, pause, seek: seekTo, getPosition } })
+  }, [onNowPlaying, slug, name, durationS, state, adOn, seeks, play, pause, seekTo, getPosition])
   useEffect(() => () => onNowPlaying?.(null), [onNowPlaying])
   useEffect(() => () => { clearTimeout(commit.current); clearPending() }, [clearPending])
 
@@ -293,20 +306,29 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
     if (t && ref.current) void crossfadeAudio(ref.current, t.id)
   }
 
-  // Raw keys (Select reaches the surface through spatial navigation; Back through BackHandler).
-  const onKey = useRef<(k: RemoteKey, repeat: boolean) => void>(() => {})
+  // Raw keys (Select reaches the surface through spatial navigation; Back through BackHandler). A key the player acts
+  // on is consumed, so spatial navigation does not also move focus (◄► seek, ▲ opens the sheet). In the sheet only
+  // Menu and the play keys are taken; ▲▼ and Select move through it.
+  const onKey = useRef<(k: RemoteKey, repeat: boolean) => boolean>(() => false)
   onKey.current = (k, repeat) => {
-    if (k === 'back') return
-    if (sheet) { if (k === 'menu' && !repeat) closeSheet(); return }
+    if (k === 'back') return false
+    if (sheet) {
+      // In the sheet: Menu closes it; Play/Pause still toggles playback (as the media session does with PLAY/PAUSE).
+      if (k === 'menu') { if (!repeat) closeSheet(); return true }
+      if (k === 'playPause') { if (!repeat) toggle(); return true }
+      if (k === 'play') { play(); return true }
+      if (k === 'pause') { pause(); return true }
+      return false
+    }
     showChrome()
     switch (k) {
-      case 'playPause': if (!repeat) toggle(); break
-      case 'play': play(); break
-      case 'pause': pause(); break
-      case 'left': case 'rewind': seekBy(-1, repeat); break
-      case 'right': case 'fastForward': seekBy(1, repeat); break
-      case 'up': case 'menu': if (!repeat) openSheet(); break
-      default: break
+      case 'playPause': if (!repeat) toggle(); return true
+      case 'play': play(); return true
+      case 'pause': pause(); return true
+      case 'left': case 'rewind': seekBy(-1, repeat); return true
+      case 'right': case 'fastForward': seekBy(1, repeat); return true
+      case 'up': case 'menu': if (!repeat) openSheet(); return true
+      default: return false
     }
   }
   useEffect(() => subscribeKeys((k, repeat) => onKey.current(k, repeat)), [])
@@ -359,7 +381,7 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
         style={{ flex: 1 }}
       />
       <CueOverlay active={visibleCues} primaryTrackId={selection.shown} scale={scale} safeInset={{ x: Math.round(tokens.layout.safeX * scale), y: Math.round(insetY * scale) }}
-        theme={{ fontFamily: tokens.type.caption.family, boxColor: tokens.color.cueBox, primaryColor: tokens.color.text, userScale: prefs.captionScale / 100 }} />
+        theme={cueTheme(prefs)} />
 
       <View testID="chrome" pointerEvents="none" accessibilityElementsHidden={!chromeShown} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: chromeShown ? 1 : 0 }}>
         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: px(200) }}>{[...bands].reverse().map((c) => <View key={c} style={{ flex: 1, backgroundColor: c }} />)}</View>

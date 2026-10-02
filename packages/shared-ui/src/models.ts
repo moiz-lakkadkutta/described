@@ -20,10 +20,11 @@ export const listAction = (i: { slug: string; name: string }, inList: boolean, i
   id, text: strings.home.myList, label: inList ? strings.a11y.listRemove(i.name) : strings.a11y.listAdd(i.name), selected: inList,
 })
 
-export function heroActions(i: CatalogItem, inList: boolean): Action[] {
+/** `adDefault` (Settings → Description on by default) picks the primary play action: it is styled ▶ and takes initial focus. */
+export function heroActions(i: CatalogItem, inList: boolean, adDefault = true): Action[] {
   return [
-    { id: 'hero:playAd', text: strings.home.playWithAd, label: strings.a11y.playWithAd(i.name), primary: true },
-    { id: 'hero:play', text: strings.home.play, label: strings.a11y.playWithout(i.name) },
+    { id: 'hero:playAd', text: strings.home.playWithAd, label: strings.a11y.playWithAd(i.name), primary: adDefault },
+    { id: 'hero:play', text: strings.home.play, label: strings.a11y.playWithout(i.name), primary: !adDefault },
     listAction(i, inList, 'hero:list'),
   ]
 }
@@ -42,16 +43,17 @@ function row(key: string, label: string, items: CatalogItem[] | null): RowModel 
 }
 
 /** Rows in order; Continue watching only when it has something. `null` catalog → skeleton rows of the same geometry. */
-export function homeModel(catalog: Catalog | null, myList: ReadonlySet<string>) {
+export function homeModel(catalog: Catalog | null, myList: ReadonlySet<string>, adDefault = true) {
   const hero = catalog?.newlyDescribed[0] ?? catalog?.all[0] ?? null
   const rows = [
     ...(catalog?.continue.length ? [row('continue', strings.home.continue, catalog.continue)] : []),
     row('newly', strings.home.newly, catalog ? catalog.newlyDescribed : null),
     row('all', strings.home.all, catalog ? catalog.all : null),
   ]
-  const actions = hero ? heroActions(hero, myList.has(hero.slug)) : []
+  const actions = hero ? heroActions(hero, myList.has(hero.slug), adDefault) : []
   const ids = [...actions.map((a) => a.id), ...rows.flatMap((r) => r.cards.filter((c) => !c.skeleton).map((c) => c.id))]
-  return { hero, actions, rows, ids }
+  const primary = actions.find((a) => a.primary)?.id ?? 'hero:playAd'
+  return { hero, actions, rows, ids, primary }
 }
 
 export type SampleState = 'idle' | 'playing'
@@ -62,7 +64,8 @@ export const nextCaptionKind = (k: Prefs['captionKind']): Prefs['captionKind'] =
 /** The Title screen shows this many synopsis lines; a longer synopsis gets "More". */
 export const SYNOPSIS_LINES = 4
 
-export function titleModel(t: TitleDetail, o: { sample: SampleState; inList: boolean; captionKind: Prefs['captionKind']; synopsisLines?: number }) {
+export function titleModel(t: TitleDetail, o: { sample: SampleState; inList: boolean; captionKind: Prefs['captionKind']; synopsisLines?: number; adDefault?: boolean }) {
+  const adFirst = o.adDefault ?? true
   const badges = [
     ...(t.badges.includes('ad') ? [{ text: strings.badge.ad, ad: true }] : []),
     ...(t.badges.includes('sdh') ? [{ text: strings.badge.sdh, ad: false }] : []),
@@ -70,8 +73,8 @@ export function titleModel(t: TitleDetail, o: { sample: SampleState; inList: boo
   ]
   const caption = captionNames[o.captionKind]
   const actions: Action[] = [
-    { id: 'playAd', text: strings.home.playWithAd, label: strings.a11y.playWithAd(t.name), primary: true },
-    { id: 'play', text: strings.title.playWithout, label: strings.a11y.playWithout(t.name) },
+    { id: 'playAd', text: strings.home.playWithAd, label: strings.a11y.playWithAd(t.name), primary: adFirst },
+    { id: 'play', text: strings.title.playWithout, label: strings.a11y.playWithout(t.name), primary: !adFirst },
     ...(t.sampleCue ? [o.sample === 'playing'
       ? { id: 'sample', text: strings.title.stopSample, label: strings.a11y.stopSample }
       : { id: 'sample', text: strings.title.hearSample, label: strings.a11y.sample(t.name), hint: strings.a11y.sampleHint }] : []),
@@ -86,4 +89,18 @@ export function titleModel(t: TitleDetail, o: { sample: SampleState; inList: boo
     actions: t.processingMinutesLeft != null ? [listAction(t, o.inList)] : actions, // My list stays, so focus has somewhere to land
     more,
   }
+}
+
+/**
+ * What Title shows but VoiceView can't reach by focus: name, facts, badges, the processing line and the synopsis.
+ * Said before the first focus announcement on Title (setFocusContext).
+ */
+export function titleSummary(t: TitleDetail) {
+  return [
+    t.name, ...facts(t, false),
+    t.badges.includes('sdh') ? strings.a11y.sdh : null,
+    t.extendedCount ? strings.a11y.extended(t.extendedCount) : null,
+    t.processingMinutesLeft != null ? strings.title.processing(t.processingMinutesLeft) : null,
+    t.synopsis,
+  ].filter(Boolean).map((x) => String(x).replace(/[.\s]+$/, '')).join('. ')
 }

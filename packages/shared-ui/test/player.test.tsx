@@ -11,6 +11,7 @@ import { strings } from '../src/strings'
 import { tokens } from '../src/theme/tokens'
 import { a11yCalls, back } from './stubs/react-native'
 import { kit } from './stubs/kit'
+import { remote } from './stubs/space-navigation'
 import { title } from './fixtures'
 
 const master = readFileSync(path.resolve(__dirname, 'fixtures/master.m3u8'), 'utf8')
@@ -21,9 +22,13 @@ const idOf = (label: string) => [...tracks.audio, ...tracks.text].find((t) => t.
 /** A fake platform key source: `press('right')`, `press('right', true)` for an auto-repeat while held. */
 const listeners = new Set<(k: never, repeat?: boolean) => void>()
 configureRemote((onKey) => { listeners.add(onKey as never); return () => listeners.delete(onKey as never) })
+// Spatial navigation's subscription, as SpatialNavigationRoot makes it: keys reach Player's handler through it, and
+// `moves` records what spatial navigation got after the handlers.
+const moves: string[] = []
+remote.config!.remoteControlSubscriber((d) => { if (d) moves.push(d) })
 const press = (k: string, repeat = false) => act(() => { for (const l of [...listeners]) l(k as never, repeat) })
 
-const prefs: Prefs = { adDefault: true, extendedMode: true, voice: 'Joanna', captionKind: 'sdh', captionScale: 100, firstRunDone: true }
+const prefs: Prefs = { adDefault: true, extendedMode: true, voice: 'Joanna', captionKind: 'sdh', captionScale: 100, captionStyle: 'box', firstRunDone: true }
 const DURATION = title.durationS! // 888
 let r!: TestRenderer.ReactTestRenderer
 function mount(over: Partial<PlayerProps> = {}) {
@@ -318,12 +323,13 @@ describe('track sheet', () => {
     press('menu')
     expect(defaultFocus()).toEqual([strings.tracks.a11y.rich])
   })
-  it('while open, ◄► and Play/Pause leave the film alone', () => {
+  it("while open, ◄► leave the film alone; Play/Pause still toggles it (like the media session's PLAY/PAUSE)", () => {
     mount(); report('onState', 'playing'); press('menu')
-    press('left'); press('playPause')
+    press('left')
     act(() => { vi.advanceTimersByTime(SEEK_COMMIT_MS) })
     expect(kit.ref.seek).not.toHaveBeenCalled()
-    expect(kit.ref.pause).not.toHaveBeenCalled()
+    press('playPause')
+    expect(kit.ref.pause).toHaveBeenCalledTimes(1)
   })
   it('selected = teal ring + ✓; sections in spec order', () => {
     mount(); press('menu')
@@ -427,7 +433,9 @@ describe('Extended mode (DESC-007)', () => {
   })
   it('does nothing with Extended mode off or AD off (and does not read the track)', async () => {
     await start({ prefs: { ...prefs, extendedMode: false } }); tick(18, 41)
+    const first = au; act(() => r.unmount())
     await start({ withAd: false }); tick(18, 41)
+    expect(first.speak).not.toHaveBeenCalled(); expect(first.prefetch).not.toHaveBeenCalled()
     expect(au.speak).not.toHaveBeenCalled(); expect(kit.ref.pause).not.toHaveBeenCalled(); expect(au.prefetch).not.toHaveBeenCalled()
     expect(fetched()).not.toContain(descUrl)
   })
@@ -503,6 +511,11 @@ describe('Extended mode (DESC-007)', () => {
       act(() => r.unmount()); kit.reset(); act(() => { r = TestRenderer.create(<></>) })
     }
   })
+  it('keys during the pause are still consumed (spatial navigation does not also move)', async () => {
+    await atCue(); moves.length = 0
+    press('playPause'); press('pause'); press('playPause')
+    expect(moves).toEqual([])
+  })
   it('Select twice during the pause undoes the pause: it resumes after the clip', async () => {
     await atCue()
     act(() => surface()!.props.onSelect()); act(() => surface()!.props.onSelect())
@@ -569,5 +582,43 @@ describe('Extended mode (DESC-007)', () => {
     expect(au.stopSpeaking).toHaveBeenCalledTimes(2)
     act(() => r.unmount()); act(() => { r = TestRenderer.create(<></>) })
     expect(au.stopSpeaking).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe('keys and spatial navigation (one key path, DESC-009 phase 2)', () => {
+  it('◄► seek, ▲, Menu and Play/Pause are consumed: spatial navigation does not also move', () => {
+    mount(); moves.length = 0
+    press('left'); press('right'); press('up'); press('menu'); press('menu'); press('playPause')
+    expect(moves).toEqual([])
+  })
+  it('in the track sheet ▲▼ and Select still move focus; Play/Pause toggles playback; Menu closes the sheet', () => {
+    mount(); report('onState', 'playing'); press('menu'); moves.length = 0
+    press('down'); press('up'); press('select')
+    expect(moves).toEqual(['down', 'up', 'enter'])
+    press('playPause')
+    expect(kit.ref.pause).toHaveBeenCalledTimes(1)
+    expect(r.root.findAllByProps({ testID: 'track-sheet' })).toHaveLength(1) // the sheet stays open
+    press('menu')
+    expect(r.root.findAllByProps({ testID: 'track-sheet' })).toHaveLength(0)
+    expect(moves).toEqual(['down', 'up', 'enter'])
+  })
+  it('Select on the surface is left to spatial navigation', () => {
+    mount(); moves.length = 0
+    press('select')
+    expect(moves).toEqual(['enter'])
+  })
+})
+
+describe('caption style (Settings → Caption style)', () => {
+  const overlay = () => r.root.find((n) => (n.type as unknown) === 'CueOverlay').props.theme
+  it('Box: the token box at the chosen size', () => {
+    mount({ prefs: { ...prefs, captionStyle: 'box', captionScale: 150 } })
+    expect(overlay()).toMatchObject({ boxColor: tokens.color.cueBox, userScale: 1.5, primaryColor: tokens.color.text, fontFamily: tokens.type.caption.family })
+  })
+  it('Shadow: a lighter box (never bare text) until the kit draws a text shadow', () => {
+    mount({ prefs: { ...prefs, captionStyle: 'shadow' } })
+    expect(overlay()).toMatchObject({ boxColor: tokens.color.cueShadowBox, userScale: 1 })
+    expect(tokens.color.cueShadowBox).not.toBe(tokens.color.cueBox)
+    expect(Number(/,\s*([\d.]+)\)$/.exec(tokens.color.cueShadowBox)![1])).toBeGreaterThan(0.3)
   })
 })

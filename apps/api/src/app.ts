@@ -9,6 +9,8 @@ import cors from 'cors'
 import { titles } from './routes/titles'
 import { me } from './routes/me'
 import { admin } from './routes/admin'
+import { about } from './routes/about'
+import { prompts } from './routes/prompts'
 
         export function createApp(): Express {
           const app = express()
@@ -21,6 +23,8 @@ import { admin } from './routes/admin'
   app.use('/titles', titles)
   app.use('/me', me)
   app.use('/admin', admin)
+  app.use('/about', about)
+  app.use('/prompts', prompts)
           app.use(errorHandler)
           return app
         }
