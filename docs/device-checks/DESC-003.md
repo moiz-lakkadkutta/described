@@ -37,7 +37,8 @@ pnpm pipeline describe --title sintel-90-150-d3 --source s3://$S3_BUCKET_MEDIA/s
 ```
 
 Expect `describe: N shots, N from cache` and no `describe:` cost line (≈ $0.007 for the rest: Nova Lite + Polly).
-`--from speech` instead prints `Transcribe skipped` (same mezzanine) and costs nothing for speech.
+`--from speech` instead prints `Transcribe skipped` (same mezzanine bytes and language) and costs nothing for speech; an
+interrupted speech step resumes the Transcribe job named in `work/<slug>/transcribe.job.json` instead of starting another.
 
 ## B. Worker, one pg-boss job per step (Postgres needed)
 
