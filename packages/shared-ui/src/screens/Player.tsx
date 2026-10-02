@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AccessibilityInfo, BackHandler, View } from 'react-native'
-import { KitPlayer, CueOverlay, fetchHlsVtt, parseHlsMaster, parseVtt } from '@moizp/vega-media-kit'
+import { KitPlayer, CueOverlay, parseHlsMaster, parseVtt } from '@moizp/vega-media-kit'
 import type { Cue, KitPlayerRef, PlayerError, PlayerState, Tracks } from '@moizp/vega-media-kit'
 import type { RemoteKey } from '@moizp/vega-media-kit/platform'
 import type { Prefs, TitleDetail } from '@described/contracts'
@@ -60,6 +60,11 @@ export interface PlayerProps {
   prefetch?: (audioUrl: string) => void
   /** The audio of description cue `d{n}` (GET /titles/:slug/cues/:cueId/audio). Without it Extended mode never pauses. */
   cueAudioUrl?: (slug: string, cueId: string) => string
+  /**
+   * The title's whole-file descriptions WebVTT (GET /titles/:slug/descriptions.vtt: built from the same rows as the clip
+   * route, so it is the source of truth for d{n}). Read once, as soon as Extended mode is on.
+   */
+  descriptionsUrl?: string
   onNowPlaying?: (n: PlayerSession | null) => void
 }
 
@@ -74,7 +79,7 @@ export interface PlayerProps {
  * times out (`speak` always settles). A seek, Back, Menu, Play, or turning AD / Extended mode off ends the pause at
  * once (the clip stops); Pause or Select during it keeps the film paused after the clip.
  */
-export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgress, onPrefs, speak, stopSpeaking = noop, prefetch = noop, cueAudioUrl, onNowPlaying }: PlayerProps) {
+export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgress, onPrefs, speak, stopSpeaking = noop, prefetch = noop, cueAudioUrl, descriptionsUrl, onNowPlaying }: PlayerProps) {
   const ref = useRef<KitPlayerRef>(null)
   const [state, setState] = useState<PlayerState>('idle')
   const [error, setError] = useState(false)
@@ -104,6 +109,9 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
   const scheduler = useRef<ExtendedScheduler | null>(null)
   /** The extended pause in progress; `token` tells its own clip's end from a stale one. */
   const ext = useRef<{ token: object; userPaused: boolean } | null>(null)
+  /** Extended cues crossed while another was speaking (two close cues): spoken next, in order. */
+  const queue = useRef<ExtendedCue[]>([])
+  const seeked = useRef(false)
   const prefetched = useRef<string | null>(null)
   const stopRef = useRef(stopSpeaking)
   stopRef.current = stopSpeaking // latest, so endExtended (and the unmount cleanup keyed on it) never changes
@@ -117,12 +125,15 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
    */
   const endExtended = useCallback((how: 'done' | 'cancel', token?: object): boolean => {
     const e = ext.current
+    if (how === 'cancel') queue.current = []
     if (!e || (token && e.token !== token)) return false
     ext.current = null
     setDescribing(false)
     if (how === 'cancel') { prefetched.current = null; stopRef.current() }
     return !e.userPaused
   }, [])
+  /** Drops the prefetched clip too (seek away, Extended mode off, leaving): stopSpeaking releases it. */
+  const releaseAudio = useCallback(() => { queue.current = []; if (endExtended('cancel')) return true; prefetched.current = null; stopRef.current(); return false }, [endExtended])
   const getPosition = useCallback(() => scrubRef.current ?? pendingSeek.current?.target ?? ref.current?.getPosition() ?? pos.current, [])
   const clearPending = useCallback(() => { if (pendingSeek.current) clearTimeout(pendingSeek.current.timer); pendingSeek.current = null }, [])
   /** The one seek path: keys, transport controls (DESC-008) and resume. A seek sent before the load is up wins over resume. */
@@ -130,13 +141,14 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
     const target = clampSeek(s, title.durationS)
     seekedToStart.current = true
     clearPending()
-    // A seek never starts an extended cue it lands on; during an extended pause it ends the pause and plays on.
-    scheduler.current?.seeked(); prefetched.current = null
-    if (endExtended('cancel')) ref.current?.play()
+    // A seek never starts an extended cue it lands on; during an extended pause it ends the pause and plays on. The
+    // prefetched clip belonged to the old place.
+    scheduler.current?.seeked(); seeked.current = true
+    if (releaseAudio()) ref.current?.play()
     pendingSeek.current = { target, timer: setTimeout(() => { pendingSeek.current = null }, PENDING_SEEK_MS) }
     ref.current?.seek(target)
     pos.current = target; setPosition(target)
-  }, [title.durationS, clearPending, endExtended])
+  }, [title.durationS, clearPending, releaseAudio])
 
   // Rich vs plain captions is an HLS characteristic the kit's TextTrack does not carry: read it from the master.
   useEffect(() => {
@@ -153,40 +165,59 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
   // Text selection follows the choice; re-applied for every new track list (a retry reloads the source).
   useEffect(() => { if (tracks.text.length) ref.current?.selectText(selection.ids) }, [tracks, idsKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Extended mode: the whole description track (its URL from the kit's tracks), read once while AD and Extended mode
-  // are on. The kit's onCue only reports cues on screen; prefetching 10 s ahead needs the ones to come.
-  const extendedOn = adOn && prefs.extendedMode && !!cueAudioUrl
-  const descUrl = tracks.text.find((t) => t.kind === 'descriptions')?.url
+  // Extended mode: the whole descriptions VTT, one request, read as soon as AD and Extended mode are on — before the
+  // first tick, so a cue at 0:00 is not missed. The kit's onCue only reports cues on screen; prefetching needs the rest.
+  const extendedOn = adOn && prefs.extendedMode && !!cueAudioUrl && !!descriptionsUrl
   useEffect(() => {
-    if (!extendedOn || !descUrl || extCues) return
+    if (!extendedOn || extCues) return
     let live = true
-    fetchHlsVtt(descUrl).then((vtt) => { if (live) setExtCues(extendedCues(parseVtt(vtt, { trackId: 'descriptions' }))) }).catch(() => {}) // no track text: no pauses
+    fetch(descriptionsUrl!)
+      .then(async (r) => { if (!r.ok) throw new Error(`descriptions ${r.status}`); return r.text() })
+      .then((vtt) => { if (live) setExtCues(extendedCues(parseVtt(vtt, { trackId: 'descriptions' }))) })
+      .catch(() => {}) // no descriptions: no pauses
     return () => { live = false }
-  }, [extendedOn, descUrl, extCues])
+  }, [extendedOn, descriptionsUrl, extCues])
   useEffect(() => {
     if (!extCues) return
     scheduler.current = new ExtendedScheduler(extCues)
-    if (pos.current === 0 && startAt.current === 0) scheduler.current.begin(0) // from the very start, a cue at 0:00 counts
+    // Playing from the very start with no seek yet: the first tick counts from 0:00, so early cues are crossed. (If the
+    // cues arrive late, the jump from 0 to the first tick is > MAX_TICK_S and counts as a seek, not a crossing.)
+    if (!seeked.current && startAt.current === 0) scheduler.current.begin(0)
   }, [extCues])
-  // Turning AD or Extended mode off (track sheet, Settings) ends a pause in progress.
-  useEffect(() => { if (!extendedOn && endExtended('cancel')) ref.current?.play() }, [extendedOn, endExtended])
-  useEffect(() => () => { endExtended('cancel') }, [endExtended])
+  // Turning AD or Extended mode off (track sheet, Settings) ends a pause in progress and drops the prefetched clip.
+  useEffect(() => { if (!extendedOn && releaseAudio()) ref.current?.play() }, [extendedOn, releaseAudio])
+  useEffect(() => () => { releaseAudio() }, [releaseAudio])
 
-  /** Pause → announce → speak → resume (unless the viewer paused meanwhile, or something else already ended it). */
-  const startExtended = (cue: ExtendedCue) => {
+  /**
+   * Pause → announce → speak → resume (unless the viewer paused meanwhile, or something else already ended it). A cue
+   * queued behind this one is spoken next, still paused; `userPaused` carries over.
+   */
+  const startExtended = (cue: ExtendedCue, userPaused = false) => {
     const token = {}
-    ext.current = { token, userPaused: false }
+    ext.current = { token, userPaused }
     prefetched.current = null
     setDescribing(true); announce(strings.player.extendedBar)
     ref.current?.pause()
-    speak(cueAudioUrl!(title.slug, cue.id)).catch(() => {}).then(() => { if (endExtended('done', token)) ref.current?.play() })
+    speak(cueAudioUrl!(title.slug, cue.id)).catch(() => {}).then(() => {
+      const viewerPaused = ext.current?.token === token && ext.current.userPaused
+      const resume = endExtended('done', token)
+      const next = ext.current === null && (resume || viewerPaused) ? queue.current.shift() : undefined
+      if (next) startExtended(next, viewerPaused)
+      else if (resume) ref.current?.play()
+    })
   }
-  /** Every position tick: start an extended cue crossed in playback; prefetch the next one 10 s ahead. */
+  /**
+   * Every position tick: start an extended cue crossed in playback; prefetch the next one 10 s ahead. Not gated on the
+   * reported state (onState can lag the tick, and the scheduler has already moved past the cue): any forward crossing
+   * counts, except while ◄► is held (the viewer is leaving this place).
+   */
   const extendedTick = (s: number) => {
     const t = scheduler.current?.tick(s)
     if (!t || !extendedOn) return
     if (t.upcoming && prefetched.current !== t.upcoming.id) { prefetched.current = t.upcoming.id; prefetch(cueAudioUrl!(title.slug, t.upcoming.id)) }
-    if (t.trigger && !ext.current && stateRef.current === 'playing') startExtended(t.trigger)
+    if (!t.triggers.length || scrubRef.current !== null) return
+    queue.current.push(...t.triggers)
+    if (!ext.current) startExtended(queue.current.shift()!)
   }
 
   // Chrome hides after 4 s of playing with no key; it stays while paused, loading, stopped or the sheet is open.
@@ -284,7 +315,7 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
   onBackRef.current = () => {
     if (sheet) { closeSheet(); return true }
     clearTimeout(commit.current)
-    endExtended('cancel')
+    releaseAudio()
     onBack(stateRef.current === 'ended' ? 0 : getPosition())
     return true
   }
@@ -360,7 +391,7 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
       </View>
 
       {describing ? (
-        <View testID="extended-bar" accessibilityLiveRegion="polite" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: px(8), backgroundColor: tokens.color.badge }}>
+        <View testID="extended-bar" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: px(8), backgroundColor: tokens.color.badge }}>
           <T variant="label" style={{ position: 'absolute', right: px(tokens.layout.safeX), bottom: px(16) }}>{strings.player.extendedBar}</T>
         </View>
       ) : null}

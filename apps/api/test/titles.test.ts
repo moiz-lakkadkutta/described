@@ -54,3 +54,16 @@ describe('GET /titles/:slug/cues/:cueId/audio (Extended mode, DESC-007)', () => 
     expect(findUnique.mock.calls.length).toBe(calls) // rejected before the database
   })
 })
+
+describe('GET /titles/:slug/descriptions.vtt (the app\'s source for d{n})', () => {
+  it('numbers cues d1… in start-then-end order and marks extended ones', async () => {
+    findUnique.mockResolvedValueOnce({ cues: [
+      { startMs: 1000, endMs: 1100, text: 'Words appear: Berlin.', extended: true, wordCount: 3 },
+      { startMs: 1000, endMs: 4000, text: 'A dragon lands.', extended: false, wordCount: 3 },
+    ] })
+    const res = await request(createApp()).get('/titles/sintel-90-210/descriptions.vtt')
+    expect(res.type).toBe('text/vtt')
+    expect(res.text).toBe('WEBVTT\n\nd1\n00:00:01.000 --> 00:00:01.100\nWords appear: Berlin. {extended=1;words=3}\n\nd2\n00:00:01.000 --> 00:00:04.000\nA dragon lands.\n')
+    expect(findUnique.mock.calls.at(-1)![0].include.cues.orderBy).toEqual([{ startMs: 'asc' }, { endMs: 'asc' }])
+  })
+})

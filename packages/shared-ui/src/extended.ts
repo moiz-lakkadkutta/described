@@ -28,10 +28,11 @@ export function extendedCues(track: readonly Cue[]): ExtendedCue[] {
 }
 
 /**
- * Feed it every position tick. `trigger` is the cue whose start this tick crossed going forward in playback — once per
- * crossing: the next tick is already past it. A seek (`seeked()`, a backwards step or a jump > MAX_TICK_S) makes the
- * next tick a new baseline, so landing on or past a cue never starts it; seeking back before it and playing over it
- * again does. `upcoming` is the next extended cue starting within PREFETCH_AHEAD_S.
+ * Feed it every position tick. `triggers` are the cues whose start this tick crossed going forward in playback, in order
+ * (usually one; two close cues can share a tick) — once per crossing: the next tick is already past them. A seek
+ * (`seeked()`, a jump > MAX_TICK_S either way) makes the next tick a new baseline, so landing on or past a cue never
+ * starts it; seeking back before it and playing over it again does. A small backward step (a late or jittery tick) keeps
+ * the furthest position, so it cannot re-cross a cue. `upcoming` is the next extended cue starting within PREFETCH_AHEAD_S.
  */
 export class ExtendedScheduler {
   private last: number | null = null
@@ -41,12 +42,13 @@ export class ExtendedScheduler {
   /** Playback starts from `pos` (the film's own start): a cue starting exactly there still counts as crossed. */
   begin(pos: number): void { this.last = pos - 0.001 }
 
-  tick(pos: number): { trigger?: ExtendedCue; upcoming?: ExtendedCue } {
+  tick(pos: number): { triggers: ExtendedCue[]; upcoming?: ExtendedCue } {
     const last = this.last
+    const upcoming = this.cues.find((c) => c.start > pos && c.start - pos <= PREFETCH_AHEAD_S)
+    const out = (triggers: ExtendedCue[]) => ({ triggers, ...(upcoming ? { upcoming } : {}) })
+    if (last !== null && pos < last && last - pos <= MAX_TICK_S) return out([]) // jitter: keep the furthest position
     this.last = pos
     const playing = last !== null && pos >= last && pos - last <= MAX_TICK_S
-    const trigger = playing ? this.cues.find((c) => c.start > last && c.start <= pos) : undefined
-    const upcoming = this.cues.find((c) => c.start > pos && c.start - pos <= PREFETCH_AHEAD_S)
-    return { ...(trigger ? { trigger } : {}), ...(upcoming ? { upcoming } : {}) }
+    return out(playing ? this.cues.filter((c) => c.start > last && c.start <= pos) : [])
   }
 }

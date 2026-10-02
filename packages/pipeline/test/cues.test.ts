@@ -32,7 +32,7 @@ describe('extended cue, end to end (sintel-90-150: a shot with no gap)', () => {
     // Playback at 4 Hz from 0:00 to the end: each extended cue starts exactly once.
     const s = new ExtendedScheduler(ext); s.begin(0)
     const fired: string[] = []
-    for (let t = 0; t <= 61; t += 0.25) { const r = s.tick(t); if (r.trigger) fired.push(r.trigger.id) }
+    for (let t = 0; t <= 61; t += 0.25) { fired.push(...s.tick(t).triggers.map((c) => c.id)) }
     expect(fired).toEqual(ext.map((e) => e.id))
 
     // d{n}'s row (n-th by start, end) carries its own clip, which publish uploads under that key.

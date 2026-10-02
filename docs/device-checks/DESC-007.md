@@ -4,7 +4,8 @@ Run on the stick (AFTSS, Fire OS 7), release build, D-pad only after launch. Set
 [DESC-005](DESC-005.md) §0–1 (API running, `EXPO_PUBLIC_API_URL=http://<mac-ip>:4000`). Tick each box; failures go in a
 friction log (`pnpm friction "<title>"`) or back to the ticket. DESC-007 stays open in TASKS.md until this passes.
 
-How it works, so the checks make sense: the Player reads the whole **Description text** track, finds the cues marked
+How it works, so the checks make sense: the Player reads the title's descriptions once (`GET /titles/:slug/descriptions.vtt`,
+built from the `DescriptionCue` rows), finds the cues marked
 `{extended=1}` (shots with no gap in the dialogue), and when playback crosses one it pauses, shows the ochre bar, plays that
 cue's clip from `GET /titles/:slug/cues/d{n}/audio` (a 302 to the Polly MP3 on CloudFront), then resumes. `d{n}` is the n-th
 description cue by start time (packages/pipeline/src/cues.ts).
@@ -38,11 +39,12 @@ depends on the describe output. If the run yields 0 extended cues, another segme
 
 ## 1. Before you start (laptop)
 
-- [ ] Extended cues in the published track: `curl -s https://dco7qa0c4m1pw.cloudfront.net/published/<slug>/descriptions.vtt | grep -B2 'extended=1'`.
+- [ ] Extended cues as the app reads them: `curl -s http://localhost:4000/titles/<slug>/descriptions.vtt | grep -B2 'extended=1'`
+      (the published `…/published/<slug>/descriptions.vtt` should list the same cues).
       Note each one's id and start: d____ at ____, d____ at ____.
 - [ ] Rows (psql or Prisma Studio): `SELECT "startMs", extended, "pollyKey" FROM "DescriptionCue" WHERE "titleId" = (SELECT id FROM "Title" WHERE slug = '<slug>') ORDER BY "startMs", "endMs";`
-      — one row per cue, every row with a `pollyKey` (`published/<slug>/cues/cue_<i>.mp3`); row n is `d{n}`.
-- [ ] Clip route: `curl -sI http://localhost:4000/titles/<slug>/cues/d<n>/audio` → `302`, `Location: https://…/published/<slug>/cues/cue_<i>.mp3`;
+      — one row per cue, every row with a `pollyKey` (`published/<slug>/cues/cue_<i>.<hash>.mp3`); row n is `d{n}`.
+- [ ] Clip route: `curl -sI http://localhost:4000/titles/<slug>/cues/d<n>/audio` → `302`, `Location: https://…/published/<slug>/cues/cue_<i>.<hash>.mp3`;
       `curl -sI <Location>` → `200`, `audio/mpeg`. The text of that row matches the VTT cue d<n>.
 - [ ] `curl -sI http://localhost:4000/titles/<slug>/cues/d999/audio` → `404` (nothing is synthesised at request time).
 - [ ] Keep the API log open (each clip request shows up as `GET /titles/<slug>/cues/d<n>/audio`) and `adb logcat | grep -i -E 'ExoPlayer|ReactNativeJS|Audio'`.
@@ -58,6 +60,7 @@ Home → the title → **▶ Play with description**. Menu → **Extended mode �
 - [ ] When the voice ends, the bar goes and the film plays on from the same frame. Gap between voice end and picture moving: ______ ms.
 - [ ] The clip starts promptly (prefetched): delay from freeze to voice ______ ms. No second request for the same clip in the API log.
 - [ ] The status line reads **Description on · <voice> · …** throughout; the chrome shows while paused and hides again 4 s after the resume.
+- [ ] A cue in the first second of the title (if there is one) is spoken when you play from 0:00.
 - [ ] The next extended cue does the same, once. Let a cue pass and keep watching 10 s: it does not pause again.
 
 ## 3. Keys during the pause
@@ -89,7 +92,9 @@ Seek back to ~5 s before a cue each time (◄), let it pause, then:
 ## 6. Failures never leave the film paused
 
 - [ ] Remove one clip's key: `UPDATE "DescriptionCue" SET "pollyKey" = NULL WHERE …` (row of a later extended cue). At that cue the film
-      pauses and resumes within ~1 s (the route says 404; the bar flashes). Restore the key afterwards.
+      pauses and resumes within ~1 s (the route says 404; expo-audio drops to `idle`, which counts as a failure; the bar flashes).
+      Restore the key afterwards.
+- [ ] Point one key at a missing object (`UPDATE … SET "pollyKey" = 'published/<slug>/cues/missing.mp3'`): CloudFront 403/404 → same, ~1 s.
 - [ ] Stop the API just before a cue (`Ctrl-C` on `pnpm api`): at the cue the film pauses and resumes by itself within **8 s** (load timeout). Restart the API.
 - [ ] No case leaves the film paused with the bar gone and no voice.
 

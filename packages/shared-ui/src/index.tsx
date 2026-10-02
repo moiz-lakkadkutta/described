@@ -167,7 +167,7 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
       // Extended cues speak their own clip (cueAudioUrl), never the sample's.
       case 'player': return current ? (
         <Player title={current} prefs={prefs} withAd={route.withAd} startAtS={route.startAtS} scale={scale} onPrefs={savePrefs} onNowPlaying={onNowPlaying}
-          speak={speak} stopSpeaking={stopSpeaking} prefetch={prefetch} cueAudioUrl={cueAudioUrl}
+          speak={speak} stopSpeaking={stopSpeaking} prefetch={prefetch} cueAudioUrl={cueAudioUrl} descriptionsUrl={`${apiBaseUrl}/titles/${encodeURIComponent(current.slug)}/descriptions.vtt`}
           onProgress={(s) => { if (savedAt.current === null) savedAt.current = s; else if (Math.abs(s - savedAt.current) >= PROGRESS_SAVE_S) saveProgress(current.slug, s) }}
           onBack={(s) => leavePlayer(current, s)} />
       ) : <Screen><T variant="body">{strings.player.loading}</T></Screen>

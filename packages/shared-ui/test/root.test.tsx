@@ -84,6 +84,7 @@ describe('Root', () => {
     expect(player.props).toMatchObject({ speak, stopSpeaking, prefetch })
     expect(player.props.cueAudioUrl('sintel-90-210', 'd7')).toBe('http://api/titles/sintel-90-210/cues/d7/audio')
     expect(player.props.cueAudioUrl('sintel-90-210', 'd7')).not.toBe(title.sampleCue!.audioUrl)
+    expect(player.props.descriptionsUrl).toBe(`http://api/titles/${title.slug}/descriptions.vtt`)
   })
 
   it('Hear a sample starts the clip; leaving Title stops it', async () => {
