@@ -29,10 +29,11 @@ describe('GET /titles/:slug', () => {
 
 describe('GET /titles/:slug/cues/:cueId/audio (Extended mode, DESC-007)', () => {
   it('d{n} redirects to the n-th cue\'s published clip on the CDN', async () => {
-    findUnique.mockResolvedValueOnce({ status: 'published', cues: [{ pollyKey: 'published/sintel-90-210/cues/cue_6.mp3' }] })
+    findUnique.mockResolvedValueOnce({ status: 'published', cues: [{ pollyKey: 'published/sintel-90-210/cues/cue_6.3f2a9c01b7de.mp3' }] })
     const res = await request(createApp()).get('/titles/sintel-90-210/cues/d7/audio')
     expect(res.status).toBe(302)
-    expect(res.headers.location).toMatch(/^https:\/\/[^/]+\/published\/sintel-90-210\/cues\/cue_6\.mp3$/)
+    expect(res.headers.location).toMatch(/^https:\/\/[^/]+\/published\/sintel-90-210\/cues\/cue_6\.3f2a9c01b7de\.mp3$/)
+    expect(res.headers['cache-control']).toBe('public, max-age=300')
     const q = findUnique.mock.calls.at(-1)![0]
     expect(q.where).toEqual({ slug: 'sintel-90-210' })
     expect(q.select.cues).toMatchObject({ orderBy: [{ startMs: 'asc' }, { endMs: 'asc' }], skip: 6, take: 1 })

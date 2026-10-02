@@ -5,7 +5,7 @@ import { parseVtt } from '@moizp/vega-media-kit/core'
 import { fit } from '../src/steps/05-fit'
 import type { Described } from '../src/steps/04-describe'
 import type { FitCue } from '../src/steps/05-fit'
-import { cueAudioKey, descriptionCueRows, descriptionsVtt } from '../src/cues'
+import { clipHash, cueAudioKey, descriptionCueRows, descriptionsVtt } from '../src/cues'
 import { publish, type CueDb } from '../src/steps/10-publish'
 // The Player's own scheduler (pure, no React): the last hop of fit → VTT → kit parseVtt → app.
 import { ExtendedScheduler, extendedCues } from '../../shared-ui/src/extended'
@@ -36,9 +36,9 @@ describe('extended cue, end to end (sintel-90-150: a shot with no gap)', () => {
     expect(fired).toEqual(ext.map((e) => e.id))
 
     // d{n}'s row (n-th by start, end) carries its own clip, which publish uploads under that key.
-    const rows = descriptionCueRows('t1', 'sintel-90-150', cues, new Set(cues.map((_, k) => `cue_${k}.mp3`)))
+    const rows = descriptionCueRows('t1', cues, new Map(cues.map((_, k) => [k, cueAudioKey('sintel-90-150', k, `h${k}`)])))
     const n = Number(ext[0]!.id.slice(1))
-    expect(rows[n - 1]).toMatchObject({ extended: true, pollyKey: cueAudioKey('sintel-90-150', i), text: cues[i]!.text })
+    expect(rows[n - 1]).toMatchObject({ extended: true, pollyKey: `published/sintel-90-150/cues/cue_${i}.h${i}.mp3`, text: cues[i]!.text })
   })
 })
 
@@ -48,10 +48,10 @@ describe('cue ids', () => {
     const parsed = parseVtt(descriptionsVtt(cues), { trackId: 'd' })
     expect(parsed.map((c) => [c.id, c.text])).toEqual([['d1', 'Words appear: Berlin.'], ['d2', 'A dragon lands.']])
     expect(extendedCues(parsed).map((c) => c.id)).toEqual(['d1'])
-    expect(descriptionCueRows('t', 's', cues, new Set(['cue_0.mp3', 'cue_1.mp3'])).map((r) => r.pollyKey)).toEqual(['published/s/cues/cue_1.mp3', 'published/s/cues/cue_0.mp3'])
+    expect(descriptionCueRows('t', cues, new Map([[0, 'k0'], [1, 'k1']])).map((r) => r.pollyKey)).toEqual(['k1', 'k0'])
   })
   it('pollyKey is null for a cue whose clip was not published', () => {
-    expect(descriptionCueRows('t', 's', [cue(0, 2000), cue(5000, 5100, true)], new Set(['cue_0.mp3'])).map((r) => r.pollyKey)).toEqual(['published/s/cues/cue_0.mp3', null])
+    expect(descriptionCueRows('t', [cue(0, 2000), cue(5000, 5100, true)], new Map([[0, 'k0']])).map((r) => r.pollyKey)).toEqual(['k0', null])
   })
 })
 
@@ -61,7 +61,7 @@ describe('publish (no AWS: upload and database are injected)', () => {
     mkdirSync(join(dir, 'hls')); writeFileSync(join(dir, 'hls/master.m3u8'), '#EXTM3U\n')
     for (const v of ['captions.vtt', 'sdh.vtt', 'descriptions.vtt']) writeFileSync(join(dir, v), 'WEBVTT\n')
     writeFileSync(join(dir, 'cues.json'), JSON.stringify([cue(0, 2000), cue(5000, 5100, true)]))
-    writeFileSync(join(dir, 'cue_0.mp3'), ''); writeFileSync(join(dir, 'cue_1.mp3'), '')
+    writeFileSync(join(dir, 'cue_0.mp3'), 'clip zero'); writeFileSync(join(dir, 'cue_1.mp3'), 'clip one')
     return dir
   }
   const fakeDb = (title: { id: string } | null) => {
@@ -76,20 +76,34 @@ describe('publish (no AWS: upload and database are injected)', () => {
   beforeEach(() => { vi.stubEnv('S3_BUCKET_MEDIA', 'media') })
   afterEach(() => vi.unstubAllEnvs())
 
-  it('uploads every clip (extended ones too) under published/{slug}/cues/ and replaces the title\'s DescriptionCue rows', async () => {
+  const h0 = clipHash(Buffer.from('clip zero')), h1 = clipHash(Buffer.from('clip one'))
+  it('uploads every clip (extended ones too) under a content-hashed key and replaces the title\'s DescriptionCue rows', async () => {
     const upload = vi.fn(async () => {})
     const { db, ops } = fakeDb({ id: 't1' })
     await publish({ slug: 'x', source: '', language: 'en', voice: 'Joanna', work: work() }, { upload, db })
     const keys = upload.mock.calls.map((c) => (c as unknown as [string, string])[1])
-    expect(keys).toEqual(expect.arrayContaining(['s3://media/published/x/cues/cue_0.mp3', 's3://media/published/x/cues/cue_1.mp3', 's3://media/published/x/descriptions.vtt']))
+    expect(h0).toMatch(/^[0-9a-f]{12}$/); expect(h0).not.toBe(h1)
+    expect(keys).toEqual(expect.arrayContaining([`s3://media/published/x/cues/cue_0.${h0}.mp3`, `s3://media/published/x/cues/cue_1.${h1}.mp3`, 's3://media/published/x/descriptions.vtt']))
     expect(db.title.findUnique).toHaveBeenCalledWith({ where: { slug: 'x' }, select: { id: true } })
     expect(ops).toEqual([
       { deleteMany: { where: { titleId: 't1' } } },
       { createMany: { data: [
-        { titleId: 't1', startMs: 0, endMs: 2000, text: 'A dragon lands.', extended: false, wordCount: 3, pollyKey: 'published/x/cues/cue_0.mp3' },
-        { titleId: 't1', startMs: 5000, endMs: 5100, text: 'A dragon lands.', extended: true, wordCount: 3, pollyKey: 'published/x/cues/cue_1.mp3' },
+        { titleId: 't1', startMs: 0, endMs: 2000, text: 'A dragon lands.', extended: false, wordCount: 3, pollyKey: `published/x/cues/cue_0.${h0}.mp3` },
+        { titleId: 't1', startMs: 5000, endMs: 5100, text: 'A dragon lands.', extended: true, wordCount: 3, pollyKey: `published/x/cues/cue_1.${h1}.mp3` },
       ] } },
     ])
+  })
+  it('a re-run on the same slug with a changed clip publishes it under a new key (no stale immutable object)', async () => {
+    const upload = vi.fn(async () => {})
+    const dir = work()
+    await publish({ slug: 'x', source: '', language: 'en', voice: 'Joanna', work: dir }, { upload, db: fakeDb({ id: 't1' }).db })
+    writeFileSync(join(dir, 'cue_1.mp3'), 'clip one, voiced again')
+    const again = fakeDb({ id: 't1' })
+    await publish({ slug: 'x', source: '', language: 'en', voice: 'Joanna', work: dir }, { upload, db: again.db })
+    const rows = (again.ops[1] as { createMany: { data: { pollyKey: string }[] } }).createMany.data
+    expect(rows[0]!.pollyKey).toBe(`published/x/cues/cue_0.${h0}.mp3`) // unchanged clip, same key
+    expect(rows[1]!.pollyKey).not.toBe(`published/x/cues/cue_1.${h1}.mp3`)
+    expect(rows[1]!.pollyKey).toBe(`published/x/cues/cue_1.${clipHash(Buffer.from('clip one, voiced again'))}.mp3`)
   })
   it('without a Title row the clips still go up and no rows are written', async () => {
     const upload = vi.fn(async () => {})

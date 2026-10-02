@@ -44,6 +44,8 @@ titles.get('/:slug/descriptions.vtt', async (req, res, next) => {
 /**
  * The Polly clip of description cue `d{n}` (the n-th of the title, see cueOrder), for Extended mode (DESC-007): a 302 to
  * the clip the pipeline published (10-publish sets pollyKey). Never synthesises at request time — no clip, 404.
+ * Clip keys carry a content hash (published/{slug}/cues/cue_{i}.{hash}.mp3), so the CDN object is immutable and a re-run
+ * moves the row to a new key; only this redirect is short-lived (5 min), so a re-run is heard within minutes.
  */
 titles.get('/:slug/cues/:cueId/audio', async (req, res, next) => {
   try {
