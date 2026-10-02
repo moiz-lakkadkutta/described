@@ -1,6 +1,6 @@
 import { pickInitialFocus } from '../src/focus/memory'
 import { configureRemote, setDpadGate, toDirection } from '../src/focus/remote'
-import { subscribeKeys as addKeyHandler } from '../src/focus/keys'
+import { subscribeKeys } from '../src/focus/keys'
 import { remote } from './stubs/space-navigation'
 
 describe('pickInitialFocus', () => {
@@ -43,7 +43,7 @@ describe('key handlers (Settings ◄►)', () => {
     remote.config!.remoteControlSubscriber((d) => moves.push(d))
     setDpadGate(() => true)
     const seen: [string, boolean][] = []
-    const remove = addKeyHandler((k, repeat) => { seen.push([k, repeat]); return k === 'left' || k === 'right' })
+    const remove = subscribeKeys((k, repeat) => { seen.push([k, repeat]); return k === 'left' || k === 'right' })
     emit('right' as never); emit('right' as never, true); emit('down' as never)
     expect(moves).toEqual(['down'])
     expect(seen).toEqual([['right', false], ['right', true], ['down', false]])
@@ -53,8 +53,8 @@ describe('key handlers (Settings ◄►)', () => {
   })
   it('the newest handler runs first', () => {
     const order: string[] = []
-    const a = addKeyHandler(() => { order.push('a'); return false })
-    const b = addKeyHandler(() => { order.push('b'); return true })
+    const a = subscribeKeys(() => { order.push('a'); return false })
+    const b = subscribeKeys(() => { order.push('b'); return true })
     configureRemote((onKey) => { onKey('left'); return () => {} })
     remote.config!.remoteControlSubscriber(() => {})
     expect(order).toEqual(['b'])
