@@ -406,3 +406,15 @@ describe('keys and spatial navigation (one key path, DESC-009 phase 2)', () => {
     expect(moves).toEqual(['enter'])
   })
 })
+
+describe('caption style (Settings → Caption style)', () => {
+  const overlay = () => r.root.find((n) => (n.type as unknown) === 'CueOverlay').props.theme
+  it('Box: the token box at the chosen size', () => {
+    mount({ prefs: { ...prefs, captionStyle: 'box', captionScale: 150 } })
+    expect(overlay()).toMatchObject({ boxColor: tokens.color.cueBox, userScale: 1.5, primaryColor: tokens.color.text, fontFamily: tokens.type.caption.family })
+  })
+  it('Shadow: no box', () => {
+    mount({ prefs: { ...prefs, captionStyle: 'shadow' } })
+    expect(overlay()).toMatchObject({ boxColor: tokens.color.cueNoBox, userScale: 1 })
+  })
+})

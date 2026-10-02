@@ -43,6 +43,7 @@ It is the demo, it unblocks DESC-006–009, and it needs no pipeline work: Sinte
       description, off: Play / Play without description. Order and labels unchanged; Player still follows the action pressed.
   - prompt clips for the app voice (first-run panels, Settings "Hear it") are not generated yet: the app requests
     `/prompts/<voice>/<key>.mp3` (API → CloudFront `prompts/`); text in `promptText` (packages/contracts). TODO(DESC-010): pipeline step.
+  - kit follow-up: CueTheme has no text shadow, so Caption style "Shadow" is boxless text for now (Player `cueTheme`); add `textShadow` to the kit's CueOverlay
   - human VoiceView run-through: `docs/a11y/voiceview-checklist.md` → commit as `docs/a11y/voiceview-2026-10-xx.md`
 - [ ] DESC-010 · week 3 · Five titles processed; physical 4K Select; TTFF < 2 s (Vega build deferred, decision 0004)
   - `build:tv` (EAS) cannot work while the kit comes from the `link:../vega-media-kit` override: EAS uploads only this repo; publish the kit (0.1.0) or vendor it first. Build locally with `expo run:android --variant release` until then

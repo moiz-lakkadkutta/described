@@ -10,6 +10,7 @@ export const tokens = {
     error: '#E07A6C',
     scrimTop: 'rgba(13,18,21,0)', scrimBottom: 'rgba(13,18,21,0.92)',
     cueBox: 'rgba(0,0,0,0.65)',
+    cueNoBox: 'rgba(0,0,0,0)',  // caption style "shadow": no box (the kit draws no text shadow yet — kit follow-up)
     video: '#000000',            // letterbox behind the picture only
   },
   type: {

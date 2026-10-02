@@ -64,6 +64,14 @@ export interface PlayerProps {
 const extendedCueAudio = (_cue: Cue, _slug: string): string | null => null
 
 /**
+ * Captions as Settings chose them: size (100–200 %) and style. Box (default, PLAN §8) is the token box; Shadow drops
+ * the box. TODO(kit): CueTheme has no text shadow, so Shadow is boxless text until the kit adds one.
+ */
+export const cueTheme = (prefs: Pick<Prefs, 'captionScale' | 'captionStyle'>) => ({
+  fontFamily: tokens.type.caption.family, primaryColor: tokens.color.text, userScale: prefs.captionScale / 100,
+  boxColor: prefs.captionStyle === 'shadow' ? tokens.color.cueNoBox : tokens.color.cueBox,
+})
+/**
  * Player: full-bleed video through the kit. AD is an audio rendition chosen by role; captions and description text
  * are text tracks chosen by kind and HLS characteristics; the kit's CueOverlay draws them. Chrome (title, bar,
  * time) shows on any key and hides after 4 s of playing without input; the status line always stays. Remote: Select / Play-Pause
@@ -271,7 +279,7 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
         style={{ flex: 1 }}
       />
       <CueOverlay active={visibleCues} primaryTrackId={selection.shown} scale={scale} safeInset={{ x: Math.round(tokens.layout.safeX * scale), y: Math.round(insetY * scale) }}
-        theme={{ fontFamily: tokens.type.caption.family, boxColor: tokens.color.cueBox, primaryColor: tokens.color.text, userScale: prefs.captionScale / 100 }} />
+        theme={cueTheme(prefs)} />
 
       <View testID="chrome" pointerEvents="none" accessibilityElementsHidden={!chromeShown} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: chromeShown ? 1 : 0 }}>
         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: px(200) }}>{[...bands].reverse().map((c) => <View key={c} style={{ flex: 1, backgroundColor: c }} />)}</View>
