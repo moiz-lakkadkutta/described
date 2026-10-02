@@ -131,12 +131,14 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
         case 'title': case 'settings': setRoute({ name: 'home' }); return true
         case 'about': setRoute({ name: 'settings' }); return true
         case 'firstRun': return false // FirstRun's own listener: previous panel, or Back-Back to skip; never exits
-        case 'player': return false // Player owns Back: it closes the track sheet or saves the position first
+        // Player owns Back once it is mounted (it closes the track sheet or saves the position first). While the title is
+        // still loading or the offline screen is up there is no Player, so Back goes to Title instead of leaving the app.
+        case 'player': if (current && !offline) return false; setRoute({ name: 'title', slug: route.slug }); return true
         default: return false
       }
     })
     return () => sub.remove()
-  }, [route])
+  }, [route, current, offline])
 
   // PUTs go one at a time, in order (createQueue), so quick ◄► presses can't land out of order and persist an older value. A failed
   // PUT keeps its changes in `unsaved`; they go with the next save, the next successful request, or Retry. The failure
