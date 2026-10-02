@@ -22,6 +22,7 @@ export type { PlayerSession } from './screens/Player'
 
 type Route = { name: 'home' } | { name: 'title'; slug: string } | { name: 'reading'; slug: string } | { name: 'player'; slug: string; withAd: boolean; startAtS?: number } | { name: 'settings' } | { name: 'firstRun' }
 const noSpeech = async () => {}
+const noStop = () => {}
 const defaultPrefs: Prefs = { adDefault: true, extendedMode: true, voice: 'Joanna', captionKind: 'sdh', captionScale: 100, firstRunDone: false }
 // A player route keys on its audio and start too, so a new deep link to the same title remounts the Player.
 const routeKey = (r: Route) => (r.name === 'player' ? `player:${r.slug}:${r.withAd ? 'ad' : 'main'}:${r.startAtS ?? ''}` : 'slug' in r ? `${r.name}:${r.slug}` : r.name)
@@ -53,7 +54,7 @@ export interface RootProps {
  * with fresh focus and its DefaultFocus / focus memory decides where focus lands.
  * Platform entries (apps/expo, apps/vega) pass apiBaseUrl, scale, fonts state and audio; they call configureRemote first.
  */
-export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded = true, speak = async () => {}, stopSpeaking = () => {}, onNowPlaying }: RootProps) {
+export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded = true, speak = noSpeech, stopSpeaking = noStop, onNowPlaying }: RootProps) {
   const [route, setRoute] = useState<Route>({ name: 'home' })
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [title, setTitle] = useState<TitleDetail | null>(null)
@@ -83,7 +84,13 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   }, [api, attempt])
   const slug = 'slug' in route ? route.slug : null
   // `attempt` too: Retry on the offline screen must refetch the title, not only the catalog.
-  useEffect(() => { if (slug && title?.slug !== slug) api<TitleDetail>(`/titles/${slug}`).then(setTitle).catch(() => setOffline(true)) }, [slug, api, attempt]) // eslint-disable-line react-hooks/exhaustive-deps
+  // `live`: a late answer for a slug we already left must not replace the title or flip the app offline.
+  useEffect(() => {
+    if (!slug || title?.slug === slug) return
+    let live = true
+    api<TitleDetail>(`/titles/${slug}`).then((t) => { if (live) setTitle(t) }).catch(() => { if (live) setOffline(true) })
+    return () => { live = false }
+  }, [slug, api, attempt]) // eslint-disable-line react-hooks/exhaustive-deps
   const current = title && title.slug === slug ? title : null
   // A live region does not speak on first appearance, so the offline message is announced explicitly.
   useEffect(() => { if (offline) AccessibilityInfo.announceForAccessibility(strings.offline) }, [offline])

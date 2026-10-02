@@ -2,26 +2,34 @@ import React from 'react'
 import TestRenderer, { act } from 'react-test-renderer'
 import { FETCH_TIMEOUT_MS, Root } from '../src/index'
 import { Player } from '../src/screens/Player'
+import { Title } from '../src/screens/Title'
 import { strings } from '../src/strings'
 import { a11yCalls, back } from './stubs/react-native'
 import { kit } from './stubs/kit'
 import { stub } from './stubs/space-navigation'
-import { catalog, title } from './fixtures'
+import { catalog, tears, title } from './fixtures'
 
 const prefs = { adDefault: true, extendedMode: true, voice: 'Joanna', captionKind: 'sdh', captionScale: 100, firstRunDone: true }
 const ok = (data: unknown) => Promise.resolve({ json: async () => ({ success: true, data }) } as Response)
 /** Fetch routed by path; `down` makes every request fail like an unreachable host. */
 function api() {
-  const state = { down: false, hang: false, calls: [] as string[], headers: [] as Record<string, string>[], puts: [] as { path: string; body: unknown }[] }
+  const state = {
+    down: false, hang: false, calls: [] as string[], headers: [] as Record<string, string>[], bodies: [] as string[], puts: [] as { path: string; body: unknown }[],
+    titles: { [title.slug]: title, [tears.slug]: { ...title, ...tears, synopsis: 'Robots.' } } as Record<string, typeof title>,
+    /** Paths that wait until settle(path, ok) is called. */
+    held: new Map<string, { resolve: (r: Response) => void; reject: (e: Error) => void }>(),
+    hold: [] as string[],
+  }
   const fetch = vi.fn((url: string, init?: RequestInit) => {
     const path = url.replace('http://api', '')
-    state.calls.push(path); state.headers.push(init?.headers as Record<string, string>)
+    state.calls.push(path); state.headers.push(init?.headers as Record<string, string>); state.bodies.push(String(init?.body ?? ''))
     if (init?.method === 'PUT') state.puts.push({ path, body: JSON.parse(String(init.body)) })
+    if (state.hold.includes(path)) return new Promise<Response>((resolve, reject) => state.held.set(path, { resolve, reject }))
     if (state.hang) return new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => reject(new Error('aborted'))))
     if (state.down) return Promise.reject(new Error('network'))
     if (path === '/catalog') return ok(catalog)
     if (path === '/me/prefs') return ok(prefs)
-    if (path.startsWith('/titles/')) return ok(title)
+    if (path.startsWith('/titles/')) return ok(state.titles[path.slice('/titles/'.length)])
     return ok({})
   })
   vi.stubGlobal('fetch', fetch)
@@ -194,5 +202,49 @@ describe('Root', () => {
       act(() => { back.press() })
       expect(onNowPlaying).toHaveBeenLastCalledWith(null)
     })
+  })
+
+  it('a late answer for a title you left is ignored: no offline screen, no stale title', async () => {
+    const s = api(); s.hold.push('/titles/sintel-90-210')
+    const r = await mount()
+    await onTitle(r) // Sintel's request hangs
+    act(() => { back.press() }); await flush()
+    press(r, 'Open Tears of Steel'); await flush()
+    expect(text(r)).toContain('Tears of Steel')
+    await act(async () => { s.held.get('/titles/sintel-90-210')!.reject(new Error('network')) }); await flush()
+    expect(text(r)).not.toContain(strings.a11y.retry)
+    expect(text(r)).toContain(strings.title.playWithout)
+    expect(stub.locks).toBe(0)
+  })
+
+  it('a late success for a title you left does not replace the current one', async () => {
+    const s = api(); s.hold.push('/titles/sintel-90-210')
+    const r = await mount()
+    await onTitle(r)
+    act(() => { back.press() }); await flush()
+    press(r, 'Open Tears of Steel'); await flush()
+    await act(async () => { s.held.get('/titles/sintel-90-210')!.resolve(await ok(title)) }); await flush()
+    expect(r.root.findByType(Title).props.title.slug).toBe('tears-of-steel')
+  })
+
+  it('progress: the first reports before the resume seek never overwrite the saved position', async () => {
+    const s = api(); s.titles[title.slug] = { ...title, resumeS: 300 }
+    const r = await mount()
+    await onTitle(r)
+    press(r, 'Play Sintel with audio description'); await flush()
+    const report = r.root.findByType(Player).props.onProgress as (n: number) => void
+    for (const t of [0, 0.25, 0.5, 0.75, 300, 300.25, 305, 310.25]) act(() => report(t))
+    await flush()
+    const saves = s.bodies.filter((b) => b.includes('positionS')).map((b) => JSON.parse(b).positionS)
+    expect(saves).toEqual([300, 310])
+  })
+
+  it('Player status line names the caption setting in words', async () => {
+    api(); const r = await mount()
+    await onTitle(r)
+    press(r, 'Play Sintel with audio description'); await flush()
+    act(() => r.root.find((n) => (n.type as unknown) === 'KitPlayer').props.onTracks({ audio: [], text: [{ id: '0', language: 'en', label: 'Rich captions', kind: 'captions', active: false }] }))
+    expect(text(r)).toContain('Description on · Joanna · Rich captions')
+    expect(text(r)).not.toContain('· sdh')
   })
 })
