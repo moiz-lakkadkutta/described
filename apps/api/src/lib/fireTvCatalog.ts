@@ -31,9 +31,12 @@ export const CDF_NAMESPACE = 'http://www.amazon.com/FireTv/2014-04-11/ingestion'
 export const CDF_VERSION = 'FireTv-v1.3'
 
 export function escapeXml(s: string): string {
-  // Characters XML 1.0 forbids outright are dropped; the five specials are escaped.
-  // eslint-disable-next-line no-control-regex
-  return s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]/g, '')
+  // Characters XML 1.0 forbids outright are dropped — controls, U+FFFE / U+FFFF and unpaired UTF-16 surrogates (a lone
+  // half of a pair is not a character; encoders write U+FFFD or fail) — then the five specials are escaped.
+  return s
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, '')
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;')
 }
 /** XML comments may not contain "--". Slugs cannot, but be safe. */

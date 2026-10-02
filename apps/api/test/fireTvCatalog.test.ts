@@ -33,6 +33,14 @@ describe('renderFireTvCatalog', () => {
     expect(xml).toContain('<ImageUrl>https://cdn.example/p.jpg?a=1&amp;b=2</ImageUrl>')
     expect(escapeXml("it's\u0001")).toBe('it&apos;s')
   })
+  it('drops unpaired surrogates and keeps real pairs', () => {
+    expect(escapeXml('a\uD83Db')).toBe('ab') // lone high
+    expect(escapeXml('a\uDE00b')).toBe('ab') // lone low
+    expect(escapeXml('end\uD83D')).toBe('end')
+    expect(escapeXml('\uDE00\uD83D')).toBe('') // reversed pair: both lone
+    expect(escapeXml('dragon 🐉 & co')).toBe('dragon 🐉 &amp; co')
+    expect(escapeXml('x￾y￿')).toBe('xy')
+  })
   it('takes partner, locale and territories', () => {
     const x = renderFireTvCatalog([sintel], { partner: 'Acme <TV>', locale: 'en-GB', territories: ['GB', 'IE'] })
     expect(x).toContain('<Partner>Acme &lt;TV&gt;</Partner>')
