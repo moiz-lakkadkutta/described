@@ -13,13 +13,33 @@ export async function speechMap(ctx: Ctx) {
   const tc = new TranscribeClient({ region: process.env.AWS_REGION ?? 'eu-central-1' })
   const jobName = `${ctx.slug}-${Date.now()}`
   await tc.send(new StartTranscriptionJobCommand({ TranscriptionJobName: jobName, Media: { MediaFileUri: `s3://${bucket}/${key}` }, LanguageCode: ctx.language === 'de' ? 'de-DE' : 'en-US', Settings: { ShowSpeakerLabels: true, MaxSpeakerLabels: 6 }, OutputBucketName: bucket, OutputKey: `work/${ctx.slug}/transcript.json` }))
-  for (;;) { const r = await tc.send(new GetTranscriptionJobCommand({ TranscriptionJobName: jobName })); const s = r.TranscriptionJob?.TranscriptionJobStatus; if (s === 'COMPLETED') break; if (s === 'FAILED') throw new Error(r.TranscriptionJob?.FailureReason); await new Promise((r) => setTimeout(r, 5000)) }
+  await waitForTranscription(async () => { const r = await tc.send(new GetTranscriptionJobCommand({ TranscriptionJobName: jobName })); return { status: r.TranscriptionJob?.TranscriptionJobStatus, failureReason: r.TranscriptionJob?.FailureReason } }, { jobName })
   await download(`s3://${bucket}/work/${ctx.slug}/transcript.json`, `${ctx.work}/transcript.json`)
   const words = wordsFromTranscribe(JSON.parse(await readFile(`${ctx.work}/transcript.json`, 'utf8')))
   const probe = JSON.parse(await readFile(`${ctx.work}/probe.json`, 'utf8')) as { format: { duration: string } }
   if (words.length === 0) console.warn('no speech in clip — the whole duration is one gap') // no dialogue (e.g. Sintel 0:00–1:00): words.json = [], gaps = whole clip
   await writeFile(`${ctx.work}/words.json`, JSON.stringify(words))
   await writeFile(`${ctx.work}/gaps.json`, JSON.stringify(gapsFromWords(words, Math.round(parseFloat(probe.format.duration) * 1000)), null, 2))
+}
+
+/** A minute of clip transcribes in well under a minute; 30 min means the job is stuck. */
+export const TRANSCRIBE_TIMEOUT_MS = 30 * 60_000
+/**
+ * Polls until COMPLETED; throws on FAILED (with FailureReason) or after timeoutMs. Clock and sleep are injectable for tests.
+ * Status values and FailureReason — https://docs.aws.amazon.com/transcribe/latest/APIReference/API_TranscriptionJob.html
+ */
+export async function waitForTranscription(
+  getStatus: () => Promise<{ status?: string; failureReason?: string }>,
+  { jobName = 'transcription job', timeoutMs = TRANSCRIBE_TIMEOUT_MS, pollMs = 5000, now = Date.now, sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms)) }: { jobName?: string; timeoutMs?: number; pollMs?: number; now?: () => number; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<void> {
+  const deadline = now() + timeoutMs
+  for (;;) {
+    const { status, failureReason } = await getStatus()
+    if (status === 'COMPLETED') return
+    if (status === 'FAILED') throw new Error(`Transcribe ${jobName} FAILED: ${failureReason ?? '(no FailureReason)'}`)
+    if (now() >= deadline) throw new Error(`Transcribe ${jobName} not finished after ${timeoutMs / 60_000} min (last status ${status})`)
+    await sleep(pollMs)
+  }
 }
 
 /** Transcribe emits punctuation as untimed items of its own; it is appended to the previous word so segment() sees sentence ends. */

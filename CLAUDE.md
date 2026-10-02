@@ -1,6 +1,6 @@
 # Described — notes for coding agents
 
-Audio description and rich captions for video that has none — Nova describes, Polly speaks, Fire TV's own audio-track selector delivers.
+Audio description and rich captions for video that has none — Qwen3-VL on Bedrock describes, Nova Lite tightens, Polly speaks, Fire TV's own audio-track selector delivers.
 
 - pnpm + Turborepo monorepo. `apps/api` (Express 4 + Zod + Prisma + pg-boss + Socket.IO), `apps/expo` (Fire OS),
   `apps/vega` (Vega OS, created with the Vega CLI), `packages/shared-ui` (screens; **no native imports outside the Vega-supported list**),

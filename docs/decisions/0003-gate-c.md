@@ -13,7 +13,7 @@ Planner diagnosis and prompt probes (≈ $0.04, 17 Nova Pro calls): `gate-c-plan
 ## Decisions
 
 1. **Description prompt** — on-screen text only when clearly legible ("Never invent text"), an explicit darkness rule,
-   one line ≤ budget, temperature 0, video before the instruction. The previous description leaves the model input; the
+   one line ≤ budget, temperature 0, media before the instruction (video for Nova Pro; key frames since the switch to Qwen3-VL). The previous description leaves the model input; the
    "nothing new" short-circuit moves into the pipeline (`parseDescription`: leading `SAME` or a near-verbatim repeat of the
    previous description). This replaces the "SAME short-circuit" wording in PLAN.md's prompt rules; the intent — never voice a
    redundant description — is unchanged.
@@ -22,6 +22,8 @@ Planner diagnosis and prompt probes (≈ $0.04, 17 Nova Pro calls): `gate-c-plan
 3. **Evaluation** — rerun on Sintel 1:30–3:30 (`sintel-90-210`, 29 shots, ≈ $0.15). Two raters judge each shot against a
    frame contact sheet: faithful, on time, style, clean, fits. Score = usable / (shots − same-as-previous). < 70 % → Claude on
    Bedrock for descriptions; key frames were probed and gave no advantage.
+   *Superseded by the bake-off below:* Claude on Bedrock was not tested (Anthropic use-case form not submitted); the
+   replacement chosen is Qwen3-VL 235B from key frames.
 
 Docs: https://docs.aws.amazon.com/nova/latest/userguide/modalities-video.html ·
 https://docs.aws.amazon.com/nova/latest/userguide/prompting-structured-output.html
