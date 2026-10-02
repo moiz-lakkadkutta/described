@@ -1,9 +1,10 @@
 import { readFileSync } from 'node:fs'
 import { DEEP_LINK_SCHEME } from '@described/contracts'
 
-import { appState, linking } from './stubs/react-native'
+import { appState, emitter, linking } from './stubs/react-native'
 const { launchSource, _resetLaunch } = await import('../src/platform/launch')
-const { createMediaSession, fromNative } = await import('../src/platform/mediaSession')
+const { createMediaSession, fromNative, SESSION_MAPPED_KEYS } = await import('../src/platform/mediaSession')
+const { keySource, setKeySkip } = await import('../src/remote')
 const flush = async () => { for (let i = 0; i < 3; i++) await Promise.resolve() }
 
 describe('app.json', () => {
@@ -62,8 +63,8 @@ describe('media session: native events → Transport', () => {
     [{ control: 'play' }, { kind: 'play' }],
     [{ control: 'pause' }, { kind: 'pause' }],
     [{ control: 'stop' }, { kind: 'stop' }],
-    [{ control: 'fastForward' }, { kind: 'seekBy', s: 10 }],
-    [{ control: 'rewind' }, { kind: 'seekBy', s: -10 }],
+    [{ control: 'fastForward' }, { kind: 'seekBy', dir: 1 }],
+    [{ control: 'rewind' }, { kind: 'seekBy', dir: -1 }],
     [{ control: 'seekTo', positionS: 300 }, { kind: 'seekTo', s: 300 }],
     [{ control: 'seekTo' }, null],
     [{ control: 'skipToNext' }, null],
@@ -72,7 +73,7 @@ describe('media session: native events → Transport', () => {
     expect(fromNative({ control: 'button', keyCode: 85 })).toBeNull()
     expect(fromNative({ control: 'button', keyCode: 85 }, { acceptButtons: true })).toEqual({ kind: 'toggle' })
     expect(fromNative({ control: 'button', keyCode: 127 }, { acceptButtons: true })).toEqual({ kind: 'pause' })
-    expect(fromNative({ control: 'button', keyCode: 90 }, { acceptButtons: true })).toEqual({ kind: 'seekBy', s: 10 })
+    expect(fromNative({ control: 'button', keyCode: 90 }, { acceptButtons: true })).toEqual({ kind: 'seekBy', dir: 1 })
     expect(fromNative({ control: 'button', keyCode: 19 }, { acceptButtons: true })).toBeNull()
   })
 })
@@ -95,5 +96,44 @@ describe('media session binding', () => {
     n.emit({ control: 'pause' }); n.emit({ control: 'button' })
     expect(cb.mock.calls).toEqual([[{ kind: 'pause' }]])
     off(); expect(n.removed).toBe(true)
+  })
+})
+
+describe('one path per media key (key path vs media session)', () => {
+  const NATIVE_CONTROL: Record<number, string> = { 126: 'play', 127: 'pause', 86: 'stop' } // DescribedMediaSessionModule default mapping
+  function paths(code: number, sessionActive: boolean, acceptButtons = false) {
+    const n = { setNowPlaying: vi.fn(), release: vi.fn(), addListener: () => ({ remove() {} }) }
+    const ms = createMediaSession(n, { acceptButtons })!
+    if (sessionActive) ms.setNowPlaying({ title: 'Sintel', durationS: 888, positionS: 0, playing: true })
+    setKeySkip((c) => ms.ownsKey(c))
+    const keys: string[] = []
+    const off = keySource((k) => keys.push(k))
+    emitter.emit('onKeyDown', { keyCode: code }); emitter.emit('onKeyUp', { keyCode: code })
+    off(); setKeySkip(() => false)
+    // What the native session does with the same key (only while active): default-mapped, or swallowed as "button".
+    const native = !sessionActive ? null : SESSION_MAPPED_KEYS.has(code) ? { control: NATIVE_CONTROL[code]! } : { control: 'button', keyCode: code }
+    const session = native ? fromNative(native, { acceptButtons }) : null
+    return { key: keys.length, session: session ? 1 : 0 }
+  }
+  // 85 play/pause, 126 play, 127 pause, 86 stop, 89 rewind, 90 fast forward
+  it.each([
+    [85, 'key'], [126, 'session'], [127, 'session'], [86, 'session'], [89, 'key'], [90, 'key'],
+  ])('keyCode %i with the Player open is handled once, by the %s path', (code, owner) => {
+    const p = paths(code, true)
+    expect(p.key + p.session).toBe(1)
+    expect(owner === 'key' ? p.key : p.session).toBe(1)
+  })
+  it.each([85, 126, 127, 89, 90])('keyCode %i without an active session stays on the key path', (code) => {
+    expect(paths(code, false)).toEqual({ key: 1, session: 0 })
+  })
+  it.each([85, 126, 127, 86, 89, 90])('with acceptButtons, keyCode %i is still handled once (by the session)', (code) => {
+    const p = paths(code, true, true)
+    expect(p).toEqual({ key: 0, session: 1 })
+  })
+  it('release() hands the keys back to the key path', () => {
+    const n = { setNowPlaying: vi.fn(), release: vi.fn(), addListener: () => ({ remove() {} }) }
+    const ms = createMediaSession(n)!
+    ms.setNowPlaying({ title: 'Sintel', durationS: 888, positionS: 0, playing: true }); expect(ms.ownsKey(127)).toBe(true)
+    ms.setNowPlaying(null); expect(ms.ownsKey(127)).toBe(false)
   })
 })

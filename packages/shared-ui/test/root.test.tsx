@@ -4,6 +4,7 @@ import { FETCH_TIMEOUT_MS, Root } from '../src/index'
 import { Player } from '../src/screens/Player'
 import { strings } from '../src/strings'
 import { a11yCalls, back } from './stubs/react-native'
+import { kit } from './stubs/kit'
 import { stub } from './stubs/space-navigation'
 import { catalog, title } from './fixtures'
 
@@ -11,10 +12,11 @@ const prefs = { adDefault: true, extendedMode: true, voice: 'Joanna', captionKin
 const ok = (data: unknown) => Promise.resolve({ json: async () => ({ success: true, data }) } as Response)
 /** Fetch routed by path; `down` makes every request fail like an unreachable host. */
 function api() {
-  const state = { down: false, hang: false, calls: [] as string[], headers: [] as Record<string, string>[] }
+  const state = { down: false, hang: false, calls: [] as string[], headers: [] as Record<string, string>[], puts: [] as { path: string; body: unknown }[] }
   const fetch = vi.fn((url: string, init?: RequestInit) => {
     const path = url.replace('http://api', '')
     state.calls.push(path); state.headers.push(init?.headers as Record<string, string>)
+    if (init?.method === 'PUT') state.puts.push({ path, body: JSON.parse(String(init.body)) })
     if (state.hang) return new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => reject(new Error('aborted'))))
     if (state.down) return Promise.reject(new Error('network'))
     if (path === '/catalog') return ok(catalog)
@@ -130,5 +132,67 @@ describe('Root', () => {
     } finally { vi.useRealTimers() }
     api(); await mount()
     expect(stub.locks).toBe(0)
+  })
+
+  describe('Player route', () => {
+    const toPlayer = async (r: TestRenderer.ReactTestRenderer) => { await onTitle(r); press(r, 'Play Sintel with audio description'); await flush() }
+    const kitPlayer = (r: TestRenderer.ReactTestRenderer) => r.root.find((n) => (n.type as unknown) === 'KitPlayer')
+
+    it('Back saves the position (PUT /me/progress) and returns to Title; Play again resumes there', async () => {
+      const s = api(); const r = await mount()
+      await toPlayer(r)
+      act(() => kitPlayer(r).props.onPosition(321.4))
+      act(() => { back.press() }); await flush()
+      expect(s.puts).toContainEqual({ path: '/me/progress', body: { titleSlug: 'sintel-90-210', positionS: 321 } })
+      expect(text(r)).toContain(strings.title.playWithout)
+      press(r, 'Play Sintel with audio description'); await flush()
+      expect(kitPlayer(r).props.startAt).toBe(321.4)
+    })
+    it('while playing, saves progress every 10 s of movement, not on every tick', async () => {
+      const s = api(); const r = await mount()
+      await toPlayer(r)
+      for (const p of [0, 0.25, 0.5, 5, 9.75, 10, 10.25, 15, 20.1]) act(() => kitPlayer(r).props.onPosition(p))
+      await flush()
+      expect(s.puts.filter((x) => x.path === '/me/progress').map((x) => (x.body as { positionS: number }).positionS)).toEqual([10, 20])
+    })
+    it('progress PUTs go one at a time, in order: an older position never lands after a newer one', async () => {
+      const s = api(); const r = await mount()
+      await toPlayer(r)
+      const sent: number[] = []
+      let release!: () => void
+      const gate = new Promise<void>((res) => { release = res })
+      vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+        const pos = JSON.parse(String(init?.body)).positionS as number
+        if (pos === 10) await gate // the first save is slow
+        sent.push(pos)
+        return { json: async () => ({ success: true, data: {} }) } as Response
+      }))
+      void s
+      for (const p of [0, 10, 20]) act(() => kitPlayer(r).props.onPosition(p))
+      await flush()
+      expect(sent).toEqual([])
+      release(); await flush()
+      expect(sent).toEqual([10, 20])
+    })
+    it('Back at 0:00 with nothing saved writes no progress row', async () => {
+      const s = api(); const r = await mount()
+      await toPlayer(r)
+      act(() => { back.press() }); await flush()
+      expect(s.puts.filter((x) => x.path === '/me/progress')).toEqual([])
+    })
+    it('a caption choice in the track sheet is saved to /me/prefs', async () => {
+      const s = api(); const r = await mount()
+      await toPlayer(r)
+      act(() => r.root.findByType(Player).props.onPrefs({ captionKind: 'descriptions' }))
+      expect(s.puts).toContainEqual({ path: '/me/prefs', body: { captionKind: 'descriptions' } })
+      expect(r.root.findByType(Player).props.prefs.captionKind).toBe('descriptions')
+    })
+    it('passes the platform hook through to Player', async () => {
+      api(); const onNowPlaying = vi.fn(); const r = await mount({ onNowPlaying })
+      await toPlayer(r)
+      expect(onNowPlaying).toHaveBeenCalledWith(expect.objectContaining({ slug: 'sintel-90-210', adOn: true }))
+      act(() => { back.press() })
+      expect(onNowPlaying).toHaveBeenLastCalledWith(null)
+    })
   })
 })

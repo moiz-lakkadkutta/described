@@ -21,10 +21,10 @@ import expo.modules.kotlin.modules.ModuleDefinition
  * same calls the remote makes. The session never touches ExoPlayer, so the kit's paused/playing state stays the truth.
  *
  * Media buttons: Alexa may arrive as MEDIA_PLAY / MEDIA_PAUSE / MEDIA_STOP key events. Those go through the default
- * mapping (super → onPlay / onPause / onStop): they are idempotent, so the same key also reaching JS through
- * MainActivity (plugins/withKeyEvent.js) cannot double-toggle. PLAY_PAUSE, FAST_FORWARD and REWIND are relative —
- * handling them here and on the key path would toggle twice or seek twice — so they are swallowed and reported as
- * control "button" (JS ignores those unless `acceptButtons`); the remote key path owns them.
+ * mapping (super → onPlay / onPause / onStop); while the session is active the JS key path skips those key codes
+ * (apps/expo/src/platform/mediaSession.ts `ownsKey`), so the session is their one handler. PLAY_PAUSE, FAST_FORWARD
+ * and REWIND are relative — the Player's key handling owns them — so they are swallowed here and reported as control
+ * "button" (JS ignores those unless `acceptButtons`, which moves them to the session and off the key path).
  *
  * Background: the session goes inactive when the activity leaves the foreground (Alexa must not "pause" a hidden app)
  * and active again on return if the Player still holds it. Logcat: `adb logcat -s DescribedMediaSession`.

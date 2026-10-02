@@ -8,8 +8,8 @@ import { setDpadGate } from './focus/remote'
 import { nextCaptionKind, type SampleState } from './models'
 import { FirstRun } from './screens/FirstRun'
 import { Home } from './screens/Home'
-import { useLaunchRoute, type LaunchSource } from './platform'
-import { Player } from './screens/Player'
+import { usePlatformNowPlaying, useLaunchRoute, type LaunchSource } from './platform'
+import { Player, type PlayerSession } from './screens/Player'
 import { Settings } from './screens/Settings'
 import { Reading, Title } from './screens/Title'
 import { strings } from './strings'
@@ -19,6 +19,7 @@ export { tokens } from './theme/tokens'
 export * from './components'
 export { configureRemote } from './focus'
 export type { KeySource } from './focus'
+export type { PlayerSession } from './screens/Player'
 export * from './platform'
 export { parseDeepLink } from '@described/contracts'
 export type { LaunchTarget } from '@described/contracts'
@@ -26,9 +27,12 @@ export type { LaunchTarget } from '@described/contracts'
 type Route = { name: 'home' } | { name: 'title'; slug: string } | { name: 'reading'; slug: string } | { name: 'player'; slug: string; withAd: boolean; startAtS?: number } | { name: 'settings' } | { name: 'firstRun' }
 const noSpeech = async () => {}
 const defaultPrefs: Prefs = { adDefault: true, extendedMode: true, voice: 'Joanna', captionKind: 'sdh', captionScale: 100, firstRunDone: false }
-const routeKey = (r: Route) => ('slug' in r ? `${r.name}:${r.slug}` : r.name)
+// A player route keys on its audio and start too, so a new deep link to the same title remounts the Player.
+const routeKey = (r: Route) => (r.name === 'player' ? `player:${r.slug}:${r.withAd ? 'ad' : 'main'}:${r.startAtS ?? ''}` : 'slug' in r ? `${r.name}:${r.slug}` : r.name)
 /** RN Android's own fetch timeout is about 2 minutes; the offline screen should come much sooner. */
 export const FETCH_TIMEOUT_MS = 10_000
+/** While playing, the position is saved after it has moved this far (and always on Back). */
+export const PROGRESS_SAVE_S = 10
 
 /** Locks the D-pad while a screen has nothing focusable yet, so a press can't strand focus in the rail before DefaultFocus applies. */
 function LockWhile({ locked }: { locked: boolean }) {
@@ -44,6 +48,8 @@ export interface RootProps {
   /** Platform audio: resolves when the clip ends or is stopped. Used for "Hear a sample" (and extended cues, DESC-007). */
   speak?: (url: string) => Promise<void>
   stopSpeaking?: () => void
+  /** The film on screen and its controls, `null` when the player closes — for Media Controls / Alexa (DESC-008). */
+  onNowPlaying?: (session: PlayerSession | null) => void
   /** Deep links (`described://title/…`, `described://play/…`) the app is opened with (DESC-008). Pass a stable function. */
   launches?: LaunchSource
 }
@@ -53,7 +59,7 @@ export interface RootProps {
  * with fresh focus and its DefaultFocus / focus memory decides where focus lands.
  * Platform entries (apps/expo, apps/vega) pass apiBaseUrl, scale, fonts state and audio; they call configureRemote first.
  */
-export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded = true, speak = async () => {}, stopSpeaking = () => {}, launches }: RootProps) {
+export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded = true, speak = async () => {}, stopSpeaking = () => {}, onNowPlaying, launches }: RootProps) {
   const [route, setRoute] = useState<Route>({ name: 'home' })
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [title, setTitle] = useState<TitleDetail | null>(null)
@@ -65,6 +71,8 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   const shouldHandle = useDpad()
   useEffect(() => { setDpadGate(shouldHandle) }, [shouldHandle])
   useLaunchRoute(launches, { catalog, holding: offline || route.name === 'firstRun', adDefault: prefs.adDefault, navigate: setRoute })
+  // Media session, Alexa transport and watch activity consume the Player's now-playing; the prop still sees every update.
+  const nowPlaying = usePlatformNowPlaying(onNowPlaying)
 
   const api = useCallback(async <R,>(path: string, init?: RequestInit): Promise<R> => {
     const ctl = new AbortController()
@@ -85,7 +93,7 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   const slug = 'slug' in route ? route.slug : null
   // `attempt` too: Retry on the offline screen must refetch the title, not only the catalog.
   useEffect(() => { if (slug && title?.slug !== slug) api<TitleDetail>(`/titles/${slug}`).then(setTitle).catch(() => setOffline(true)) }, [slug, api, attempt]) // eslint-disable-line react-hooks/exhaustive-deps
-  const current = title && title.slug === slug ? (route.name === 'player' && route.startAtS !== undefined ? { ...title, resumeS: route.startAtS } : title) : null // a play link's ?t= wins over saved progress
+  const current = title && title.slug === slug ? title : null
   // A live region does not speak on first appearance, so the offline message is announced explicitly.
   useEffect(() => { if (offline) AccessibilityInfo.announceForAccessibility(strings.offline) }, [offline])
 
@@ -107,14 +115,32 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
       switch (route.name) {
         case 'reading': setRoute({ name: 'title', slug: route.slug }); return true
         case 'title': case 'settings': setRoute({ name: 'home' }); return true
-        case 'player': setRoute({ name: 'title', slug: route.slug }); return true
+        case 'player': return false // Player owns Back: it closes the track sheet or saves the position first
         default: return false
       }
     })
     return () => sub.remove()
   }, [route])
 
-  const savePrefs = (p: Partial<Prefs>) => { setPrefs({ ...prefs, ...p }); void api('/me/prefs', { method: 'PUT', body: JSON.stringify(p) }).catch(() => {}) }
+  const savePrefs = (p: Partial<Prefs>) => { setPrefs((cur) => ({ ...cur, ...p })); void api('/me/prefs', { method: 'PUT', body: JSON.stringify(p) }).catch(() => {}) }
+  // Progress: PUT /me/progress every PROGRESS_SAVE_S of movement while playing, and on Back (then back to Title,
+  // whose cached detail takes the new resume point so Play resumes there without a refetch).
+  const savedAt = useRef<number | null>(null)
+  const savedThisPlay = useRef(false)
+  useEffect(() => { savedAt.current = null; savedThisPlay.current = false }, [key])
+  // One PUT at a time, in order, so an older position can never land after a newer one.
+  const progressQueue = useRef<Promise<unknown>>(Promise.resolve())
+  const saveProgress = (slug: string, positionS: number) => {
+    savedAt.current = positionS; savedThisPlay.current = true
+    const body = JSON.stringify({ titleSlug: slug, positionS: Math.max(0, Math.round(positionS)) })
+    progressQueue.current = progressQueue.current.then(() => api('/me/progress', { method: 'PUT', body })).catch(() => {})
+  }
+  const leavePlayer = (t: TitleDetail, positionS: number) => {
+    // Nothing watched and nothing saved before: no row (it would only say "0 s").
+    if (!(positionS < 1 && !t.resumeS && !savedThisPlay.current)) saveProgress(t.slug, positionS)
+    setTitle({ ...t, resumeS: positionS })
+    setRoute({ name: 'title', slug: t.slug })
+  }
   const toggleList = (s: string) => setMyList((l) => { const n = new Set(l); if (n.has(s)) n.delete(s); else n.add(s); return n })
   const rail = <Rail current={route.name === 'settings' ? 'settings' : 'home'} items={[{ key: 'home', label: strings.rail.home }, { key: 'described', label: strings.rail.described }, { key: 'list', label: strings.rail.list }, { key: 'settings', label: strings.rail.settings }]} onSelect={(k) => setRoute(k === 'settings' ? { name: 'settings' } : { name: 'home' })} /> // TODO(DESC-011): Described and My list screens; both open Home until then
 
@@ -143,7 +169,11 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
         </Screen>
       )
       // TODO(DESC-007): pass `speak` once extended cues carry their own audio; today Player would play the sample clip.
-      case 'player': return current ? <Player title={current} prefs={prefs} withAd={route.withAd} scale={scale} speak={noSpeech} onProgress={(s) => { if (Math.round(s) % 10 === 0) void api('/me/progress', { method: 'PUT', body: JSON.stringify({ titleSlug: current.slug, positionS: s }) }).catch(() => {}) }} onBack={() => setRoute({ name: 'title', slug: current.slug })} /> : <Screen><T variant="body">{strings.player.loading}</T></Screen>
+      case 'player': return current ? (
+        <Player title={current} prefs={prefs} withAd={route.withAd} startAtS={route.startAtS} scale={scale} speak={noSpeech} onPrefs={savePrefs} onNowPlaying={nowPlaying}
+          onProgress={(s) => { if (savedAt.current === null) savedAt.current = s; else if (Math.abs(s - savedAt.current) >= PROGRESS_SAVE_S) saveProgress(current.slug, s) }}
+          onBack={(s) => leavePlayer(current, s)} />
+      ) : <Screen><T variant="body">{strings.player.loading}</T></Screen>
       default: return <Screen rail={rail}><Home catalog={catalog} myList={myList} onOpen={(s) => setRoute({ name: 'title', slug: s })} onPlay={(s, withAd) => setRoute({ name: 'player', slug: s, withAd })} onToggleList={toggleList} /></Screen>
     }
   })()

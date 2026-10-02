@@ -1,13 +1,16 @@
-import React, { useRef } from 'react'
+import React from 'react'
 import TestRenderer, { act } from 'react-test-renderer'
 import { toTransport, type RemoteKey } from '@moizp/vega-media-kit/platform'
 import type { LaunchTarget } from '@described/contracts'
-import { Root } from '../src/index'
+import { Root, type PlayerSession } from '../src/index'
+import { configureRemote } from '../src/focus/remote'
 import {
-  configurePlatform, fromKitControl, REPORT_EVERY_MS, routeForLaunch, SEEK_STEP_S, transportAction, usePlatformPlayback,
-  type LaunchSource, type NowPlayingInfo, type PlaybackEvent, type PlayerControls, type Transport,
+  configurePlatform, createNowPlayingSink, fromKitControl, REPORT_EVERY_MS, routeForLaunch, transportAction,
+  type LaunchSource, type NowPlayingInfo, type PlaybackEvent, type Transport,
 } from '../src/platform'
+import { SEEK_COMMIT_MS, SEEK_STEP_S } from '../src/playback'
 import { strings } from '../src/strings'
+import { kit } from './stubs/kit'
 import { catalog, title } from './fixtures'
 
 describe('routeForLaunch', () => {
@@ -28,7 +31,7 @@ describe('routeForLaunch', () => {
 })
 
 describe('transport → player action', () => {
-  const at = (playing: boolean, positionS = 100, durationS: number | null = 888) => ({ playing, positionS, durationS })
+  const at = (playing: boolean, positionS = 100) => ({ playing, positionS })
   it.each<[Transport, boolean, unknown]>([
     [{ kind: 'pause' }, true, { kind: 'pause' }],
     [{ kind: 'pause' }, false, null],
@@ -37,85 +40,138 @@ describe('transport → player action', () => {
     [{ kind: 'toggle' }, true, { kind: 'pause' }],
     [{ kind: 'toggle' }, false, { kind: 'play' }],
     [{ kind: 'stop' }, true, { kind: 'pause' }],
-    [{ kind: 'seekBy', s: 10 }, true, { kind: 'seek', toS: 110 }],
-    [{ kind: 'seekBy', s: -10 }, false, { kind: 'seek', toS: 90 }],
+    [{ kind: 'seekBy', dir: 1 }, true, { kind: 'seek', toS: 100 + SEEK_STEP_S }],
+    [{ kind: 'seekBy', dir: -1 }, false, { kind: 'seek', toS: 100 - SEEK_STEP_S }],
     [{ kind: 'seekTo', s: 300 }, true, { kind: 'seek', toS: 300 }],
   ])('%j while playing=%s → %j', (t, playing, want) => expect(transportAction(t, at(playing))).toEqual(want))
-  it('seeks clamp to the title', () => {
-    expect(transportAction({ kind: 'seekBy', s: -10 }, at(true, 4))).toEqual({ kind: 'seek', toS: 0 })
-    expect(transportAction({ kind: 'seekTo', s: 5000 }, at(true))).toEqual({ kind: 'seek', toS: 887 })
-    expect(transportAction({ kind: 'seekTo', s: 5000 }, at(true, 0, null))).toEqual({ kind: 'seek', toS: 5000 })
-  })
-  it('the remote media keys map through the kit to the same actions as voice', () => {
-    const viaRemote = (k: RemoteKey, playing: boolean) => { const c = toTransport(k); const t = c && fromKitControl(c); return t && transportAction(t, at(playing)) }
-    expect(viaRemote('playPause', true)).toEqual(transportAction({ kind: 'pause' }, at(true)))
-    expect(viaRemote('play', false)).toEqual(transportAction({ kind: 'play' }, at(false)))
-    expect(viaRemote('pause', true)).toEqual(transportAction({ kind: 'pause' }, at(true)))
-    expect(viaRemote('fastForward', true)).toEqual({ kind: 'seek', toS: 100 + SEEK_STEP_S })
-    expect(viaRemote('rewind', true)).toEqual({ kind: 'seek', toS: 100 - SEEK_STEP_S })
+  it('the kit transport names (remote keys, Vega) map to the same requests', () => {
+    const viaKit = (k: RemoteKey) => { const c = toTransport(k); return c ? fromKitControl(c) : null }
+    expect(viaKit('playPause')).toEqual({ kind: 'toggle' })
+    expect(viaKit('play')).toEqual({ kind: 'play' })
+    expect(viaKit('pause')).toEqual({ kind: 'pause' })
+    expect(viaKit('fastForward')).toEqual({ kind: 'seekBy', dir: 1 })
+    expect(viaKit('rewind')).toEqual({ kind: 'seekBy', dir: -1 })
     expect(fromKitControl('next')).toBeNull()
   })
 })
 
-describe('usePlatformPlayback', () => {
+describe('now-playing sink (bindings side of onNowPlaying)', () => {
   function setup() {
     const now: (NowPlayingInfo | null)[] = []; const events: PlaybackEvent[] = []
-    let send: ((t: Transport) => void) | undefined; const off = vi.fn()
-    configurePlatform({ mediaSession: { setNowPlaying: (i) => now.push(i), onTransport: (cb) => { send = cb; return off } }, reporter: { report: (e) => events.push(e) } })
-    const player = { pos: 42, play: vi.fn(), pause: vi.fn(), seek: vi.fn(), getPosition() { return this.pos } }
-    function Probe({ state }: { state: string }) {
-      const ref = useRef<PlayerControls | null>(player)
-      usePlatformPlayback(ref, { slug: 'sintel-90-210', name: 'Sintel', durationS: 888, state })
-      return null
-    }
-    let r!: TestRenderer.ReactTestRenderer
-    act(() => { r = TestRenderer.create(<Probe state="loading" />) })
-    return { now, events, off, player, r, Probe, send: (t: Transport) => act(() => send!(t)) }
+    let send: ((t: Transport) => void) | undefined; const off = vi.fn(); const subs = vi.fn()
+    const sink = createNowPlayingSink(() => ({ mediaSession: { setNowPlaying: (i) => now.push(i), onTransport: (cb) => { subs(); send = cb; return off } }, reporter: { report: (e) => events.push(e) } }))
+    const controls = { pos: 42, play: vi.fn(), pause: vi.fn(), seek: vi.fn(), getPosition() { return this.pos } }
+    let seeks = 0
+    const session = (state: string, slug = 'sintel-90-210'): PlayerSession => ({ slug, name: 'Sintel', state: state as PlayerSession['state'], adOn: true, durationS: 888, seeks, controls })
+    return { now, events, off, subs, controls, sink, session, seek: () => { seeks++ }, send: (t: Transport) => send!(t) }
   }
   beforeEach(() => vi.useFakeTimers())
-  afterEach(() => { vi.useRealTimers(); configurePlatform({}) })
+  afterEach(() => vi.useRealTimers())
 
-  it('publishes now-playing and reports start, progress, pause and exit', () => {
+  it('publishes on state changes, reports start, progress, pause and exit', () => {
     const s = setup()
-    expect(s.now).toEqual([]); expect(s.events).toEqual([])
-    act(() => s.r.update(<s.Probe state="playing" />))
+    s.sink(s.session('loading')); expect(s.now).toEqual([]); expect(s.subs).toHaveBeenCalledTimes(1)
+    s.sink(s.session('playing'))
     expect(s.now.at(-1)).toEqual({ title: 'Sintel', durationS: 888, positionS: 42, playing: true })
     expect(s.events.at(-1)).toEqual({ slug: 'sintel-90-210', positionS: 42, durationS: 888, state: 'playing' })
-    s.player.pos = 72; act(() => { vi.advanceTimersByTime(REPORT_EVERY_MS) })
+    s.sink(s.session('playing')); expect(s.now).toHaveLength(1) // same state, no seek: nothing new
+    s.controls.pos = 72; vi.advanceTimersByTime(REPORT_EVERY_MS)
     expect(s.events.at(-1)).toMatchObject({ positionS: 72, state: 'playing' })
-    act(() => s.r.update(<s.Probe state="paused" />))
-    expect(s.now.at(-1)).toMatchObject({ playing: false }); expect(s.events.at(-1)).toMatchObject({ state: 'paused' })
-    const n = s.events.length; act(() => { vi.advanceTimersByTime(REPORT_EVERY_MS * 3) }); expect(s.events).toHaveLength(n)
-    act(() => s.r.unmount())
+    s.sink(s.session('buffering')); expect(s.now.at(-1)).toMatchObject({ playing: true })
+    s.sink(s.session('paused')); expect(s.now.at(-1)).toMatchObject({ playing: false }); expect(s.events.at(-1)).toMatchObject({ state: 'paused' })
+    const n = s.events.length; vi.advanceTimersByTime(REPORT_EVERY_MS * 3); expect(s.events).toHaveLength(n)
+    s.sink(null)
     expect(s.off).toHaveBeenCalled(); expect(s.now.at(-1)).toBeNull()
     expect(s.events.at(-1)).toEqual({ slug: 'sintel-90-210', positionS: 72, durationS: 888, state: 'exit' })
+    s.sink(null); expect(s.now.filter((x) => x === null)).toHaveLength(1)
   })
-  it('Alexa transport requests drive the player', () => {
+  it('republishes the position after every committed seek (review 8)', () => {
     const s = setup()
-    act(() => s.r.update(<s.Probe state="playing" />))
-    s.send({ kind: 'pause' }); expect(s.player.pause).toHaveBeenCalledTimes(1)
-    s.send({ kind: 'play' }); expect(s.player.play).not.toHaveBeenCalled() // still reported as playing
-    act(() => s.r.update(<s.Probe state="paused" />))
-    s.send({ kind: 'play' }); expect(s.player.play).toHaveBeenCalledTimes(1)
-    s.send({ kind: 'seekBy', s: -SEEK_STEP_S }); expect(s.player.seek).toHaveBeenLastCalledWith(32)
-    expect(s.now.at(-1)).toMatchObject({ positionS: 32 })
-    s.send({ kind: 'seekTo', s: 600 }); expect(s.player.seek).toHaveBeenLastCalledWith(600)
-    act(() => s.r.unmount())
+    s.sink(s.session('playing'))
+    s.controls.pos = 300; s.seek(); s.sink(s.session('playing'))
+    expect(s.now.at(-1)).toMatchObject({ positionS: 300, playing: true })
+    expect(s.now).toHaveLength(2)
   })
-  it('while buffering, pause and toggle pause (buffering is stalled playing)', () => {
+  it('transport acts through controls; buffering counts as playing', () => {
     const s = setup()
-    act(() => s.r.update(<s.Probe state="buffering" />))
-    s.send({ kind: 'pause' }); expect(s.player.pause).toHaveBeenCalledTimes(1)
-    s.send({ kind: 'toggle' }); expect(s.player.pause).toHaveBeenCalledTimes(2)
-    s.send({ kind: 'play' }); expect(s.player.play).not.toHaveBeenCalled()
-    act(() => s.r.unmount())
+    s.sink(s.session('buffering'))
+    s.send({ kind: 'pause' }); expect(s.controls.pause).toHaveBeenCalledTimes(1)
+    s.send({ kind: 'toggle' }); expect(s.controls.pause).toHaveBeenCalledTimes(2)
+    s.send({ kind: 'play' }); expect(s.controls.play).not.toHaveBeenCalled()
+    s.sink(s.session('paused'))
+    s.send({ kind: 'play' }); expect(s.controls.play).toHaveBeenCalledTimes(1)
+    s.send({ kind: 'seekBy', dir: -1 }); expect(s.controls.seek).toHaveBeenLastCalledWith(42 - SEEK_STEP_S)
+    s.send({ kind: 'seekTo', s: 5000 }); expect(s.controls.seek).toHaveBeenLastCalledWith(5000) // Player's seekTo clamps
+    s.sink(null); s.send({ kind: 'play' }); expect(s.controls.play).toHaveBeenCalledTimes(1)
+  })
+  it('a different film without a null in between ends the first session', () => {
+    const s = setup()
+    s.sink(s.session('playing'))
+    s.sink(s.session('loading', 'tears-of-steel'))
+    expect(s.events.at(-1)).toMatchObject({ slug: 'sintel-90-210', state: 'exit' }); expect(s.subs).toHaveBeenCalledTimes(2)
   })
   it('without platform bindings it does nothing', () => {
-    configurePlatform({})
-    function Bare() { const ref = useRef<PlayerControls | null>(null); usePlatformPlayback(ref, { slug: 'x', name: 'X', durationS: null, state: 'playing' }); return null }
-    let r!: TestRenderer.ReactTestRenderer
-    expect(() => act(() => { r = TestRenderer.create(<Bare />) })).not.toThrow()
-    act(() => r.unmount())
+    const sink = createNowPlayingSink(() => ({}))
+    expect(() => { sink({ slug: 'x', name: 'X', state: 'playing', adOn: true, durationS: null, seeks: 0, controls: { play() {}, pause() {}, seek() {}, getPosition: () => 0 } }); sink(null) }).not.toThrow()
+  })
+})
+
+describe('Root → Player → media session', () => {
+  const ok = (data: unknown) => Promise.resolve({ json: async () => ({ success: true, data }) } as Response)
+  const keys = new Set<(k: never, repeat?: boolean) => void>()
+  const press = (k: string) => act(() => { for (const l of [...keys]) l(k as never, false) })
+  let r: TestRenderer.ReactTestRenderer | undefined
+  beforeEach(() => {
+    configureRemote((onKey) => { keys.add(onKey as never); return () => keys.delete(onKey as never) })
+    kit.reset()
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      const path = url.replace('http://api', '')
+      if (path === '/catalog') return ok(catalog)
+      if (path === '/me/prefs') return ok({ adDefault: true, extendedMode: true, voice: 'Joanna', captionKind: 'sdh', captionScale: 100, firstRunDone: true })
+      if (path.startsWith('/titles/')) return ok(title)
+      if (path.startsWith('https://')) return new Promise(() => {}) // master playlist: never lands
+      return ok({})
+    }))
+  })
+  afterEach(() => { if (r) act(() => r!.unmount()); r = undefined; vi.unstubAllGlobals(); configurePlatform({}) })
+
+  it('Alexa seeks go through Player\'s seekTo (clamped); key seeks republish when they commit; the prop still sees it all', async () => {
+    const now: (NowPlayingInfo | null)[] = []; let send!: (t: Transport) => void
+    configurePlatform({ mediaSession: { setNowPlaying: (i) => now.push(i), onTransport: (cb) => { send = cb; return () => {} } } })
+    let open!: (t: LaunchTarget) => void
+    const launches: LaunchSource = (on) => { open = on; return () => {} }
+    const onNowPlaying = vi.fn()
+    act(() => { r = TestRenderer.create(<Root apiBaseUrl="http://api" scale={0.5} launches={launches} onNowPlaying={onNowPlaying} />) })
+    const flush = () => act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve() })
+    await flush(); act(() => open({ kind: 'play', slug: 'sintel-90-210' })); await flush()
+    const kp = () => r!.root.find((n) => (n.type as unknown) === 'KitPlayer').props
+    act(() => { kp().onState('playing') }); act(() => { kp().onPosition(100) })
+    expect(now.at(-1)).toMatchObject({ title: 'Sintel', playing: true })
+    act(() => send({ kind: 'seekTo', s: 5000 }))
+    expect(kit.ref.seek).toHaveBeenLastCalledWith(887) // clampSeek(5000, 888)
+    expect(now.at(-1)).toMatchObject({ positionS: 887 })
+    vi.useFakeTimers()
+    try {
+      act(() => { kp().onPosition(887) })
+      press('left'); expect(now.at(-1)).toMatchObject({ positionS: 887 }) // not yet: ◄ gathers presses
+      act(() => { vi.advanceTimersByTime(SEEK_COMMIT_MS) })
+      expect(now.at(-1)).toMatchObject({ positionS: 887 - SEEK_STEP_S })
+    } finally { vi.useRealTimers() }
+    act(() => send({ kind: 'pause' })); expect(kit.ref.pause).toHaveBeenCalledTimes(1)
+    expect(onNowPlaying).toHaveBeenLastCalledWith(expect.objectContaining({ slug: 'sintel-90-210', seeks: 2 }))
+    act(() => r!.unmount()); r = undefined
+    expect(now.at(-1)).toBeNull(); expect(onNowPlaying).toHaveBeenLastCalledWith(null)
+  })
+  it('a play link for the open title remounts the Player at the new time (review 6)', async () => {
+    let open!: (t: LaunchTarget) => void
+    const launches: LaunchSource = (on) => { open = on; return () => {} }
+    act(() => { r = TestRenderer.create(<Root apiBaseUrl="http://api" scale={0.5} launches={launches} />) })
+    const flush = () => act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve() })
+    await flush(); act(() => open({ kind: 'play', slug: 'sintel-90-210', startAtS: 60 })); await flush()
+    const kp = () => r!.root.find((n) => (n.type as unknown) === 'KitPlayer').props
+    expect(kp().startAt).toBe(60); expect(kit.mounts).toBe(1)
+    act(() => open({ kind: 'play', slug: 'sintel-90-210', startAtS: 600 })); await flush()
+    expect(kp().startAt).toBe(600); expect(kit.mounts).toBe(2)
   })
 })
 

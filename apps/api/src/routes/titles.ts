@@ -8,12 +8,15 @@ const cdn = (key: string) => `https://${env.CLOUDFRONT_DOMAIN ?? 'cdn.invalid'}/
 
 titles.get('/:slug', async (req, res, next) => {
   try {
-    const t = await db.title.findUnique({ where: { slug: req.params.slug }, include: { renditions: true, tracks: true, cues: { where: { extended: true }, take: 1, orderBy: { startMs: 'asc' } }, _count: { select: { cues: { where: { extended: true } } } } } })
+    const deviceId = String(req.header('x-device-id') ?? 'anon')
+    const t = await db.title.findUnique({ where: { slug: req.params.slug }, include: { renditions: true, tracks: true, cues: { where: { extended: true }, take: 1, orderBy: { startMs: 'asc' } }, _count: { select: { cues: { where: { extended: true } } } }, progress: { where: { profile: { deviceId } } } } })
     if (!t || t.status !== 'published') throw notFound('Title')
     const sample = t.cues[0]
     ok(res, {
       slug: t.slug, name: t.name, year: t.year, durationS: t.durationS, posterUrl: t.posterKey ? cdn(t.posterKey) : null,
-      badges: ['ad', 'sdh'], extendedCount: t._count.cues, // cues above is the first extended cue only (the sample) resumeS: null, synopsis: t.synopsis, attribution: t.attribution, voice: t.voice,
+      badges: ['ad', 'sdh'], extendedCount: t._count.cues, // cues above is the first extended cue only (the sample)
+      resumeS: t.progress[0]?.positionS ?? null, // this device's saved position (PUT /me/progress); the Player resumes from it
+      synopsis: t.synopsis, attribution: t.attribution, voice: t.voice,
       manifestUrl: cdn(`published/${t.slug}/master.m3u8`),
       tracks: {
         audio: t.renditions.map((r: (typeof t.renditions)[number]) => ({ id: r.kind, language: r.language, role: r.kind === 'audio_ad' ? 'description' : 'main', label: r.kind === 'audio_ad' ? `${r.language} – Audio description (${t.voice})` : `${r.language} – Original` })),

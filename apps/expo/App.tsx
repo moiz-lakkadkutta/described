@@ -2,7 +2,7 @@ import React from 'react'
 import { View } from 'react-native'
 import { useFonts } from 'expo-font'
 import { Root, configurePlatform, configureRemote, tokens } from '@described/shared-ui'
-import { keySource } from './src/remote'
+import { keySource, setKeySkip } from './src/remote'
 import { speak, stopSpeaking } from './src/audio'
 import { deviceId } from './src/deviceId'
 import { launchSource } from './src/platform/launch'
@@ -12,7 +12,9 @@ import { playbackReporter } from './src/platform/personalization'
 // Fire OS entry. Platform-specific wiring (fonts, keys, audio, IAP, camera) goes here, never in shared-ui.
 configureRemote(keySource)
 // DESC-008: Alexa transport through the media session, watch activity (no-op until Fire TV catalog integration).
-configurePlatform({ mediaSession: createMediaSession(nativeMediaSession), reporter: playbackReporter })
+const mediaSession = createMediaSession(nativeMediaSession)
+setKeySkip((code) => mediaSession?.ownsKey(code) ?? false) // one path per media key (src/platform/mediaSession.ts)
+configurePlatform({ mediaSession, reporter: playbackReporter })
 const id = deviceId()
 export default function App() {
   // Family names must match tokens.type.*.family. On error, Root falls back to system sans at the same sizes.
