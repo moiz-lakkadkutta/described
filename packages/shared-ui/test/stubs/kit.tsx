@@ -1,7 +1,9 @@
 import React, { forwardRef, useImperativeHandle } from 'react'
 // The kit's root entry as Player uses it. KitPlayer renders a 'KitPlayer' host with its props and hands Player a ref
 // of mocks (`kit.ref`); tests drive it through the props (onTracks, onState, onPosition, onCue, onError).
-export { parseHlsMaster } from '@moizp/vega-media-kit/core'
+export { parseHlsMaster, parseVtt } from '@moizp/vega-media-kit/core'
+// The kit's fetchHlsVtt over the test's global fetch (a whole-file VTT; tests serve it by URL).
+export const fetchHlsVtt = async (url: string) => (await fetch(url)).text()
 // Like the kit's Fire OS adapter, getPosition is the last position reported through onPosition (it does not move
 // when a seek is sent).
 const mocks = () => ({

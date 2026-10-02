@@ -22,6 +22,7 @@ export type { PlayerSession } from './screens/Player'
 
 type Route = { name: 'home' } | { name: 'title'; slug: string } | { name: 'reading'; slug: string } | { name: 'player'; slug: string; withAd: boolean; startAtS?: number } | { name: 'settings' } | { name: 'firstRun' }
 const noSpeech = async () => {}
+const noop = () => {}
 const defaultPrefs: Prefs = { adDefault: true, extendedMode: true, voice: 'Joanna', captionKind: 'sdh', captionScale: 100, firstRunDone: false }
 // A player route keys on its audio and start too, so a new deep link to the same title remounts the Player.
 const routeKey = (r: Route) => (r.name === 'player' ? `player:${r.slug}:${r.withAd ? 'ad' : 'main'}:${r.startAtS ?? ''}` : 'slug' in r ? `${r.name}:${r.slug}` : r.name)
@@ -41,9 +42,11 @@ export interface RootProps {
   apiBaseUrl: string; scale: number; deviceId?: string
   /** False when the platform could not load Atkinson Hyperlegible: system sans at the same sizes. */
   fontsLoaded?: boolean
-  /** Platform audio: resolves when the clip ends or is stopped. Used for "Hear a sample" (and extended cues, DESC-007). */
+  /** Platform audio: resolves when the clip ends, fails, times out or is stopped. "Hear a sample" and extended cues. */
   speak?: (url: string) => Promise<void>
   stopSpeaking?: () => void
+  /** Starts loading a clip so a later `speak(url)` starts at once (Extended mode, 10 s ahead). Optional. */
+  prefetch?: (url: string) => void
   /** The film on screen and its controls, `null` when the player closes — for Media Controls / Alexa (DESC-008). */
   onNowPlaying?: (session: PlayerSession | null) => void
 }
@@ -53,7 +56,7 @@ export interface RootProps {
  * with fresh focus and its DefaultFocus / focus memory decides where focus lands.
  * Platform entries (apps/expo, apps/vega) pass apiBaseUrl, scale, fonts state and audio; they call configureRemote first.
  */
-export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded = true, speak = async () => {}, stopSpeaking = () => {}, onNowPlaying }: RootProps) {
+export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded = true, speak = noSpeech, stopSpeaking = noop, prefetch = noop, onNowPlaying }: RootProps) {
   const [route, setRoute] = useState<Route>({ name: 'home' })
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [title, setTitle] = useState<TitleDetail | null>(null)
@@ -113,6 +116,8 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
     return () => sub.remove()
   }, [route])
 
+  /** Extended cue `d{n}`'s clip: the API redirects to the published MP3 (404 when the title has none). */
+  const cueAudioUrl = useCallback((s: string, cueId: string) => `${apiBaseUrl}/titles/${encodeURIComponent(s)}/cues/${encodeURIComponent(cueId)}/audio`, [apiBaseUrl])
   const savePrefs = (p: Partial<Prefs>) => { setPrefs((cur) => ({ ...cur, ...p })); void api('/me/prefs', { method: 'PUT', body: JSON.stringify(p) }).catch(() => {}) }
   // Progress: PUT /me/progress every PROGRESS_SAVE_S of movement while playing, and on Back (then back to Title,
   // whose cached detail takes the new resume point so Play resumes there without a refetch).
@@ -159,9 +164,10 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
             onMore={() => setRoute({ name: 'reading', slug: route.slug })} />
         </Screen>
       )
-      // TODO(DESC-007): pass `speak` once extended cues carry their own audio; today Player would play the sample clip.
+      // Extended cues speak their own clip (cueAudioUrl), never the sample's.
       case 'player': return current ? (
-        <Player title={current} prefs={prefs} withAd={route.withAd} startAtS={route.startAtS} scale={scale} speak={noSpeech} onPrefs={savePrefs} onNowPlaying={onNowPlaying}
+        <Player title={current} prefs={prefs} withAd={route.withAd} startAtS={route.startAtS} scale={scale} onPrefs={savePrefs} onNowPlaying={onNowPlaying}
+          speak={speak} stopSpeaking={stopSpeaking} prefetch={prefetch} cueAudioUrl={cueAudioUrl}
           onProgress={(s) => { if (savedAt.current === null) savedAt.current = s; else if (Math.abs(s - savedAt.current) >= PROGRESS_SAVE_S) saveProgress(current.slug, s) }}
           onBack={(s) => leavePlayer(current, s)} />
       ) : <Screen><T variant="body">{strings.player.loading}</T></Screen>

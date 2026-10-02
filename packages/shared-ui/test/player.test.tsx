@@ -372,11 +372,161 @@ describe('platform hook (DESC-008)', () => {
   })
 })
 
-describe('extended cues stay with DESC-007', () => {
-  it('an {extended=1} cue neither pauses nor speaks yet', () => {
-    const p = mount(); report('onTracks', tracks)
-    report('onCue', [{ trackId: idOf('Description text'), id: 'd1', start: 0, end: 1, text: 'A dragon.', meta: { extended: '1' } }])
-    expect(kit.ref.pause).not.toHaveBeenCalled()
-    expect(p.speak).not.toHaveBeenCalled()
+describe('Extended mode (DESC-007)', () => {
+  const vtt = readFileSync(path.resolve(__dirname, 'fixtures/descriptions.vtt'), 'utf8') // d2 at 0:20 and d3 at 0:40 are extended
+  const descUrl = tracks.text.find((t) => t.kind === 'descriptions')!.url!
+  const cueAudioUrl = (slug: string, id: string) => `http://api/titles/${slug}/cues/${id}/audio`
+  const clip = (id: string) => cueAudioUrl(title.slug, id)
+  /** Platform audio as apps/expo/src/audio.ts behaves: one clip; `stopSpeaking` settles it; `end()` ends it. */
+  function audio() {
+    const a = { end: () => {}, fail: (_: Error) => {} }
+    const speak = vi.fn((_url: string) => new Promise<void>((resolve, reject) => { a.end = resolve; a.fail = reject }))
+    const stopSpeaking = vi.fn(() => a.end())
+    return Object.assign(a, { speak, stopSpeaking, prefetch: vi.fn() })
+  }
+  let au!: ReturnType<typeof audio>
+  async function start(over: Partial<PlayerProps> = {}) {
+    vi.stubGlobal('fetch', vi.fn((url: string) => (url === descUrl ? Promise.resolve({ ok: true, text: async () => vtt }) : new Promise(() => {}))))
+    au = audio()
+    const p = mount({ cueAudioUrl, speak: au.speak, stopSpeaking: au.stopSpeaking, prefetch: au.prefetch, ...over })
+    report('onTracks', tracks); await flush()
+    report('onState', 'playing')
+    return p
+  }
+  /** Position ticks at 4 Hz, as the kit reports them while playing. */
+  const tick = (from: number, to: number) => { for (let t = from; t <= to + 1e-9; t += 0.25) report('onPosition', +t.toFixed(2)) }
+  const bar = () => r.root.findAllByProps({ testID: 'extended-bar' }).length > 0
+  const order = (...fns: { mock: { invocationCallOrder: number[] } }[]) => fns.map((f) => f.mock.invocationCallOrder[0] ?? Infinity)
+  const atCue = async (over: Partial<PlayerProps> = {}) => { const p = await start(over); tick(18, 20); return p }
+
+  it('pauses at the cue, shows the ochre bar, announces, speaks the cue\'s clip, then resumes', async () => {
+    await atCue()
+    expect(au.speak).toHaveBeenCalledTimes(1)
+    expect(au.speak).toHaveBeenCalledWith(clip('d2'))
+    expect(kit.ref.play).not.toHaveBeenCalled()
+    expect(bar()).toBe(true)
+    expect(r.root.findByProps({ testID: 'extended-bar' }).props.style.backgroundColor).toBe(tokens.color.badge)
+    expect(r.root.findByProps({ testID: 'extended-bar' }).props.accessibilityLiveRegion).toBe('polite')
+    expect(a11yCalls).toContain(strings.player.extendedBar)
+    report('onState', 'paused')
+    await act(async () => { au.end() })
+    expect(kit.ref.play).toHaveBeenCalledTimes(1)
+    const [pause, speak, play] = order(kit.ref.pause, au.speak, kit.ref.play)
+    expect(pause).toBeLessThan(speak!); expect(speak).toBeLessThan(play!)
+    expect(bar()).toBe(false)
+  })
+  it('triggers once per forward crossing; later ticks past the start do not repeat it', async () => {
+    await atCue()
+    tick(20.25, 21) // ticks that arrive around the pause
+    await act(async () => { au.end() }); report('onState', 'playing')
+    tick(21.25, 39.75)
+    expect(au.speak).toHaveBeenCalledTimes(1)
+    tick(40, 40)
+    expect(au.speak).toHaveBeenLastCalledWith(clip('d3')); expect(au.speak).toHaveBeenCalledTimes(2)
+  })
+  it('does nothing with Extended mode off or AD off (and does not read the track)', async () => {
+    await start({ prefs: { ...prefs, extendedMode: false } }); tick(18, 41)
+    await start({ withAd: false }); tick(18, 41)
+    expect(au.speak).not.toHaveBeenCalled(); expect(kit.ref.pause).not.toHaveBeenCalled(); expect(au.prefetch).not.toHaveBeenCalled()
+    expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0])).not.toContain(descUrl)
+  })
+  it('without a clip URL (no cueAudioUrl) nothing pauses', async () => {
+    await start({ cueAudioUrl: undefined }); tick(18, 21)
+    expect(au.speak).not.toHaveBeenCalled(); expect(kit.ref.pause).not.toHaveBeenCalled()
+  })
+  it('resumes when the clip fails, and when the platform gives up on it (timeout settles the promise)', async () => {
+    await atCue()
+    await act(async () => { au.fail(new Error('404')) })
+    expect(kit.ref.play).toHaveBeenCalledTimes(1); expect(bar()).toBe(false)
+    report('onState', 'playing'); tick(20.25, 40) // d3: the platform's 8 s / 30 s cap ends it like any end
+    await act(async () => { au.end() })
+    expect(kit.ref.play).toHaveBeenCalledTimes(2)
+  })
+  it('a seek over a cue, or onto it, never starts it', async () => {
+    await start(); tick(14, 15)
+    press('right'); press('right'); act(() => { vi.advanceTimersByTime(SEEK_COMMIT_MS) }) // 15 → 35, over d2
+    tick(35, 36)
+    expect(au.speak).not.toHaveBeenCalled()
+    press('right'); act(() => { vi.advanceTimersByTime(SEEK_COMMIT_MS) }); tick(46, 47)
+    press('left'); press('left'); act(() => { vi.advanceTimersByTime(SEEK_COMMIT_MS) }) // 47 → 27; play over d3 again
+    tick(27, 39.75); expect(au.speak).not.toHaveBeenCalled()
+    tick(40, 40); expect(au.speak).toHaveBeenCalledWith(clip('d3'))
+  })
+  it('seeking to exactly a cue start does not start it', async () => {
+    const onNowPlaying = vi.fn()
+    await start({ onNowPlaying }); tick(10, 11)
+    act(() => onNowPlaying.mock.lastCall![0].controls.seek(20))
+    tick(20, 21)
+    expect(au.speak).not.toHaveBeenCalled()
+  })
+  it('a seek during the pause stops the clip, hides the bar and plays on from the new place — the old clip\'s end does not resume again', async () => {
+    await atCue(); report('onState', 'paused')
+    press('right'); act(() => { vi.advanceTimersByTime(SEEK_COMMIT_MS) })
+    expect(au.stopSpeaking).toHaveBeenCalled(); expect(bar()).toBe(false)
+    expect(kit.ref.seek).toHaveBeenLastCalledWith(30)
+    expect(kit.ref.play).toHaveBeenCalledTimes(1)
+    await flush()
+    expect(kit.ref.play).toHaveBeenCalledTimes(1) // stopSpeaking settled the clip: no second play
+  })
+  it('Back during the pause stops the clip and leaves; nothing plays afterwards', async () => {
+    const p = await atCue()
+    act(() => { back.press() })
+    expect(au.stopSpeaking).toHaveBeenCalled(); expect(p.onBack).toHaveBeenCalled()
+    await flush()
+    expect(kit.ref.play).not.toHaveBeenCalled()
+  })
+  it('Menu during the pause stops the clip, plays on and opens the sheet', async () => {
+    await atCue()
+    press('menu')
+    expect(au.stopSpeaking).toHaveBeenCalled(); expect(bar()).toBe(false)
+    expect(kit.ref.play).toHaveBeenCalledTimes(1)
+    expect(a11yCalls).toContain(strings.tracks.heading)
+  })
+  it('Play during the pause: the film now, the clip stops', async () => {
+    await atCue()
+    press('play')
+    expect(au.stopSpeaking).toHaveBeenCalled(); expect(kit.ref.play).toHaveBeenCalledTimes(1)
+    await flush(); expect(kit.ref.play).toHaveBeenCalledTimes(1)
+  })
+  it('the viewer\'s pause wins over the auto-resume (Pause, Select, Play/Pause, Media Controls)', async () => {
+    for (const how of ['pause', 'select', 'playPause', 'controls'] as const) {
+      const onNowPlaying = vi.fn()
+      await atCue({ onNowPlaying }); report('onState', 'paused')
+      if (how === 'select') act(() => surface()!.props.onSelect())
+      else if (how === 'controls') act(() => onNowPlaying.mock.lastCall![0].controls.pause())
+      else press(how)
+      await act(async () => { au.end() })
+      expect(kit.ref.play).not.toHaveBeenCalled()
+      expect(au.stopSpeaking).not.toHaveBeenCalled() // the clip finishes first
+      expect(bar()).toBe(false)
+      act(() => r.unmount()); kit.reset(); act(() => { r = TestRenderer.create(<></>) })
+    }
+  })
+  it('Select twice during the pause undoes the pause: it resumes after the clip', async () => {
+    await atCue()
+    act(() => surface()!.props.onSelect()); act(() => surface()!.props.onSelect())
+    await act(async () => { au.end() })
+    expect(kit.ref.play).toHaveBeenCalledTimes(1)
+  })
+  it('turning Extended mode off during the pause stops the clip and plays on (prefs live)', async () => {
+    const p = await atCue()
+    act(() => r.update(<Player {...p} cueAudioUrl={cueAudioUrl} speak={au.speak} stopSpeaking={au.stopSpeaking} prefetch={au.prefetch} prefs={{ ...prefs, extendedMode: false }} />))
+    expect(au.stopSpeaking).toHaveBeenCalled(); expect(kit.ref.play).toHaveBeenCalledTimes(1); expect(bar()).toBe(false)
+    report('onState', 'playing'); tick(39, 41)
+    expect(au.speak).toHaveBeenCalledTimes(1)
+  })
+  it('prefetches the next extended cue\'s clip 10 s ahead, once', async () => {
+    await start(); tick(5, 9.75)
+    expect(au.prefetch).not.toHaveBeenCalled()
+    tick(10, 15)
+    expect(au.prefetch).toHaveBeenCalledTimes(1); expect(au.prefetch).toHaveBeenCalledWith(clip('d2'))
+    tick(15.25, 20); await act(async () => { au.end() }); report('onState', 'playing')
+    tick(30, 30)
+    expect(au.prefetch).toHaveBeenLastCalledWith(clip('d3')); expect(au.prefetch).toHaveBeenCalledTimes(2)
+  })
+  it('does not start while loading or paused by the viewer', async () => {
+    await start(); tick(18, 19.75)
+    report('onState', 'buffering'); tick(20, 21)
+    expect(au.speak).not.toHaveBeenCalled()
   })
 })

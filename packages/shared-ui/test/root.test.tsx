@@ -76,14 +76,14 @@ describe('Root', () => {
     expect(text(r)).toContain(strings.title.playWithout)
   })
 
-  it('Player never gets the sample clip as narration (TODO DESC-007)', async () => {
-    api(); const speak = vi.fn(async () => {}); const r = await mount({ speak })
+  it("Player gets the platform audio and each extended cue's own clip URL — never the sample", async () => {
+    api(); const speak = vi.fn(async () => {}); const stopSpeaking = vi.fn(); const prefetch = vi.fn(); const r = await mount({ speak, stopSpeaking, prefetch })
     await onTitle(r)
     press(r, 'Play Sintel with audio description'); await flush()
     const player = r.root.findByType(Player)
-    expect(player.props.speak).not.toBe(speak)
-    await player.props.speak('https://cdn.example/cue.mp3')
-    expect(speak).not.toHaveBeenCalled()
+    expect(player.props).toMatchObject({ speak, stopSpeaking, prefetch })
+    expect(player.props.cueAudioUrl('sintel-90-210', 'd7')).toBe('http://api/titles/sintel-90-210/cues/d7/audio')
+    expect(player.props.cueAudioUrl('sintel-90-210', 'd7')).not.toBe(title.sampleCue!.audioUrl)
   })
 
   it('Hear a sample starts the clip; leaving Title stops it', async () => {
