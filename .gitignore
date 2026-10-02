@@ -12,3 +12,5 @@ coverage
 apps/vega/build
 packages/pipeline/work
 infra/cdk-outputs.json
+apps/expo/android
+apps/expo/ios

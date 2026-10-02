@@ -16,7 +16,7 @@ export function FirstRun({ onDone, speakText }: { onDone: (extendedMode: boolean
       <T variant="display">{p.title}</T>
       <T variant="heading" color={tokens.color.textSecondary}>{p.body}</T>
       <View style={{ flexDirection: 'row', gap: px(16), marginTop: px(24) }}>
-        <Focusable label={p.cta} hasTVPreferredFocus onPress={() => (last ? onDone(true) : setI(i + 1))} style={{ backgroundColor: tokens.color.interactive, paddingHorizontal: px(40), paddingVertical: px(20) }}><T variant="heading" color={tokens.color.ground}>{p.cta}</T></Focusable>
+        <Focusable label={p.cta} defaultFocus onPress={() => (last ? onDone(true) : setI(i + 1))} style={{ backgroundColor: tokens.color.interactive, paddingHorizontal: px(40), paddingVertical: px(20) }}><T variant="heading" color={tokens.color.ground}>{p.cta}</T></Focusable>
         {p.alt ? <Focusable label={p.alt} onPress={() => onDone(false)} style={{ backgroundColor: tokens.color.surface2, paddingHorizontal: px(40), paddingVertical: px(20) }}><T variant="heading">{p.alt}</T></Focusable> : null}
       </View>
     </View>

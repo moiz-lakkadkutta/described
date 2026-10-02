@@ -10,7 +10,7 @@ import { px } from '../theme/scale'
 export function TrackSheet({ title, adOn, prefs, onAd, onText, onClose }: { title: TitleDetail; adOn: boolean; prefs: Prefs; onAd: (on: boolean) => void; onText: (ids: string[]) => void; onClose: () => void }) {
   const lang = title.tracks.text[0]?.language ?? 'en'
   const item = (label: string, selected: boolean, onPress: () => void, first = false) => (
-    <Focusable key={label} label={label} selected={selected} hasTVPreferredFocus={first} onPress={onPress} style={{ paddingVertical: px(18), paddingHorizontal: px(24) }}>
+    <Focusable key={label} label={label} selected={selected} defaultFocus={first} onPress={onPress} style={{ paddingVertical: px(18), paddingHorizontal: px(24) }}>
       <T variant="body">{selected ? '✓  ' : '    '}{label}</T>
     </Focusable>
   )

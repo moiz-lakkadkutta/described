@@ -1,0 +1,18 @@
+import React from 'react'
+// Each focusable renders as a 'FocusableView' host carrying its viewProps and handlers, so tests can read labels
+// and fire onFocus/onSelect. `stub.focused` names the label that reports isFocused, so focus visuals render.
+// Nodes render as 'Node' hosts; DefaultFocus as a host with `enable`; the lock records its state.
+type Fn = () => void
+type State = { isFocused: boolean; isActive: boolean; isRootActive: boolean }
+export const stub: { focused?: string; locks: number } = { locks: 0 }
+const render = (c: React.ReactNode | ((s: State) => React.ReactNode), isFocused = false) => (typeof c === 'function' ? c({ isFocused, isActive: false, isRootActive: true }) : c)
+export const SpatialNavigationFocusableView = ({ children, viewProps, onSelect, onFocus }: { children: React.ReactNode | ((s: State) => React.ReactNode); viewProps?: { 'aria-label'?: string }; onSelect?: Fn; onFocus?: Fn }) =>
+  React.createElement('FocusableView', { ...viewProps, onSelect, onFocus }, render(children, !!stub.focused && viewProps?.['aria-label'] === stub.focused))
+export const SpatialNavigationNode = ({ children, orientation }: { children: React.ReactNode | ((s: State) => React.ReactNode); orientation?: string }) =>
+  React.createElement('Node', { orientation }, render(children))
+export const SpatialNavigationScrollView = ({ children }: { children: React.ReactNode }) => React.createElement('ScrollView', null, children)
+export const SpatialNavigationRoot = ({ children }: { children: React.ReactNode }) => <>{children}</>
+export const DefaultFocus = ({ children, enable = true }: { children: React.ReactNode; enable?: boolean }) => React.createElement('DefaultFocus', { enable }, children)
+export const useLockSpatialNavigation = () => ({ lock: () => { stub.locks++ }, unlock: () => { stub.locks-- } })
+export const remote: { config?: { remoteControlSubscriber: (cb: (d: string | null) => void) => unknown; remoteControlUnsubscriber: (s: unknown) => void } } = {}
+export const SpatialNavigation = { configureRemoteControl: (c: typeof remote.config) => { remote.config = c } }
