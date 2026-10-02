@@ -32,6 +32,10 @@ const noSpeech = async () => {}
 const defaultPrefs: Prefs = { adDefault: true, extendedMode: true, voice: 'Joanna', captionKind: 'sdh', captionScale: 100, captionStyle: 'box', firstRunDone: false }
 // A player route keys on its audio and start too, so a new deep link to the same title remounts the Player.
 const routeKey = (r: Route) => (r.name === 'player' ? `player:${r.slug}:${r.withAd ? 'ad' : 'main'}:${r.startAtS ?? ''}` : 'slug' in r ? `${r.name}:${r.slug}` : r.name)
+/** The API answered with `success: false`; `status` tells a refusal (4xx) from a server failure (5xx). */
+export class ApiError extends Error { constructor(public status: number) { super(`api ${status}`) } }
+/** The server refused the request itself (validation): resending the same body can never succeed. */
+const refused = (e: unknown) => e instanceof ApiError && e.status >= 400 && e.status < 500
 /** RN Android's own fetch timeout is about 2 minutes; the offline screen should come much sooner. */
 export const FETCH_TIMEOUT_MS = 10_000
 /** While playing, the position is saved after it has moved this far (and always on Back). */
@@ -87,7 +91,7 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
     try {
       const r = await fetch(apiBaseUrl + path, { ...init, signal: ctl.signal, headers: { 'content-type': 'application/json', 'x-device-id': deviceId, ...(init?.headers ?? {}) } })
       const j = (await r.json()) as { success: boolean; data: R }
-      if (!j.success) throw new Error('api')
+      if (!j.success) throw new ApiError(r.status ?? 0)
       // The connection is back: send any settings a failed save left behind (a prefs PUT flushes itself).
       if (!(path === '/me/prefs' && init?.method === 'PUT') && Object.keys(unsaved.current).length) flushPrefs.current()
       return j.data
@@ -145,17 +149,27 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   // is announced once per outage.
   const prefsQueue = useRef(createQueue()).current
   const toldUnsaved = useRef(false)
+  // A refusal (4xx) is not retried: the batch is resent one key at a time so one bad value can't sink the others; each
+  // refused key is dropped, shown again with the server's value, and announced. Network failures and 5xx keep the retry.
+  const put = (body: Partial<Prefs>) => api('/me/prefs', { method: 'PUT', body: JSON.stringify(body) })
+  const settle = (body: Partial<Prefs>) => { for (const k of Object.keys(body) as (keyof Prefs)[]) if (unsaved.current[k] === body[k]) delete unsaved.current[k] }
   flushPrefs.current = () => {
     void prefsQueue(async () => {
       const body = { ...unsaved.current }
-      if (!Object.keys(body).length) return
-      try {
-        await api('/me/prefs', { method: 'PUT', body: JSON.stringify(body) })
-        for (const k of Object.keys(body) as (keyof Prefs)[]) if (unsaved.current[k] === body[k]) delete unsaved.current[k]
-        toldUnsaved.current = false
-      } catch {
-        if (!toldUnsaved.current) { toldUnsaved.current = true; AccessibilityInfo.announceForAccessibility(strings.a11y.notSaved) }
+      const keys = Object.keys(body) as (keyof Prefs)[]
+      if (!keys.length) return
+      const toldOffline = () => { if (!toldUnsaved.current) { toldUnsaved.current = true; AccessibilityInfo.announceForAccessibility(strings.a11y.notSaved) } }
+      try { await put(body); settle(body); toldUnsaved.current = false; return } catch (e) { if (!refused(e)) return toldOffline() }
+      const dropped: (keyof Prefs)[] = []
+      for (const k of keys) {
+        const one = { [k]: body[k] } as Partial<Prefs>
+        if (keys.length === 1) { settle(one); dropped.push(k); break }
+        try { await put(one); settle(one) } catch (e) { if (!refused(e)) return toldOffline(); settle(one); dropped.push(k) }
       }
+      if (!dropped.length) return
+      AccessibilityInfo.announceForAccessibility(strings.a11y.notSavedRefused)
+      // Show the value the server kept for the refused settings.
+      api<Prefs>('/me/prefs').then((p) => setPrefs((cur) => ({ ...cur, ...Object.fromEntries(dropped.filter((k) => !(k in unsaved.current)).map((k) => [k, p[k] ?? defaultPrefs[k]])) }))).catch(() => {})
     })
   }
   const savePrefs = (p: Partial<Prefs>) => {

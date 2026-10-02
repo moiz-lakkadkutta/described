@@ -49,6 +49,7 @@ export const strings = {
     listRemoved: (name: string) => `${name} removed from My list`,
     loading: 'Loading…',
     notSaved: 'That setting wasn\u2019t saved. It will be saved when the connection is back.',
+    notSavedRefused: 'That setting couldn\u2019t be saved, so it\u2019s back to what it was.',
     setting: (name: string, value: string) => `${name}: ${value}`,
     settingHint: 'Press left or right to change',
     voiceHint: 'For the app\u2019s own prompts and samples. Films keep the voice they were described with. Press left or right to change',

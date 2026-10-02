@@ -19,13 +19,20 @@ const ok = (data: unknown) => Promise.resolve({ json: async () => ({ success: tr
 const about = { titles: [{ slug: 'sintel-90-210', name: 'Sintel', attribution: title.attribution }] }
 /** Fetch routed by path; records every PUT /me/prefs body in order. */
 function api(prefs: Partial<Prefs> = {}) {
-  const state = { puts: [] as Partial<Prefs>[], aboutDown: false, putDown: false, down: false, served: { ...basePrefs, ...prefs } }
+  const state = { puts: [] as Partial<Prefs>[], aboutDown: false, putDown: false, down: false, served: { ...basePrefs, ...prefs },
+    /** The server refuses (400) any PUT that contains this key, as a validation failure. */
+    refuse: null as keyof Prefs | null, failStatus: 0, tries: [] as Partial<Prefs>[] }
+  const fail = (status: number) => Promise.resolve({ status, json: async () => ({ success: false, error: { code: status < 500 ? 'VALIDATION' : 'INTERNAL', message: 'no' } }) } as Response)
   vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
     const path = url.replace('http://api', '')
     if (state.down) return Promise.reject(new Error('network'))
     if (path === '/me/prefs' && init?.method === 'PUT') {
       if (state.putDown) return Promise.reject(new Error('network'))
-      state.puts.push(JSON.parse(String(init.body))); return ok({})
+      const body = JSON.parse(String(init.body)) as Partial<Prefs>
+      state.tries.push(body)
+      if (state.failStatus) return fail(state.failStatus)
+      if (state.refuse && state.refuse in body) return fail(400)
+      state.puts.push(body); return ok({})
     }
     if (path === '/catalog') return ok(catalog)
     if (path === '/me/prefs') return ok(state.served)
@@ -283,6 +290,48 @@ describe('settings in Root: saved and spoken', () => {
     expect(s.puts).toEqual([{ captionScale: 125, captionStyle: 'shadow', voice: 'Daniel' }])
     key('right'); await flush()
     expect(s.puts.at(-1)).toEqual({ voice: 'Matthew' }) // saved changes are not sent again
+  })
+
+  it('a refused value (4xx) is dropped, not retried; the screen shows the server value again; later saves go through', async () => {
+    const s = api(); const r = await mount()
+    press(r, 'Go to Settings')
+    s.refuse = 'captionStyle'
+    focus(r, S.capStyle); key('right'); await flush(); await flush()
+    expect(a11yCalls).toContain(strings.a11y.notSavedRefused)
+    expect(a11yCalls).not.toContain(strings.a11y.notSaved)
+    expect(value(r, 'capStyle')).toBe('Box') // back to what the server kept
+    s.tries.length = 0
+    focus(r, S.capSize); key('right'); await flush()
+    expect(s.tries).toEqual([{ captionScale: 125 }]) // the refused key does not ride along
+    expect(s.puts.at(-1)).toEqual({ captionScale: 125 })
+  })
+
+  it('a refused key in a batch does not sink the others: each key is resent alone', async () => {
+    const s = api(); const r = await mount()
+    press(r, 'Go to Settings')
+    s.putDown = true
+    focus(r, S.capStyle); key('right'); await flush()
+    focus(r, S.capSize); key('right'); await flush()
+    s.putDown = false; s.refuse = 'captionStyle'
+    focus(r, S.voice); key('right'); await flush(); await flush()
+    expect(s.puts).toEqual(expect.arrayContaining([{ captionScale: 125 }, { voice: 'Daniel' }]))
+    expect(s.puts.some((b) => 'captionStyle' in b)).toBe(false)
+    expect(a11yCalls).toContain(strings.a11y.notSavedRefused)
+    s.tries.length = 0
+    key('right'); await flush()
+    expect(s.tries).toEqual([{ voice: 'Matthew' }]) // nothing left over
+  })
+
+  it('a 5xx is kept and retried like a network failure', async () => {
+    const s = api(); const r = await mount()
+    press(r, 'Go to Settings')
+    s.failStatus = 503
+    focus(r, S.capSize); key('right'); await flush()
+    expect(a11yCalls).toContain(strings.a11y.notSaved)
+    expect(a11yCalls).not.toContain(strings.a11y.notSavedRefused)
+    s.failStatus = 0
+    focus(r, S.capStyle); key('right'); await flush()
+    expect(s.puts).toEqual([{ captionScale: 125, captionStyle: 'shadow' }])
   })
 
   it('unsaved changes go out on the next successful request', async () => {
