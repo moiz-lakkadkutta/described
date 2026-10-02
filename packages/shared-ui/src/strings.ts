@@ -51,6 +51,7 @@ export const strings = {
     notSaved: 'That setting wasn\u2019t saved. It will be saved when the connection is back.',
     setting: (name: string, value: string) => `${name}: ${value}`,
     settingHint: 'Press left or right to change',
+    voiceHint: 'For the app\u2019s own prompts and samples. Films keep the voice they were described with. Press left or right to change',
     hearVoice: (voice: string) => `Hear the voice ${voice}`,
     hearVoiceHint: 'Plays one sentence in this voice',
     resetIntroHint: 'Opens the three introduction screens now',

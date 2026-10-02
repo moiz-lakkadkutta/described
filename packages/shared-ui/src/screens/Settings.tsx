@@ -27,7 +27,7 @@ export function settingsRows({ prefs, onHearVoice, onResetFirstRun, onAbout }: O
     ({ id, name, value: v, label: name, hint: strings.a11y.settingHint, step: next }) // the value is accessibilityValue; Focusable says both
   return [
     value('adDefault', S.adDefault, onOff(prefs.adDefault), () => ({ adDefault: !prefs.adDefault })),
-    value('voice', S.voice, prefs.voice, (d) => ({ voice: step(Voice.options, prefs.voice, d) })),
+    { ...value('voice', S.voice, prefs.voice, (d) => ({ voice: step(Voice.options, prefs.voice, d) })), hint: strings.a11y.voiceHint },
     { id: 'hearIt', name: S.hearIt, value: prefs.voice, label: strings.a11y.hearVoice(prefs.voice), hint: strings.a11y.hearVoiceHint, press: () => onHearVoice(prefs.voice) },
     value('extended', S.extended, onOff(prefs.extendedMode), () => ({ extendedMode: !prefs.extendedMode })),
     value('capSize', S.capSize, S.scale(prefs.captionScale), (d) => ({ captionScale: step(SCALES, prefs.captionScale, d) })),

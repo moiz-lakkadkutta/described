@@ -208,7 +208,8 @@ describe('settings', () => {
     _setScreenReader(true)
     const r = create(<Harness />)
     focus(r, S.voice); await spoken()
-    expect(a11yCalls.at(-1)).toBe(`${S.voice}: Joanna. ${strings.a11y.settingHint}`)
+    expect(a11yCalls.at(-1)).toBe(`${S.voice}: Joanna. ${strings.a11y.voiceHint}`)
+    expect(strings.a11y.voiceHint).toMatch(/prompts and samples\. Films keep the voice they were described with/)
   })
 
   it('two presses before a re-render still step twice', () => {
@@ -366,7 +367,7 @@ describe('every focusable on First run, Settings and About states its purpose an
       expect(label(n)).not.toMatch(/^(button|next|ok|focusable)$/i)
       expect(['button', 'adjustable', 'text'], label(n)).toContain(n.props.accessibilityRole)
       if (n.props.accessibilityRole === 'adjustable') {
-        expect(n.props.accessibilityHint, label(n)).toBe(strings.a11y.settingHint)
+        expect(n.props.accessibilityHint, label(n)).toMatch(/Press left or right to change$/)
         expect(n.props.accessibilityValue.text, label(n)).toBeTruthy() // label is the row name; the value is separate
         expect(label(n)).not.toContain(':')
       }

@@ -66,7 +66,7 @@ Rail → "Go to Settings" → Select. Values change with ◄► (Select also ste
 
 - [ ] First row. Spoken: "Description on by default: On. Press left or right to change". ► → "Description on by default: Off".
       Back to Home: focus is now on "Play Sintel without description" (and on Title too). Set it back to On.
-- [ ] "Voice: Joanna. Press left or right to change". ► "Voice: Daniel" ► "Voice: Matthew" ► "Voice: Vicki" ► "Voice: Joanna".
+- [ ] "Voice: Joanna. For the app’s own prompts and samples. Films keep the voice they were described with. Press left or right to change". ► "Voice: Daniel" ► "Voice: Matthew" ► "Voice: Vicki" ► "Voice: Joanna".
 - [ ] ▼ "Hear the voice Joanna. Plays one sentence in this voice". Select: the clip plays (silent until the prompt clips exist — note it).
 - [ ] "Extended mode: Off" (from the first-run choice) ► "Extended mode: On".
 - [ ] "Caption size: 100%" ► 125% ► 150% ► 200% ► 100%. ◄ goes the other way.
