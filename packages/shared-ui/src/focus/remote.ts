@@ -1,5 +1,6 @@
 import { SpatialNavigation } from 'react-tv-space-navigation'
 import type { RemoteKey } from '@moizp/vega-media-kit/platform'
+import { interceptKey } from './keys'
 
 /**
  * Platform key source: call `onKey` per key-down (`repeat` while the key is held), return an unsubscribe.
@@ -20,21 +21,13 @@ export function toDirection(key: RemoteKey, allowMove: () => boolean = gate, rep
   return allowMove() ? d : null
 }
 
-let keySource: KeySource | null = null
 /**
- * Every raw key for a screen that needs more than the D-pad (Player: Play/Pause, Menu, seek). Each call is its own
- * subscription on the platform source, so it never replaces spatial navigation's (apps/expo/src/remote.ts).
- * Before configureRemote there is no source: a no-op.
+ * Wire a platform key source into react-tv-space-navigation. Call once, before the first SpatialNavigationRoot mounts.
+ * Every key is first offered to subscribeKeys handlers (keys.ts); only unconsumed D-pad keys move focus.
  */
-export function subscribeKeys(onKey: (key: RemoteKey, repeat: boolean) => void): () => void {
-  return keySource ? keySource((k, repeat) => onKey(k, !!repeat)) : () => {}
-}
-
-/** Wire a platform key source into react-tv-space-navigation. Call once, before the first SpatialNavigationRoot mounts. */
 export function configureRemote(source: KeySource) {
-  keySource = source
   SpatialNavigation.configureRemoteControl({
-    remoteControlSubscriber: (move) => source((k, repeat) => { const d = toDirection(k, gate, repeat); if (d) move(d) }),
+    remoteControlSubscriber: (move) => source((k, repeat) => { if (interceptKey(k, !!repeat)) return; const d = toDirection(k, gate, repeat); if (d) move(d) }),
     remoteControlUnsubscriber: (unsubscribe: () => void) => unsubscribe(),
   })
 }

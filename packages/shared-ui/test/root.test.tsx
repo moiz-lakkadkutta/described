@@ -191,7 +191,7 @@ describe('Root', () => {
     it('a caption choice in the track sheet is saved to /me/prefs', async () => {
       const s = api(); const r = await mount()
       await toPlayer(r)
-      act(() => r.root.findByType(Player).props.onPrefs({ captionKind: 'descriptions' }))
+      act(() => r.root.findByType(Player).props.onPrefs({ captionKind: 'descriptions' })); await flush() // settings saves go through a queue
       expect(s.puts).toContainEqual({ path: '/me/prefs', body: { captionKind: 'descriptions' } })
       expect(r.root.findByType(Player).props.prefs.captionKind).toBe('descriptions')
     })

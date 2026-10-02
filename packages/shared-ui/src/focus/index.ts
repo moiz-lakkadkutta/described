@@ -1,3 +1,5 @@
-export { configureRemote, setDpadGate, subscribeKeys, toDirection } from './remote'
+export { configureRemote, setDpadGate, toDirection } from './remote'
 export type { KeySource } from './remote'
 export { pickInitialFocus } from './memory'
+export { interceptKey, subscribeKeys, useKeyHandler } from './keys'
+export type { KeyHandler } from './keys'

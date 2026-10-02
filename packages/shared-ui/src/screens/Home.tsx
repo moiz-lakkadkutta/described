@@ -5,6 +5,7 @@ import { useFocusMemory } from '@moizp/vega-media-kit/focus'
 import type { Catalog } from '@described/contracts'
 import { AdBadge, Card, Focusable, Row, SkeletonCard, T } from '../components'
 import { pickInitialFocus } from '../focus/memory'
+import { setFocusContext } from '../a11y'
 import { homeModel, type Action } from '../models'
 import { tokens } from '../theme/tokens'
 import { scrimBands } from '../theme/scrim'
@@ -18,13 +19,13 @@ const bands = scrimBands()
  * rows are skeletons of the same size and nothing is focusable; focus lands once, on the restored element.
  * Focus memory: the kit's useFocusMemory keeps the last focused id per screen across visits to Title.
  */
-export function Home({ catalog, myList, onOpen, onPlay, onToggleList }: {
-  catalog: Catalog | null; myList: ReadonlySet<string>
+export function Home({ catalog, myList, adDefault = true, onOpen, onPlay, onToggleList }: {
+  catalog: Catalog | null; myList: ReadonlySet<string>; adDefault?: boolean
   onOpen: (slug: string) => void; onPlay: (slug: string, withAd: boolean) => void; onToggleList: (slug: string) => void
 }) {
-  const m = homeModel(catalog, myList)
+  const m = homeModel(catalog, myList, adDefault)
   const { remember, lastId } = useFocusMemory('home', useCallback(() => {}, []))
-  const initial = pickInitialFocus(lastId.current, m.ids, 'hero:playAd')
+  const initial = pickInitialFocus(lastId.current, m.ids, m.primary)
   const hero = m.hero
   const press = (a: Action) => () => {
     if (!hero) return
@@ -40,7 +41,7 @@ export function Home({ catalog, myList, onOpen, onPlay, onToggleList }: {
           {bands.map((c) => <View key={c} style={{ flex: 1, backgroundColor: c }} />)}
         </View>
         {/* LRUD orders siblings by registration, so the hero's node is mounted from the start (before the rows). */}
-        <SpatialNavigationNode orientation="horizontal">
+        <SpatialNavigationNode orientation="horizontal" onActive={() => { if (hero) setFocusContext([hero.name, hero.synopsis].filter(Boolean).join('. ')) }}>
           <View style={{ flex: 1, justifyContent: 'flex-end', padding: px(48), gap: px(16) }}>
             {hero ? (
               <>

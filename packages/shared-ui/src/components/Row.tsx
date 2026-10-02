@@ -6,6 +6,7 @@ import { T } from './Text'
 import { tokens } from '../theme/tokens'
 import { px } from '../theme/scale'
 import { rowPad, rowPadY, rowViewportW } from '../layout'
+import { setFocusContext } from '../a11y'
 
 /**
  * Label above a horizontal focus group: 3 cards visible + a 40 px peek, 24 px gutters. LRUD keeps the row's last
@@ -15,7 +16,8 @@ export function Row({ label, children }: { label: string; children: React.ReactN
   return (
     <View style={{ marginBottom: px(28) }}>
       <T variant="label" color={tokens.color.textSecondary} style={{ marginBottom: px(6), marginLeft: px(rowPad) }}>{label.toUpperCase()}</T>
-      <SpatialNavigationNode orientation="horizontal">
+      {/* Entering the row says its name once, before the card (VoiceView never reaches the label text). */}
+      <SpatialNavigationNode orientation="horizontal" onActive={() => setFocusContext(label)}>
         <SpatialNavigationScrollView horizontal useNativeScroll offsetFromStart={px(rowPad)} style={{ width: px(rowViewportW + 2 * rowPad) }}>
           {/* FocusRow pads gutter/2 vertically; top up to rowPadY so the outline is never clipped. */}
           <View style={{ paddingHorizontal: px(rowPad), paddingVertical: px(Math.max(0, rowPadY - tokens.layout.gutter / 2)) }}>
