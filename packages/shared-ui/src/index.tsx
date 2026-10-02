@@ -26,6 +26,7 @@ export type { LaunchTarget } from '@described/contracts'
 
 type Route = { name: 'home' } | { name: 'title'; slug: string } | { name: 'reading'; slug: string } | { name: 'player'; slug: string; withAd: boolean; startAtS?: number } | { name: 'settings' } | { name: 'firstRun' }
 const noSpeech = async () => {}
+const noStop = () => {}
 const defaultPrefs: Prefs = { adDefault: true, extendedMode: true, voice: 'Joanna', captionKind: 'sdh', captionScale: 100, firstRunDone: false }
 // A player route keys on its audio and start too, so a new deep link to the same title remounts the Player.
 const routeKey = (r: Route) => (r.name === 'player' ? `player:${r.slug}:${r.withAd ? 'ad' : 'main'}:${r.startAtS ?? ''}` : 'slug' in r ? `${r.name}:${r.slug}` : r.name)
@@ -59,7 +60,7 @@ export interface RootProps {
  * with fresh focus and its DefaultFocus / focus memory decides where focus lands.
  * Platform entries (apps/expo, apps/vega) pass apiBaseUrl, scale, fonts state and audio; they call configureRemote first.
  */
-export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded = true, speak = async () => {}, stopSpeaking = () => {}, onNowPlaying, launches }: RootProps) {
+export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded = true, speak = noSpeech, stopSpeaking = noStop, onNowPlaying, launches }: RootProps) {
   const [route, setRoute] = useState<Route>({ name: 'home' })
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [title, setTitle] = useState<TitleDetail | null>(null)
@@ -93,7 +94,13 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   }, [api, attempt])
   const slug = 'slug' in route ? route.slug : null
   // `attempt` too: Retry on the offline screen must refetch the title, not only the catalog.
-  useEffect(() => { if (slug && title?.slug !== slug) api<TitleDetail>(`/titles/${slug}`).then(setTitle).catch(() => setOffline(true)) }, [slug, api, attempt]) // eslint-disable-line react-hooks/exhaustive-deps
+  // `live`: a late answer for a slug we already left must not replace the title or flip the app offline.
+  useEffect(() => {
+    if (!slug || title?.slug === slug) return
+    let live = true
+    api<TitleDetail>(`/titles/${slug}`).then((t) => { if (live) setTitle(t) }).catch(() => { if (live) setOffline(true) })
+    return () => { live = false }
+  }, [slug, api, attempt]) // eslint-disable-line react-hooks/exhaustive-deps
   const current = title && title.slug === slug ? title : null
   // A live region does not speak on first appearance, so the offline message is announced explicitly.
   useEffect(() => { if (offline) AccessibilityInfo.announceForAccessibility(strings.offline) }, [offline])
@@ -116,12 +123,14 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
       switch (route.name) {
         case 'reading': setRoute({ name: 'title', slug: route.slug }); return true
         case 'title': case 'settings': setRoute({ name: 'home' }); return true
-        case 'player': return false // Player owns Back: it closes the track sheet or saves the position first
+        // A mounted Player owns Back (it closes the track sheet or saves the position first). Without one — the title
+        // still loading, or the offline screen — Back goes to Title rather than leaving the app.
+        case 'player': if (!current || offline) { setRoute({ name: 'title', slug: route.slug }); return true } return false
         default: return false
       }
     })
     return () => sub.remove()
-  }, [route])
+  }, [route, current, offline])
 
   const savePrefs = (p: Partial<Prefs>) => { setPrefs((cur) => ({ ...cur, ...p })); void api('/me/prefs', { method: 'PUT', body: JSON.stringify(p) }).catch(() => {}) }
   // Progress: PUT /me/progress every PROGRESS_SAVE_S of movement while playing, and on Back (then back to Title,
@@ -131,12 +140,27 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   useEffect(() => { savedAt.current = null; savedThisPlay.current = false }, [key])
   // One PUT at a time, in order, so an older position can never land after a newer one.
   const progressQueue = useRef<Promise<unknown>>(Promise.resolve())
+  const catalogStale = useRef(false)
   const saveProgress = (slug: string, positionS: number) => {
-    savedAt.current = positionS; savedThisPlay.current = true
+    savedAt.current = positionS; savedThisPlay.current = true; catalogStale.current = true
     const body = JSON.stringify({ titleSlug: slug, positionS: Math.max(0, Math.round(positionS)) })
     progressQueue.current = progressQueue.current.then(() => api('/me/progress', { method: 'PUT', body })).catch(() => {})
   }
-  /** Leaving the Player — Back, or a deep link that replaces it: save the position, then go to `next` (Title on Back). */
+  // Continue watching: after a save, Home refetches the catalog once the queued saves have landed. The old catalog
+  // stays on screen meanwhile (no skeleton), so Home's focus memory is untouched.
+  const onHome = route.name === 'home'
+  useEffect(() => {
+    if (!onHome || !catalogStale.current) return
+    catalogStale.current = false
+    let live = true, done = false
+    void progressQueue.current.then(() => api<Catalog>('/catalog')).then((c) => { done = true; if (live) setCatalog(c) }).catch(() => { done = true })
+    return () => { live = false; if (!done) catalogStale.current = true } // left Home first: refetch next time
+  }, [onHome, api])
+  /**
+   * Leaving a mounted Player — its Back, or a deep link that replaces it: save the position (which marks the catalog
+   * stale, so Home refetches Continue watching), then go to `next` (Title on Back). With no Player mounted (title still
+   * loading, offline) Root's own Back goes to Title and a deep link just navigates: there is no position to save.
+   */
   const exitPlayer = (t: TitleDetail, positionS: number, next: Route = { name: 'title', slug: t.slug }) => {
     // Nothing watched and nothing saved before: no row (it would only say "0 s").
     if (!(positionS < 1 && !t.resumeS && !savedThisPlay.current)) saveProgress(t.slug, positionS)
@@ -146,7 +170,7 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   // A deep link during playback takes the same save path as Back (position as Back reads it: 0 once the film ended).
   const launchTo = (r: LaunchRoute) => {
     const s = playerSession.current
-    if (route.name === 'player' && current && s?.slug === current.slug) exitPlayer(current, s.state === 'ended' ? 0 : s.controls.getPosition(), r)
+    if (route.name === 'player' && !offline && current && s?.slug === current.slug) exitPlayer(current, s.state === 'ended' ? 0 : s.controls.getPosition(), r)
     else setRoute(r)
   }
   useLaunchRoute(launches, { catalog, holding: offline || route.name === 'firstRun', adDefault: prefs.adDefault, navigate: launchTo })

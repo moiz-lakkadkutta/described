@@ -168,3 +168,28 @@ describe('one path per media key (key path vs media session)', () => {
     expect(keySkipFor(undefined)(127)).toBe(false)
   })
 })
+
+describe('key hub skip (setKeySkip)', () => {
+  it('a skipped code reaches no subscriber, but its held state still counts for repeats', async () => {
+    const { createKeyHub } = await import('../src/keys')
+    const hub = createKeyHub()
+    const a: [number, boolean][] = [], b: [number, boolean][] = []
+    hub.subscribe((c, r) => a.push([c, r])); hub.subscribe((c, r) => b.push([c, r]))
+    hub.setSkip((c) => c === 127)
+    hub.down(127); hub.down(85)
+    expect(a).toEqual([[85, false]]); expect(b).toEqual([[85, false]])
+    hub.setSkip(() => false)
+    hub.down(127) // still held from the skipped press: a repeat
+    expect(a.at(-1)).toEqual([127, true])
+    hub.up(127); hub.down(127); expect(a.at(-1)).toEqual([127, false])
+  })
+  it('setKeySkip filters the app hub for every keySource subscriber', () => {
+    const one: string[] = [], two: string[] = []
+    const off1 = keySource((k) => one.push(k)), off2 = keySource((k) => two.push(k))
+    setKeySkip((c) => c === 127)
+    emitter.emit('onKeyDown', { keyCode: 127 }); emitter.emit('onKeyUp', { keyCode: 127 })
+    emitter.emit('onKeyDown', { keyCode: 85 }); emitter.emit('onKeyUp', { keyCode: 85 })
+    setKeySkip(() => false); off1(); off2()
+    expect(one).toEqual(['playPause']); expect(two).toEqual(['playPause'])
+  })
+})

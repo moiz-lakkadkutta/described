@@ -189,6 +189,6 @@ default; behaviour unverified); "Alexa, resume" during an extended-description p
 | Catalog feed | apps/api/src/lib/fireTvCatalog.ts, route in apps/api/src/routes/catalog.ts |
 | Launch routing | packages/shared-ui/src/platform/launch.ts (Root: `launches` prop + `useLaunchRoute`) |
 | Transport, now-playing, watch activity | packages/shared-ui/src/platform/nowPlaying.ts (Root: `usePlatformNowPlaying` on Player's `onNowPlaying`) |
-| Media-key ownership | apps/expo/src/platform/mediaSession.ts (`ownsKey`, `keySkipFor`, `MEDIA_SESSION_OWNS_KEYS`), apps/expo/src/remote.ts (`setKeySkip`) |
+| Media-key ownership | apps/expo/src/platform/mediaSession.ts (`ownsKey`, `keySkipFor`, `MEDIA_SESSION_OWNS_KEYS`), apps/expo/src/remote.ts (`setKeySkip`) → the key hub's `setSkip` in apps/expo/src/keys.ts (skipped codes reach no subscriber) |
 | Fire OS wiring | apps/expo/src/platform/*.ts, apps/expo/App.tsx (`configurePlatform`, `launches`) |
 | Native media session | apps/expo/modules/described-media-session |
