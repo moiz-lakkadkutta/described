@@ -59,3 +59,4 @@ export type Voice = z.infer<typeof Voice>
 export type CaptionStyle = z.infer<typeof CaptionStyle>
 export type PromptKey = z.infer<typeof PromptKey>
 export type About = z.infer<typeof About>
+export * from './deepLink'

@@ -1,0 +1,122 @@
+import type { AudioTrack, HlsRendition, KitPlayerRef, PlayerState, TextTrack } from '@moizp/vega-media-kit'
+import type { Prefs } from '@described/contracts'
+import { captionName } from './models'
+import { strings } from './strings'
+import { tokens } from './theme/tokens'
+
+/**
+ * Player rules without React: track choice, seek steps, the status line, resume. Player.tsx wires them to the kit
+ * and the remote; tests run them against a parsed master playlist.
+ */
+export type CaptionKind = Prefs['captionKind']
+
+// ── Tracks ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+/** HLS CHARACTERISTICS (RFC 8216 §4.3.4.1; Apple HLS authoring spec). Rich captions carry describes-music-and-sound. */
+export const SDH_CHARACTERISTIC = 'public.accessibility.describes-music-and-sound'
+
+/**
+ * The audio rendition for AD on/off, by role — never by id. Off picks a main track that is not a description.
+ * On Fire OS the kit derives roles from ExoPlayer's track title, i.e. the rendition NAME ("Audio description…"), not
+ * HLS CHARACTERISTICS — the pipeline must keep that NAME (09-package.ts).
+ */
+export function audioTrackFor(tracks: readonly AudioTrack[], ad: boolean): AudioTrack | undefined {
+  return ad ? tracks.find((t) => t.roles.includes('description')) : tracks.find((t) => !t.roles.includes('description') && t.roles.includes('main')) ?? tracks.find((t) => !t.roles.includes('description'))
+}
+
+/** CHARACTERISTICS per subtitle URI, from the master playlist (the kit's TextTrack keeps only the kind it derived). */
+export function characteristicsByUri(renditions: readonly HlsRendition[]): Map<string, string[]> {
+  return new Map(renditions.filter((r) => r.type === 'SUBTITLES' && r.uri).map((r) => [r.uri!, r.characteristics]))
+}
+
+/**
+ * Rich (SDH) or plain: the describes-music-and-sound characteristic when the master playlist has been read; until
+ * then (or for a track without a URI) the rendition NAME, which the pipeline writes as "Rich captions".
+ */
+function isRich(t: TextTrack, chars: ReadonlyMap<string, string[]> | null): boolean {
+  const c = t.url ? chars?.get(t.url) : undefined
+  return c ? c.includes(SDH_CHARACTERISTIC) : /\b(rich|sdh)\b/i.test(t.label)
+}
+
+/**
+ * The text track that shows a caption choice, and the kind actually on screen. Rich captions fall back to plain
+ * captions (and the other way round) when the title lacks one; the status line then names what is really showing.
+ */
+export function captionTrackFor(tracks: readonly TextTrack[], want: CaptionKind, chars: ReadonlyMap<string, string[]> | null = null): { track?: TextTrack; kind: CaptionKind } {
+  if (want === 'off') return { kind: 'off' }
+  if (want === 'descriptions') {
+    const track = tracks.find((t) => t.kind === 'descriptions')
+    return track ? { track, kind: 'descriptions' } : { kind: 'off' }
+  }
+  const caps = tracks.filter((t) => t.kind === 'captions' || t.kind === 'subtitles')
+  const rich = caps.find((t) => isRich(t, chars))
+  const plain = caps.find((t) => !isRich(t, chars))
+  const track = want === 'sdh' ? rich ?? plain : plain ?? rich
+  return track ? { track, kind: track === rich ? 'sdh' : 'captions' } : { kind: 'off' }
+}
+
+/**
+ * Text tracks to select: the caption choice, plus the description text while AD and Extended mode are on — its
+ * `{extended=1}` cues are where pause–speak–resume starts (DESC-007). `shown` is what the overlay draws.
+ */
+export function textSelection(tracks: readonly TextTrack[], want: CaptionKind, o: { adOn: boolean; extendedMode: boolean; chars?: ReadonlyMap<string, string[]> | null }) {
+  const cap = captionTrackFor(tracks, want, o.chars ?? null)
+  const desc = o.adOn && o.extendedMode ? tracks.find((t) => t.kind === 'descriptions') : undefined
+  const ids = [...new Set([cap.track?.id, desc?.id].filter((x): x is string => !!x))]
+  return { ids, shown: cap.track?.id, kind: cap.kind }
+}
+
+// ── Seek ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+export const SEEK_STEP_S = 10
+/** Held ◄►: one step per this many ms of key repeat (Android repeats at ~20 Hz). */
+export const SEEK_REPEAT_MS = 200
+/** Presses and repeats gather into one seek, sent this long after the last one; the bar shows the target at once. */
+export const SEEK_COMMIT_MS = 300
+/** Long-press acceleration: 10 s steps for the first 2 s held, 30 s up to 5 s, then 60 s. */
+export function seekStep(heldMs: number): number {
+  return heldMs < 2000 ? SEEK_STEP_S : heldMs < 5000 ? 30 : 60
+}
+/** One rule for every seek (keys, transport, resume): from 0 to 1 s before the end, so a seek never ends the film. */
+export function clampSeek(s: number, durationS: number | null | undefined): number {
+  return Math.max(0, durationS ? Math.min(s, durationS - 1) : s)
+}
+
+// ── Resume ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+/** Where playback starts: the saved position, unless it is within the last 30 s (watched — start over). */
+export function resumePoint(resumeS: number | null | undefined, durationS: number | null | undefined): number {
+  if (!resumeS || resumeS < 1) return 0
+  if (durationS && resumeS > durationS - 30) return 0
+  return resumeS
+}
+
+// ── Status line and time ───────────────────────────────────────────────────────────────────────────────────────────
+export function statusLine(o: { state: PlayerState; error: boolean; adOn: boolean; voice: string; caption: CaptionKind }): string {
+  if (o.error || o.state === 'error') return strings.player.error
+  if (o.state === 'ended') return strings.player.ended
+  if (o.state === 'loading' || o.state === 'buffering') return strings.player.loading
+  const cap = o.caption === 'off' ? strings.player.captionsOff : captionName(o.caption)
+  return o.adOn ? strings.player.statusOn(o.voice, cap) : strings.player.statusOff(cap)
+}
+/** 75 → "1:15"; 3725 → "1:02:05". */
+export function clock(s: number): string {
+  const t = Math.max(0, Math.floor(s))
+  const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), sec = String(t % 60).padStart(2, '0')
+  return h ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`
+}
+
+// ── Audio switch ───────────────────────────────────────────────────────────────────────────────────────────────────
+/** A player that can set its volume (0–1). The kit's KitPlayerRef cannot yet — see crossfadeAudio. */
+export type VolumePlayer = Pick<KitPlayerRef, 'selectAudio'> & { setVolume?: (v: number) => void }
+/**
+ * Switch the audio rendition with a fade out and in around `selectAudio` (tokens.motion.crossfadeMs in total).
+ * KitPlayerRef has no volume control today (react-native-video's `volume` prop is not passed through by the kit's
+ * Fire OS adapter), so on a kit player this is a plain `selectAudio`; the fade runs as soon as the ref gains
+ * `setVolume`. Resolves when the switch is done.
+ */
+export async function crossfadeAudio(p: VolumePlayer, id: string, wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)), steps = 5): Promise<void> {
+  const setVolume = p.setVolume
+  if (!setVolume) { p.selectAudio(id); return }
+  const half = tokens.motion.crossfadeMs / 2
+  for (let i = steps - 1; i >= 0; i--) { setVolume(i / steps); await wait(half / steps) }
+  p.selectAudio(id)
+  for (let i = 1; i <= steps; i++) { await wait(half / steps); setVolume(i / steps) }
+}

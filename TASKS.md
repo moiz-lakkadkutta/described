@@ -24,8 +24,19 @@ It is the demo, it unblocks DESC-006–009, and it needs no pipeline work: Sinte
   - `apps/expo/metro.config.js` with the custom resolver (friction 2026-09-26 Metro exports condition order)
   - done when: on the stick, Home → Title → Play reaches the published Sintel with AD selected, D-pad only
 - [ ] DESC-006 · week 2 · Player + track sheet: chrome auto-hide, status line, seek, crossfade, Back saves progress
+  - kit: pass volume through KitPlayerRef (setVolume) so the 300 ms crossfade works on Fire OS; until then the switch is a hard cut
+  - kit: TextTrack.characteristics (HLS CHARACTERISTICS), so the Player's extra master-playlist fetch for Rich vs plain captions can go
+  - kit: the Fire OS adapter's seek should set position.current (and honour startAt), so getPosition is right before the next onProgress; the Player works around it with a pending-seek position and a resume seek
 - [ ] DESC-007 · week 2 · Extended mode: per-cue Polly audio, prefetch 10 s, pause–speak–resume, ochre bar, setting
 - [ ] DESC-008 · week 2 · Platform bindings: Content Launcher catalog + intents, Personalization, Media Controls, Alexa pause
+  - research + decisions: docs/platform/fire-os-bindings.md; device check: docs/device-checks/DESC-008.md (not run yet)
+  - [x] deep links `described://title/{slug}`, `described://play/{slug}?t=…` (scheme intent filter, Root routing)
+  - [x] Alexa transport via a local MediaSession module (`apps/expo/modules/described-media-session`) — Kotlin not compiled yet; exclude it from autolinking if the release build fails
+  - [x] draft catalog feed `GET /catalog/fire-tv.xml` (CDF shape, unverified against the XSD)
+  - submission time, human + Amazon developer account: ask for catalog integration (select partners only; new partners use EMBER, not CDF); if accepted, upload the feed and do Fire TV launcher integration (`com.amazon.device.CAPABILITIES` broadcast)
+  - not before freeze: Content Personalization (Fire TV Integration SDK jar + data integration service; needs catalog integration) — reporter stays a no-op
+  - merged with DESC-006: bindings consume Player's `onNowPlaying` in Root; one handler per media key (session: 126/127/86, Player keys: 85/89/90)
+  - Vega Content Launcher / journalctl transcript (KICKOFF) deferred with Vega (decision 0004)
 - [ ] DESC-009 · week 2 · First run + Settings + full VoiceView pass
   - decide where `prefs.adDefault` applies (since DESC-005 the play action picks AD; nothing reads the setting)
     → decided: it picks the primary play action (▶ style + initial focus) on the Home hero and on Title — on: Play with
