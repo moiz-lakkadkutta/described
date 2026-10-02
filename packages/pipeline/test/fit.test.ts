@@ -156,6 +156,21 @@ describe('shortening', () => {
     expect(preservesFacts('A woman hands a man a cup.', 'Woman hands him cup.')).toBe(false)
     expect(preservesFacts('A woman lifts a cup.', 'She lifts cup.')).toBe(false)
   })
+  it('lets a shortening add only a/an/the/and: no direction words', () => {
+    expect(preservesFacts('A girl runs from the dragon.', 'Girl runs to dragon.')).toBe(false)
+    expect(preservesFacts('A girl runs from the dragon.', 'Girl runs from dragon.')).toBe(true)
+    expect(preservesFacts('Girl runs. Dragon follows.', 'The girl runs and the dragon follows.')).toBe(true)
+    expect(preservesFacts('Woman holds bowl.', 'Woman holds bowl in hand.')).toBe(false)
+  })
+  // Second review: the -ly rule ate "Emily" and "butterfly", and "giant" was dropped as an adjective.
+  it('never drops names, nouns ending in -ly, or an adjective used as a noun', () => {
+    expect(shortenDeterministic('Emily slowly opens the heavy wooden door.', 5)).toBe('Emily opens the door.')
+    expect(shortenDeterministic('A butterfly lands on a large leaf.', 6)).toBe('A butterfly lands on a leaf.')
+    expect(shortenDeterministic('A giant walks across the old bridge.', 6)).toBe('A giant walks across the bridge.')
+    expect(shortenDeterministic('The old walks past the young man.', 6)).toBe('The old walks past the man.')
+    expect(shortenDeterministic('Sintel meets Old Tom in a small hut.', 7)).toBe('Sintel meets Old Tom in a hut.')
+    expect(shortenDeterministic('A man nearly falls.', 3)).toBe('A man nearly falls.') // facts-bearing adverbs stay
+  })
   it('falls back to deterministic shortening when the model changes a fact or does not fit', async () => {
     expect(await safeShorten('A dragon with a bloodied wing lands, then roars.', 7, () => 'Dragon with bloodied wings lands.')).toBe('A dragon with a bloodied wing lands.')
     expect(await safeShorten('A dragon with a bloodied wing lands, then roars.', 7, () => 'Dragon with bloodied wing lands.')).toBe('Dragon with bloodied wing lands.')
