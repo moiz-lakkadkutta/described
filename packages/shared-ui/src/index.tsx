@@ -1,11 +1,11 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AccessibilityInfo, BackHandler, View } from 'react-native'
 import { SpatialNavigationRoot, useLockSpatialNavigation } from 'react-tv-space-navigation'
 import { useDpad } from '@moizp/vega-media-kit/focus'
 import type { Catalog, Prefs, TitleDetail } from '@described/contracts'
 import { Focusable, FontsLoadedContext, Rail, Screen, T } from './components'
 import { setDpadGate } from './focus/remote'
-import { nextCaptionKind, type SampleState } from './models'
+import { nextCaptionKind, progressSaver, type SampleState } from './models'
 import { FirstRun } from './screens/FirstRun'
 import { Home } from './screens/Home'
 import { Player } from './screens/Player'
@@ -21,6 +21,7 @@ export type { KeySource } from './focus'
 
 type Route = { name: 'home' } | { name: 'title'; slug: string } | { name: 'reading'; slug: string } | { name: 'player'; slug: string; withAd: boolean } | { name: 'settings' } | { name: 'firstRun' }
 const noSpeech = async () => {}
+const noStop = () => {}
 const defaultPrefs: Prefs = { adDefault: true, extendedMode: true, voice: 'Joanna', captionKind: 'sdh', captionScale: 100, firstRunDone: false }
 const routeKey = (r: Route) => ('slug' in r ? `${r.name}:${r.slug}` : r.name)
 /** RN Android's own fetch timeout is about 2 minutes; the offline screen should come much sooner. */
@@ -47,7 +48,7 @@ export interface RootProps {
  * with fresh focus and its DefaultFocus / focus memory decides where focus lands.
  * Platform entries (apps/expo, apps/vega) pass apiBaseUrl, scale, fonts state and audio; they call configureRemote first.
  */
-export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded = true, speak = async () => {}, stopSpeaking = () => {} }: RootProps) {
+export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded = true, speak = noSpeech, stopSpeaking = noStop }: RootProps) {
   const [route, setRoute] = useState<Route>({ name: 'home' })
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [title, setTitle] = useState<TitleDetail | null>(null)
@@ -77,7 +78,13 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   }, [api, attempt])
   const slug = 'slug' in route ? route.slug : null
   // `attempt` too: Retry on the offline screen must refetch the title, not only the catalog.
-  useEffect(() => { if (slug && title?.slug !== slug) api<TitleDetail>(`/titles/${slug}`).then(setTitle).catch(() => setOffline(true)) }, [slug, api, attempt]) // eslint-disable-line react-hooks/exhaustive-deps
+  // `live`: a late answer for a slug we already left must not replace the title or flip the app offline.
+  useEffect(() => {
+    if (!slug || title?.slug === slug) return
+    let live = true
+    api<TitleDetail>(`/titles/${slug}`).then((t) => { if (live) setTitle(t) }).catch(() => { if (live) setOffline(true) })
+    return () => { live = false }
+  }, [slug, api, attempt]) // eslint-disable-line react-hooks/exhaustive-deps
   const current = title && title.slug === slug ? title : null
   // A live region does not speak on first appearance, so the offline message is announced explicitly.
   useEffect(() => { if (offline) AccessibilityInfo.announceForAccessibility(strings.offline) }, [offline])
@@ -86,6 +93,7 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   const stopSample = useCallback(() => { if (sampleOn.current) { sampleOn.current = false; stopSpeaking(); setSample('idle') } }, [stopSpeaking])
   // Leaving a screen stops any clip it started (Title's sample; Player's description audio from DESC-007).
   const key = routeKey(route)
+  const shouldSave = useMemo(() => progressSaver(current?.resumeS ?? null), [key, current?.slug]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => { stopSpeaking(); sampleOn.current = false; setSample('idle') }, [key, stopSpeaking])
   const toggleSample = () => {
     if (sampleOn.current) return stopSample()
@@ -136,7 +144,7 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
         </Screen>
       )
       // TODO(DESC-007): pass `speak` once extended cues carry their own audio; today Player would play the sample clip.
-      case 'player': return current ? <Player title={current} prefs={prefs} withAd={route.withAd} scale={scale} speak={noSpeech} onProgress={(s) => { if (Math.round(s) % 10 === 0) void api('/me/progress', { method: 'PUT', body: JSON.stringify({ titleSlug: current.slug, positionS: s }) }).catch(() => {}) }} onBack={() => setRoute({ name: 'title', slug: current.slug })} /> : <Screen><T variant="body">{strings.player.loading}</T></Screen>
+      case 'player': return current ? <Player title={current} prefs={prefs} withAd={route.withAd} scale={scale} speak={noSpeech} onProgress={(s) => { if (shouldSave(s)) void api('/me/progress', { method: 'PUT', body: JSON.stringify({ titleSlug: current.slug, positionS: s }) }).catch(() => {}) }} onBack={() => setRoute({ name: 'title', slug: current.slug })} /> : <Screen><T variant="body">{strings.player.loading}</T></Screen>
       default: return <Screen rail={rail}><Home catalog={catalog} myList={myList} onOpen={(s) => setRoute({ name: 'title', slug: s })} onPlay={(s, withAd) => setRoute({ name: 'player', slug: s, withAd })} onToggleList={toggleList} /></Screen>
     }
   })()

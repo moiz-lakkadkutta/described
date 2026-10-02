@@ -7,6 +7,7 @@ import { T } from '../components'
 import { strings } from '../strings'
 import { tokens } from '../theme/tokens'
 import { px } from '../theme/scale'
+import { captionName } from '../models'
 import { TrackSheet } from './TrackSheet'
 
 /**
@@ -51,7 +52,7 @@ export function Player({ title, prefs, withAd, scale, onBack, onProgress, speak 
       <CueOverlay active={visibleCues} scale={scale} theme={{ fontFamily: tokens.type.caption.family, userScale: prefs.captionScale / 100 }} />
       {/* persistent 28 px status line, bottom-left (hides with chrome after 4 s — TODO(DESC-006)) */}
       <View style={{ position: 'absolute', left: px(tokens.layout.safeX), bottom: px(tokens.layout.safeY) }}>
-        <T variant="label" color={tokens.color.textSecondary}>{state === 'buffering' ? strings.player.loading : adOn ? strings.player.statusOn(title.voice, prefs.captionKind) : strings.player.statusOff}</T>
+        <T variant="label" color={tokens.color.textSecondary}>{state === 'buffering' ? strings.player.loading : adOn ? strings.player.statusOn(title.voice, captionName(prefs.captionKind)) : strings.player.statusOff}</T>
       </View>
       {describing ? <View accessibilityLiveRegion="polite" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: px(8), backgroundColor: tokens.color.badge }} /> : null}
       {sheet ? (
