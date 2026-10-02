@@ -12,12 +12,12 @@ export const sceneFilter = () => `select='gt(scene,${SCENE_THRESHOLD})',showinfo
 export async function detectShots(ctx: Ctx) {
   const probe = JSON.parse(await readFile(`${ctx.work}/probe.json`, 'utf8')) as { format: { duration: string } }
   const durationMs = Math.round(parseFloat(probe.format.duration) * 1000)
-  const { stderr } = await execa('ffmpeg', ['-i', `${ctx.work}/mezz.mp4`, '-vf', sceneFilter(), '-f', 'null', '-'], { reject: false })
+  const { stderr } = await execa('ffmpeg', ['-i', `${ctx.work}/mezz.mp4`, '-vf', sceneFilter(), '-f', 'null', '-'], { reject: false, cancelSignal: ctx.signal })
   const cuts = [...stderr.matchAll(/pts_time:([\d.]+)/g)].map((m) => Math.round(parseFloat(m[1]!) * 1000))
   const shots = shotsFromCuts(cuts, durationMs)
   await writeFile(`${ctx.work}/shots.json`, JSON.stringify(shots, null, 2))
   // Extract each shot as a small clip for Nova (S3 URI input; ≤ 25 MB base64 alternative not needed).
-  for (const s of shots) await execa('ffmpeg', ['-y', '-ss', `${s.startMs / 1000}`, '-to', `${s.endMs / 1000}`, '-i', `${ctx.work}/mezz.mp4`, '-vf', 'scale=-2:480', '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28', `${ctx.work}/shot_${s.index}.mp4`], { stdio: 'ignore' })
+  for (const s of shots) await execa('ffmpeg', ['-y', '-ss', `${s.startMs / 1000}`, '-to', `${s.endMs / 1000}`, '-i', `${ctx.work}/mezz.mp4`, '-vf', 'scale=-2:480', '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28', `${ctx.work}/shot_${s.index}.mp4`], { stdio: 'ignore', cancelSignal: ctx.signal })
 }
 
 export function shotsFromCuts(cutsMs: number[], durationMs: number, minMs = 1500, maxMs = 8000): Shot[] {

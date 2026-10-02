@@ -1,0 +1,125 @@
+import type PgBoss from 'pg-boss'
+import type { PrismaClient } from '@prisma/client'
+import { readFile } from 'node:fs/promises'
+import { metered } from './cost'
+import { ctxFor, ORDER, runStep, type Ctx } from './steps'
+import type { Shot } from './steps/02-shots'
+import type { Gap } from './steps/03-speech'
+import type { Described } from './steps/04-describe'
+
+/** One pg-boss job per step 1–5; `finish` runs steps 6–10 unchanged (they become their own jobs in DESC-004). */
+export const JOB_STEPS = ['probe', 'shots', 'speech', 'describe', 'fit', 'finish'] as const
+export type JobStep = typeof JOB_STEPS[number]
+/** Queue names: letters, digits, `-` and `_` only. apps/api/src/routes/admin.ts sends the first one by name. */
+export const queueName = (s: JobStep) => `pipeline-${s}`
+
+/** Dead-letter queue: pg-boss copies a step's payload here once its retries are spent, including attempts that expired or whose worker died. */
+export const FAILED_QUEUE = 'pipeline-failed'
+
+/**
+ * Queue options (createQueue, then updateQueue so edits here reach existing queues); jobs sent without their own options inherit them.
+ * Retry: retryLimit retries, retryDelay seconds, retryBackoff doubles the delay — https://github.com/timgit/pg-boss/blob/10.1.6/docs/api/jobs.md
+ * Policy `short`: one queued job per singletonKey (the titleId) — https://github.com/timgit/pg-boss/blob/10.1.6/docs/api/queues.md
+ * It does not see a running job; the admin route refuses a title that is already processing.
+ * expireInSeconds bounds one attempt (pg-boss default 15 min); handleJob gives up STEP_MARGIN_S earlier so it records the failure itself.
+ */
+const RETRY = { policy: 'short', retryBackoff: true, deadLetter: FAILED_QUEUE } as const
+export const QUEUE_OPTIONS: Record<JobStep, Omit<PgBoss.Queue, 'name'> & { expireInSeconds: number }> = {
+  probe: { ...RETRY, retryLimit: 2, retryDelay: 30, expireInSeconds: 60 * 60 },
+  shots: { ...RETRY, retryLimit: 2, retryDelay: 30, expireInSeconds: 60 * 60 },
+  speech: { ...RETRY, retryLimit: 3, retryDelay: 60, expireInSeconds: 2 * 60 * 60 }, // a finished transcript is reused, see 03-speech
+  describe: { ...RETRY, retryLimit: 3, retryDelay: 60, expireInSeconds: 2 * 60 * 60 }, // re-runs hit the per-shot cache
+  fit: { ...RETRY, retryLimit: 3, retryDelay: 30, expireInSeconds: 30 * 60 },
+  finish: { ...RETRY, retryLimit: 2, retryDelay: 60, expireInSeconds: 2 * 60 * 60 },
+}
+export const STEP_MARGIN_S = 60
+
+export interface StepJob { id: string; data: { titleId: string }; retryCount: number; retryLimit: number }
+export type Boss = Pick<PgBoss, 'createQueue' | 'updateQueue' | 'send' | 'work'>
+export type Db = Pick<PrismaClient, 'title' | 'job' | 'shot' | 'gap' | '$transaction'>
+export interface Deps { boss: Boss; db: Db; run?: (step: JobStep, ctx: Ctx) => Promise<void>; timeoutMs?: number }
+
+/** Steps 6–10 in order, unchanged. */
+const STEPS_6_10 = ORDER.slice(ORDER.indexOf('voice'))
+export const runJobStep = async (step: JobStep, ctx: Ctx) => { if (step !== 'finish') return runStep(step, ctx); for (const s of STEPS_6_10) await runStep(s, ctx) }
+
+/** Creates (idempotent) and updates the queues, then one worker per step and one for the dead letters. */
+export async function registerPipeline(deps: Deps) {
+  await deps.boss.createQueue(FAILED_QUEUE, { name: FAILED_QUEUE, policy: 'standard', retryLimit: 5, retryDelay: 30, retryBackoff: true })
+  for (const s of JOB_STEPS) {
+    await deps.boss.createQueue(queueName(s), { name: queueName(s), ...QUEUE_OPTIONS[s] })
+    await deps.boss.updateQueue(queueName(s), { name: queueName(s), ...QUEUE_OPTIONS[s] })
+  }
+  for (const s of JOB_STEPS) await deps.boss.work<{ titleId: string }>(queueName(s), { includeMetadata: true }, async ([job]) => handleJob(s, job!, deps))
+  await deps.boss.work<{ titleId: string }>(FAILED_QUEUE, async ([job]) => handleDeadLetter(job!.data.titleId, deps.db))
+}
+
+/** Rejects when the signal aborts, so the handler returns before pg-boss expires the attempt; fn's own work stops at its next signal check. */
+const untilAborted = <T>(fn: () => Promise<T>, signal: AbortSignal) => Promise.race([fn(), new Promise<never>((_, reject) => {
+  if (signal.aborted) reject(signal.reason)
+  signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+})])
+
+/**
+ * One attempt of one step for one title. The Job row's id is the pg-boss job id, so retries update the same row and add to its
+ * cost. The step runs under a deadline STEP_MARGIN_S inside the queue's expiry; success persists the step's rows and enqueues the
+ * next step, and an attempt that ran out of time does neither. The last failed attempt marks the title failed (anything that
+ * escapes this — expiry, a dead worker — reaches handleDeadLetter). Throwing hands the job back to pg-boss for its retry policy.
+ */
+export async function handleJob(step: JobStep, job: StepJob, { boss, db, run = runJobStep, timeoutMs }: Deps) {
+  const { titleId } = job.data
+  const startedAt = new Date()
+  await db.job.upsert({ where: { id: job.id }, create: { id: job.id, titleId, step, status: 'running', startedAt }, update: { status: 'running', startedAt, finishedAt: null, error: null } })
+  const signal = AbortSignal.timeout(timeoutMs ?? (QUEUE_OPTIONS[step].expireInSeconds - STEP_MARGIN_S) * 1000)
+  try {
+    const t = await db.title.findUniqueOrThrow({ where: { id: titleId }, include: { assets: { where: { kind: 'source' } } } })
+    if (!t.assets[0]) throw new Error(`title ${titleId} has no source asset`)
+    await db.title.update({ where: { id: titleId }, data: { status: 'processing' } })
+    const ctx: Ctx = { ...ctxFor({ slug: t.slug, source: `s3://${process.env.S3_BUCKET_MEDIA}/${t.assets[0].s3Key}`, language: t.language as 'en' | 'de', voice: t.voice }), signal }
+    const { costUsd } = await metered(() => untilAborted(async () => { await run(step, ctx); signal.throwIfAborted(); await persist(step, titleId, ctx.work, db) }, signal))
+    signal.throwIfAborted()
+    const next = JOB_STEPS[JOB_STEPS.indexOf(step) + 1]
+    let note: string | null = null
+    if (next && !(await boss.send(queueName(next), { titleId }, { singletonKey: titleId }))) {
+      note = `${queueName(next)} not queued: a job for this title is already waiting there`
+      console.warn(`pipeline: ${note} (title ${titleId})`)
+    }
+    await db.job.update({ where: { id: job.id }, data: { status: 'done', finishedAt: new Date(), error: note, costUsd: { increment: costUsd } } })
+    if (!next) await db.title.update({ where: { id: titleId }, data: { status: 'published' } }) // Rendition/TextTrack rows: DESC-004
+  } catch (e) {
+    const final = job.retryCount >= job.retryLimit
+    const costUsd = (e as { costUsd?: number }).costUsd ?? 0
+    const error = signal.aborted ? `timed out after ${Math.round((Date.now() - startedAt.getTime()) / 1000)} s` : String((e as Error)?.stack ?? e)
+    await db.job.update({ where: { id: job.id }, data: { status: final ? 'failed' : 'retrying', finishedAt: new Date(), error: error.slice(0, 4000), costUsd: { increment: costUsd } } })
+    if (final) await db.title.update({ where: { id: titleId }, data: { status: 'failed' } })
+    throw e
+  }
+}
+
+/** A step's retries are spent, possibly without handleJob seeing the end (expired, worker died): close its rows and fail the title. */
+export async function handleDeadLetter(titleId: string, db: Db) {
+  await db.job.updateMany({ where: { titleId, status: { in: ['running', 'retrying'] } }, data: { status: 'failed', finishedAt: new Date(), error: 'retries spent: the last attempt expired or its worker stopped (pg-boss dead letter)' } })
+  await db.title.update({ where: { id: titleId }, data: { status: 'failed' } })
+}
+
+const json = async <T>(work: string, f: string) => JSON.parse(await readFile(`${work}/${f}`, 'utf8')) as T
+
+/** Rows each step owns, replaced wholesale so a re-run overwrites them (Title.durationS, Shot, Gap; describe fills Shot text). */
+export async function persist(step: JobStep, titleId: string, work: string, db: Db) {
+  if (step === 'probe') {
+    const p = await json<{ format: { duration: string } }>(work, 'probe.json')
+    await db.title.update({ where: { id: titleId }, data: { durationS: parseFloat(p.format.duration) } })
+  } else if (step === 'shots') {
+    const shots = await json<Shot[]>(work, 'shots.json')
+    await db.$transaction([db.shot.deleteMany({ where: { titleId } }), db.shot.createMany({ data: shots.map((s) => ({ titleId, index: s.index, startMs: s.startMs, endMs: s.endMs })) })])
+  } else if (step === 'speech') {
+    const gaps = await json<Gap[]>(work, 'gaps.json')
+    await db.$transaction([db.gap.deleteMany({ where: { titleId } }), db.gap.createMany({ data: gaps.map((g) => ({ titleId, startMs: g.startMs, endMs: g.endMs })) })])
+  } else if (step === 'describe') {
+    const d = await json<Described[]>(work, 'described.json')
+    await db.$transaction(d.map((s) => {
+      const text = { description: s.description, sameAsPrev: s.sameAsPrev, novaTokens: s.tokens }
+      return db.shot.upsert({ where: { titleId_index: { titleId, index: s.index } }, create: { titleId, index: s.index, startMs: s.startMs, endMs: s.endMs, ...text }, update: text })
+    }))
+  }
+}
