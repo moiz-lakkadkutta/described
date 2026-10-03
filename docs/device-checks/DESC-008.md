@@ -71,8 +71,9 @@ Start Sintel from the app and let it play. Watch logcat (`DescribedMediaSession`
       shows `active=false`; "Alexa, pause" does not reach Described. Reopen Described → `session active (foreground)`, and
       "Alexa, pause" works again.
 - [ ] Back to Title → logcat `session released`; "Alexa, pause" on the Title screen does nothing to Described.
-- [ ] Extended description: during a pause–speak–resume (DESC-007), say "resume" — note whether video talks over the
-      narration (known gap; record, don't fix here).
+- [ ] Extended description: during a pause–speak–resume (DESC-007), say "resume" → the description stops at once and
+      the film plays (video never plays over the narration). Say "pause" during the description instead → the description
+      finishes and the film **stays paused**. See DESC-007.md §3.
 
 ## 4. Media keys
 

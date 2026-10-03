@@ -3,6 +3,7 @@ import type { PrismaClient } from '@prisma/client'
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { metered } from './cost'
+import { writeDescriptionCues } from './cues'
 import { ctxFor, runStep, SLUG_RE, STEPS, type Ctx } from './steps'
 import type { Shot } from './steps/02-shots'
 import type { Gap } from './steps/03-speech'
@@ -41,7 +42,7 @@ export interface StepJob { id: string; data: StepData; retryCount: number; retry
 /** Sends a step for a title with a fresh id that is also in its data. */
 export const sendStep = (boss: Pick<Boss, 'send'>, step: JobStep, titleId: string) => { const id = randomUUID(); return boss.send(queueName(step), { titleId, step, jobId: id } satisfies StepData, { id, singletonKey: titleId }) }
 export type Boss = Pick<PgBoss, 'createQueue' | 'updateQueue' | 'send' | 'work'>
-export type Db = Pick<PrismaClient, 'title' | 'job' | 'shot' | 'gap' | '$transaction'>
+export type Db = Pick<PrismaClient, 'title' | 'job' | 'shot' | 'gap' | 'descriptionCue' | '$transaction'>
 export interface Deps { boss: Boss; db: Db; run?: (step: JobStep, ctx: Ctx) => Promise<void>; timeoutMs?: number }
 
 /** Steps 6–10 in order, unchanged. */
@@ -116,7 +117,10 @@ export async function handleDeadLetter({ titleId, jobId }: StepData, db: Db) {
 
 const json = async <T>(work: string, f: string) => JSON.parse(await readFile(`${work}/${f}`, 'utf8')) as T
 
-/** Rows each step owns, replaced wholesale so a re-run overwrites them (Title.durationS, Shot, Gap; describe fills Shot text). */
+/**
+ * Rows each step owns, replaced wholesale so a re-run overwrites them (Title.durationS, Shot, Gap; describe fills Shot text;
+ * finish writes DescriptionCue rows with their published clip keys). handleJob calls it only inside the deadline.
+ */
 export async function persist(step: JobStep, titleId: string, work: string, db: Db) {
   if (step === 'probe') {
     const p = await json<{ format: { duration: string } }>(work, 'probe.json')
@@ -133,6 +137,8 @@ export async function persist(step: JobStep, titleId: string, work: string, db: 
       const text = { description: s.description, sameAsPrev: s.sameAsPrev, novaTokens: s.tokens }
       return db.shot.upsert({ where: { titleId_index: { titleId, index: s.index } }, create: { titleId, index: s.index, startMs: s.startMs, endMs: s.endMs, ...text }, update: text })
     }))
+  } else if (step === 'finish') {
+    await writeDescriptionCues(db as never, titleId, work)
   }
 }
 

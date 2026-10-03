@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AccessibilityInfo, BackHandler, View } from 'react-native'
-import { KitPlayer, CueOverlay, parseHlsMaster } from '@moizp/vega-media-kit'
+import { KitPlayer, CueOverlay, parseHlsMaster, parseVtt } from '@moizp/vega-media-kit'
 import type { Cue, KitPlayerRef, PlayerError, PlayerState, Tracks } from '@moizp/vega-media-kit'
 import type { RemoteKey } from '@moizp/vega-media-kit/platform'
 import type { Prefs, TitleDetail } from '@described/contracts'
@@ -10,6 +10,7 @@ import {
   audioTrackFor, characteristicsByUri, clampSeek, clock, crossfadeAudio, resumePoint, seekStep, statusLine, textSelection,
   SEEK_COMMIT_MS, SEEK_REPEAT_MS, SEEK_STEP_S,
 } from '../playback'
+import { ExtendedScheduler, extendedCues, type ExtendedCue } from '../extended'
 import { strings } from '../strings'
 import { tokens } from '../theme/tokens'
 import { scrimBands } from '../theme/scrim'
@@ -25,10 +26,13 @@ export const BUFFERING_ANNOUNCE_MS = 2000
  */
 export const PENDING_SEEK_NEAR_S = 2
 export const PENDING_SEEK_MS = 5000
+/** Retries of a failed descriptions read (after 1, 2, 4 s). */
+export const DESCRIPTIONS_RETRIES = 3
 /** Height of the bottom chrome (bar, time, status line) in px at 1080p; captions sit above it while it shows. */
 const CHROME_BOTTOM = 176
 const bands = scrimBands()
 const announce = (s: string) => AccessibilityInfo.announceForAccessibility(s)
+const noop = () => {}
 
 /**
  * What a platform binding needs about the film on screen (DESC-008: Media Controls, Alexa pause). Player reports it
@@ -52,17 +56,23 @@ export interface PlayerProps {
   onProgress: (s: number) => void
   /** Caption kind and Extended mode chosen in the track sheet, saved to /me/prefs. */
   onPrefs: (p: Partial<Prefs>) => void
-  /** Platform audio for extended cues (DESC-007). Root passes a no-op until cues carry their own clips. */
+  /** Platform audio for extended cues: resolves when the clip ends, fails, times out or is stopped. */
   speak: (audioUrl: string) => Promise<void>
+  /** Stops the clip `speak` is playing (its promise then resolves). */
+  stopSpeaking?: () => void
+  /** Starts loading a clip so `speak(url)` can start at once (the next extended cue, PREFETCH_AHEAD_S ahead). */
+  prefetch?: (audioUrl: string) => void
+  /** The audio of description cue `d{n}` (GET /titles/:slug/cues/:cueId/audio). Without it Extended mode never pauses. */
+  cueAudioUrl?: (slug: string, cueId: string) => string
+  /**
+   * The title's whole-file descriptions WebVTT (GET /titles/:slug/descriptions.vtt: built from the same rows as the clip
+   * route, so it is the source of truth for d{n}). Read once, as soon as Extended mode is on.
+   */
+  descriptionsUrl?: string
   onNowPlaying?: (n: PlayerSession | null) => void
 }
 
 /**
- * DESC-007 plugs in here: the per-cue clip for an `{extended=1}` cue (GET /titles/:slug/cues/:id/audio, prefetched
- * 10 s ahead). Until then there is none, so nothing pauses.
- */
-const extendedCueAudio = (_cue: Cue, _slug: string): string | null => null
-
 /**
  * Captions as Settings chose them: size (100–200 %) and style. Box (default, PLAN §8) is the token box; Shadow is a
  * lighter box (cueShadowBox), since bare text is unreadable on bright video. TODO(kit): switch Shadow to a text shadow
@@ -77,8 +87,13 @@ export const cueTheme = (prefs: Pick<Prefs, 'captionScale' | 'captionStyle'>) =>
  * are text tracks chosen by kind and HLS characteristics; the kit's CueOverlay draws them. Chrome (title, bar,
  * time) shows on any key and hides after 4 s of playing without input; the status line always stays. Remote: Select / Play-Pause
  * toggle, ◄► skip 10 s (held: faster), ▲ or Menu open the track sheet, Back saves the position and leaves.
+ *
+ * Extended mode (AD and `prefs.extendedMode` on): when playback crosses the start of an `{extended=1}` description cue,
+ * the film pauses, the ochre bar shows, and the cue's clip plays; then the film resumes — also when the clip fails or
+ * times out (`speak` always settles). A seek, Back, Menu, Play, or turning AD / Extended mode off ends the pause at
+ * once (the clip stops); Pause or Select during it keeps the film paused after the clip.
  */
-export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgress, onPrefs, speak, onNowPlaying }: PlayerProps) {
+export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgress, onPrefs, speak, stopSpeaking = noop, prefetch = noop, cueAudioUrl, descriptionsUrl, onNowPlaying }: PlayerProps) {
   const ref = useRef<KitPlayerRef>(null)
   const [state, setState] = useState<PlayerState>('idle')
   const [error, setError] = useState(false)
@@ -106,11 +121,37 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
   const commit = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const hold = useRef({ start: 0, last: 0 })
   const sheetItem = useRef<SheetItem | undefined>(undefined)
-  const spoken = useRef(new Set<string>())
+  const [extCues, setExtCues] = useState<ExtendedCue[] | null>(null)
+  const scheduler = useRef<ExtendedScheduler | null>(null)
+  /** The extended pause in progress; `token` tells its own clip's end from a stale one. */
+  const ext = useRef<{ token: object; userPaused: boolean } | null>(null)
+  /** Extended cues crossed while another was speaking (two close cues): spoken next, in order. */
+  const queue = useRef<ExtendedCue[]>([])
+  /** The kit's `paused` is ours (an extended pause) until it reports `playing` again: not the viewer's pause. */
+  const ownPause = useRef(false)
+  const seeked = useRef(false)
+  const prefetched = useRef<string | null>(null)
+  const stopRef = useRef(stopSpeaking)
+  stopRef.current = stopSpeaking // latest, so endExtended (and the unmount cleanup keyed on it) never changes
   const pendingSeek = useRef<{ target: number; timer: ReturnType<typeof setTimeout> } | null>(null)
   const announcedStall = useRef(false)
 
   const showChrome = useCallback(() => { setChrome(true); setPoke((n) => n + 1) }, [])
+  /**
+   * Ends the extended pause (`token`: only if it is still that one). `cancel` stops the clip first. Returns whether the
+   * film should play on — false when there was no pause, or the viewer paused during it.
+   */
+  const endExtended = useCallback((how: 'done' | 'cancel', token?: object): boolean => {
+    const e = ext.current
+    if (how === 'cancel') queue.current = []
+    if (!e || (token && e.token !== token)) return false
+    ext.current = null
+    setDescribing(false)
+    if (how === 'cancel') { prefetched.current = null; stopRef.current() }
+    return !e.userPaused
+  }, [])
+  /** Drops the prefetched clip too (seek away, Extended mode off, leaving): stopSpeaking releases it. */
+  const releaseAudio = useCallback(() => { queue.current = []; if (endExtended('cancel')) return true; prefetched.current = null; stopRef.current(); return false }, [endExtended])
   const getPosition = useCallback(() => scrubRef.current ?? pendingSeek.current?.target ?? ref.current?.getPosition() ?? pos.current, [])
   const clearPending = useCallback(() => { if (pendingSeek.current) clearTimeout(pendingSeek.current.timer); pendingSeek.current = null }, [])
   /** The one seek path: keys, transport controls (DESC-008) and resume. A seek sent before the load is up wins over resume. */
@@ -118,10 +159,14 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
     const target = clampSeek(s, title.durationS)
     seekedToStart.current = true
     clearPending()
+    // A seek never starts an extended cue it lands on; during an extended pause it ends the pause and plays on. The
+    // prefetched clip belonged to the old place.
+    scheduler.current?.seeked(); seeked.current = true
+    if (releaseAudio()) ref.current?.play()
     pendingSeek.current = { target, timer: setTimeout(() => { pendingSeek.current = null }, PENDING_SEEK_MS) }
     ref.current?.seek(target)
     pos.current = target; setPosition(target); setSeeks((n) => n + 1)
-  }, [title.durationS, clearPending])
+  }, [title.durationS, clearPending, releaseAudio])
 
   // Rich vs plain captions is an HLS characteristic the kit's TextTrack does not carry: read it from the master.
   useEffect(() => {
@@ -138,16 +183,66 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
   // Text selection follows the choice; re-applied for every new track list (a retry reloads the source).
   useEffect(() => { if (tracks.text.length) ref.current?.selectText(selection.ids) }, [tracks, idsKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Extended cues: pause → speak → resume (DESC-007 supplies the clip; see extendedCueAudio).
+  // Extended mode: the whole descriptions VTT, one request, read as soon as AD and Extended mode are on — before the
+  // first tick, so a cue at 0:00 is not missed. The kit's onCue only reports cues on screen; prefetching needs the rest.
+  const extendedOn = adOn && prefs.extendedMode && !!cueAudioUrl && !!descriptionsUrl
   useEffect(() => {
-    const ext = cues.find((c) => c.meta?.extended === '1' && !spoken.current.has(c.id))
-    if (!ext || !adOn || !prefs.extendedMode) return
-    spoken.current.add(ext.id)
-    const audio = extendedCueAudio(ext, title.slug)
-    if (!audio) return
-    setDescribing(true); announce(strings.player.extendedBar); ref.current?.pause()
-    speak(audio).finally(() => { setDescribing(false); ref.current?.play() })
-  }, [cues, adOn, prefs.extendedMode, speak, title.slug])
+    if (!extendedOn || extCues) return
+    let live = true
+    let timer: ReturnType<typeof setTimeout> | undefined
+    // A failed read is retried after 1, 2 and 4 s; a 404 (no such published title) is final. Then: no pauses.
+    const load = (attempt: number) => {
+      fetch(descriptionsUrl!)
+        .then(async (r) => { if (r.status === 404) return null; if (!r.ok) throw new Error(`descriptions ${r.status}`); return r.text() })
+        .then((vtt) => { if (live && vtt !== null) setExtCues(extendedCues(parseVtt(vtt, { trackId: 'descriptions' }))) })
+        .catch(() => { if (live && attempt < DESCRIPTIONS_RETRIES) timer = setTimeout(() => load(attempt + 1), 1000 * 2 ** attempt) })
+    }
+    load(0)
+    return () => { live = false; clearTimeout(timer) }
+  }, [extendedOn, descriptionsUrl, extCues])
+  useEffect(() => {
+    if (!extCues) return
+    scheduler.current = new ExtendedScheduler(extCues)
+    // Playing from the very start with no seek yet: the first tick counts from 0:00, so early cues are crossed. (If the
+    // cues arrive late, the jump from 0 to the first tick is > MAX_TICK_S and counts as a seek, not a crossing.)
+    if (!seeked.current && startAt.current === 0) scheduler.current.begin(0)
+  }, [extCues])
+  // Turning AD or Extended mode off (track sheet, Settings) ends a pause in progress and drops the prefetched clip.
+  useEffect(() => { if (!extendedOn && releaseAudio()) ref.current?.play() }, [extendedOn, releaseAudio])
+  useEffect(() => () => { releaseAudio() }, [releaseAudio])
+
+  /**
+   * Pause → announce → speak → resume (unless the viewer paused meanwhile, or something else already ended it). A cue
+   * queued behind this one is spoken next, still paused; `userPaused` carries over.
+   */
+  const startExtended = (cue: ExtendedCue, userPaused = false) => {
+    const token = {}
+    ext.current = { token, userPaused }
+    prefetched.current = null
+    setDescribing(true); announce(strings.player.extendedBar)
+    ownPause.current = true
+    ref.current?.pause()
+    speak(cueAudioUrl!(title.slug, cue.id)).catch(() => {}).then(() => {
+      const viewerPaused = ext.current?.token === token && ext.current.userPaused
+      const resume = endExtended('done', token)
+      const next = ext.current === null && (resume || viewerPaused) ? queue.current.shift() : undefined
+      if (next) startExtended(next, viewerPaused)
+      else if (resume) ref.current?.play()
+    })
+  }
+  /**
+   * Every position tick: start an extended cue crossed in playback; prefetch the next one 10 s ahead. Not gated on the
+   * reported state (onState can lag the tick, and the scheduler has already moved past the cue): any forward crossing
+   * counts, except while ◄► is held (the viewer is leaving this place).
+   */
+  const extendedTick = (s: number) => {
+    const t = scheduler.current?.tick(s)
+    if (!t || !extendedOn) return
+    if (t.upcoming && prefetched.current !== t.upcoming.id) { prefetched.current = t.upcoming.id; prefetch(cueAudioUrl!(title.slug, t.upcoming.id)) }
+    if (!t.triggers.length || scrubRef.current !== null) return
+    queue.current.push(...t.triggers)
+    if (!ext.current) startExtended(queue.current.shift()!, stateRef.current === 'paused' && !ownPause.current) // crossed as the viewer paused: stay paused after
+  }
 
   // Chrome hides after 4 s of playing with no key; it stays while paused, loading, stopped or the sheet is open.
   useEffect(() => {
@@ -168,19 +263,23 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
   useEffect(() => { if (error) announce(strings.player.error) }, [error])
 
   const play = useCallback(() => {
+    endExtended('cancel') // Play during an extended pause: the film, now
     // ExoPlayer stays at the end after `ended`: playing again needs a seek to the start first.
     if (stateRef.current === 'ended') seekTo(0)
     ref.current?.play()
-  }, [seekTo])
+  }, [seekTo, endExtended])
+  /** Pause during an extended pause keeps the film paused once the clip ends. */
+  const pause = useCallback(() => { if (ext.current) ext.current.userPaused = true; else ref.current?.pause() }, [])
   const { slug, name, durationS } = title
   useEffect(() => {
-    onNowPlaying?.({ slug, name, state, adOn, durationS, seeks, controls: { play, pause: () => ref.current?.pause(), seek: seekTo, getPosition } })
-  }, [onNowPlaying, slug, name, durationS, state, adOn, seeks, play, seekTo, getPosition])
+    onNowPlaying?.({ slug, name, state, adOn, durationS, seeks, controls: { play, pause, seek: seekTo, getPosition } })
+  }, [onNowPlaying, slug, name, durationS, state, adOn, seeks, play, pause, seekTo, getPosition])
   useEffect(() => () => onNowPlaying?.(null), [onNowPlaying])
   useEffect(() => () => { clearTimeout(commit.current); clearPending() }, [clearPending])
 
   const toggle = () => {
     if (error) { retry(); return }
+    if (ext.current) { ext.current.userPaused = !ext.current.userPaused; return } // the film is paused for the clip either way
     if (stateRef.current === 'playing' || stateRef.current === 'buffering') ref.current?.pause()
     else play()
   }
@@ -205,7 +304,10 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
       seekTo(target)
     }, SEEK_COMMIT_MS)
   }
-  const openSheet = () => { setSheet(true) } // TrackSheet folds its name into the first item's announcement
+  const openSheet = () => {
+    if (endExtended('cancel')) ref.current?.play() // Menu during an extended pause: the clip stops, the film plays on
+    setSheet(true) // TrackSheet folds its name into the first item's announcement
+  }
   const closeSheet = () => { setSheet(false); showChrome() }
   const chooseAudio = (on: boolean) => {
     if (on === adOn) return
@@ -226,14 +328,14 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
       if (k === 'menu') { if (!repeat) closeSheet(); return true }
       if (k === 'playPause') { if (!repeat) toggle(); return true }
       if (k === 'play') { play(); return true }
-      if (k === 'pause') { ref.current?.pause(); return true }
+      if (k === 'pause') { pause(); return true }
       return false
     }
     showChrome()
     switch (k) {
       case 'playPause': if (!repeat) toggle(); return true
       case 'play': play(); return true
-      case 'pause': ref.current?.pause(); return true
+      case 'pause': pause(); return true
       case 'left': case 'rewind': seekBy(-1, repeat); return true
       case 'right': case 'fastForward': seekBy(1, repeat); return true
       case 'up': case 'menu': if (!repeat) openSheet(); return true
@@ -246,6 +348,7 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
   onBackRef.current = () => {
     if (sheet) { closeSheet(); return true }
     clearTimeout(commit.current)
+    releaseAudio()
     onBack(stateRef.current === 'ended' ? 0 : getPosition())
     return true
   }
@@ -253,6 +356,7 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
 
   const onState = (s: PlayerState) => {
     setState(s)
+    if (s === 'playing') ownPause.current = false
     // The kit's Fire OS adapter does not apply `startAt` (react-native-video has no start position), so the resume
     // point is sought once the load is up. Harmless where startAt already worked.
     if ((s === 'ready' || s === 'playing') && !seekedToStart.current) {
@@ -260,7 +364,7 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
       if (startAt.current > 0) seekTo(startAt.current)
     }
   }
-  const onError = (e: PlayerError) => { if (e.fatal) { setError(true); setState('error') } }
+  const onError = (e: PlayerError) => { if (e.fatal) { endExtended('cancel'); setError(true); setState('error') } }
 
   const shownPos = scrub ?? position
   const duration = title.durationS ?? 0
@@ -284,6 +388,7 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
           if (p && Math.abs(s - p.target) > PENDING_SEEK_NEAR_S) return // a tick from before the seek landed
           if (p) clearPending()
           pos.current = s; setPosition(s); onProgress(s)
+          extendedTick(s)
         }}
         style={{ flex: 1 }}
       />
@@ -320,7 +425,7 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
       </View>
 
       {describing ? (
-        <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: px(8), backgroundColor: tokens.color.badge }}>
+        <View testID="extended-bar" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: px(8), backgroundColor: tokens.color.badge }}>
           <T variant="label" style={{ position: 'absolute', right: px(tokens.layout.safeX), bottom: px(16) }}>{strings.player.extendedBar}</T>
         </View>
       ) : null}

@@ -3,7 +3,7 @@ import { View } from 'react-native'
 import { useFonts } from 'expo-font'
 import { Root, configurePlatform, configureRemote, tokens } from '@described/shared-ui'
 import { keySource, setKeySkip } from './src/remote'
-import { speak, stopSpeaking } from './src/audio'
+import { prefetch, speak, stopSpeaking } from './src/audio'
 import { deviceId } from './src/deviceId'
 import { launchSource } from './src/platform/launch'
 import { createMediaSession, keySkipFor } from './src/platform/mediaSession'
@@ -23,5 +23,5 @@ export default function App() {
     'AtkinsonHyperlegible-Bold': require('./assets/fonts/AtkinsonHyperlegible-Bold.ttf'),
   })
   if (!loaded && !error) return <View style={{ flex: 1, backgroundColor: tokens.color.ground }} />
-  return <Root apiBaseUrl={process.env.EXPO_PUBLIC_API_URL ?? 'http://10.0.2.2:4000'} scale={0.5} deviceId={id} fontsLoaded={loaded} speak={speak} stopSpeaking={stopSpeaking} launches={launchSource} />
+  return <Root apiBaseUrl={process.env.EXPO_PUBLIC_API_URL ?? 'http://10.0.2.2:4000'} scale={0.5} deviceId={id} fontsLoaded={loaded} speak={speak} stopSpeaking={stopSpeaking} prefetch={prefetch} launches={launchSource} />
 }

@@ -3,14 +3,18 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { z } from 'zod'
 import type { Ctx } from './index'
 import type { FitCue } from './05-fit'
-/** Polly neural, one voice per title, SSML with a 150 ms lead-in break. Extended cues are voiced too (spoken by the app at runtime). */
+import { cueAudioFile } from '../cues'
+/**
+ * Polly neural, one voice per title, SSML with a 150 ms lead-in break. Extended cues are voiced too: 07-mix leaves them out
+ * of the AD rendition, and the app plays their clip while the film is paused (DESC-007). File names: ../cues.
+ */
 export async function voice(ctx: Ctx) {
   const cues = JSON.parse(await readFile(`${ctx.work}/cues.json`, 'utf8')) as FitCue[]
   const polly = new PollyClient({ region: process.env.AWS_REGION ?? 'eu-central-1' })
   for (const [i, c] of cues.entries()) {
     const ssml = `<speak><break time="150ms"/><prosody rate="100%">${escape(c.text)}</prosody></speak>`
     const r = await polly.send(new SynthesizeSpeechCommand({ Engine: 'neural', VoiceId: ctx.voice as never, OutputFormat: 'mp3', TextType: 'ssml', Text: ssml, LanguageCode: ctx.language === 'de' ? 'de-DE' : 'en-US' }))
-    await writeFile(`${ctx.work}/cue_${i}.mp3`, Buffer.from(await r.AudioStream!.transformToByteArray()))
+    await writeFile(`${ctx.work}/${cueAudioFile(i)}`, Buffer.from(await r.AudioStream!.transformToByteArray()))
   }
 }
 

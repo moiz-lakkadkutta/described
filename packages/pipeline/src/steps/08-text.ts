@@ -5,6 +5,7 @@ import type { Ctx } from './index'
 import type { Word } from './03-speech'
 import type { FitCue } from './05-fit'
 import { sdhWithNovaLite } from '../prompts'
+import { descriptionsVtt } from '../cues'
 
 /**
  * captions.vtt (Transcribe, segmented), sdh.vtt (Nova Lite adds [sounds] and [Speaker] IDs), descriptions.vtt (the AD script with {extended} meta),
@@ -21,7 +22,7 @@ export async function sdh(ctx: Ctx) {
   if (problems.length) console.warn('SDH lint', problems)
   await writeFile(`${ctx.work}/sdh.vtt`, serializeVtt(sdhCues))
   await writeFile(`${ctx.work}/sdh.json`, JSON.stringify({ degraded }))
-  await writeFile(`${ctx.work}/descriptions.vtt`, serializeVtt(cues.map((c, i) => ({ trackId: 'desc', id: `d${i + 1}`, start: c.startMs / 1000, end: Math.max(c.endMs, c.startMs + 833) / 1000, text: c.text, ...(c.extended ? { meta: { extended: '1', words: String(c.wordCount) } } : {}) }))))
+  await writeFile(`${ctx.work}/descriptions.vtt`, descriptionsVtt(cues)) // ids d{n}: see ../cues
 }
 
 /**
