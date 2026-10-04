@@ -51,6 +51,7 @@ model Title {
   tracks      TextTrack[]
   jobs        Job[]
   progress    Progress[]
+  listItems   ListItem[]
 }
 model Asset {
   id String @id @default(cuid())
@@ -131,6 +132,7 @@ model Profile {
   captionStyle String @default("box") // box | shadow
   firstRunDone Boolean @default(false)
   progress Progress[]
+  listItems ListItem[]
 }
 model Progress {
   profileId String
@@ -139,5 +141,14 @@ model Progress {
   title Title @relation(fields: [titleId], references: [id], onDelete: Cascade)
   positionS Float
   updatedAt DateTime @updatedAt
+  @@id([profileId, titleId])
+}
+/// My list: titles a device saved for later. One row per profile and title; newest first by createdAt.
+model ListItem {
+  profileId String
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  titleId String
+  title Title @relation(fields: [titleId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
   @@id([profileId, titleId])
 }

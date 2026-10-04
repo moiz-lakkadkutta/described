@@ -2,11 +2,15 @@ import React from 'react'
 import TestRenderer, { act, type ReactTestInstance } from 'react-test-renderer'
 import { Home } from '../src/screens/Home'
 import { Reading, Title } from '../src/screens/Title'
+import { Described } from '../src/screens/Described'
+import { MyList } from '../src/screens/MyList'
+import { strings } from '../src/strings'
 import { skeletonCount } from '../src/layout'
 import { tokens } from '../src/theme/tokens'
 import { animCalls } from './stubs/react-native'
 import { stub } from './stubs/space-navigation'
-import { catalog, title } from './fixtures'
+import { bunny, catalog, sintel, tears, title } from './fixtures'
+import { a11yCalls } from './stubs/react-native'
 
 const noop = () => {}
 function render(el: React.ReactElement) {
@@ -21,7 +25,7 @@ const home = (c = catalog) => <Home catalog={c} myList={new Set()} onOpen={noop}
 const titleEl = (sample: 'idle' | 'playing' = 'idle') => <Title title={title} captionKind="sdh" inList={false} sample={sample} onPlay={noop} onSample={noop} onCaptions={noop} onToggleList={noop} onMore={noop} />
 
 describe('every focusable states its purpose', () => {
-  it.each([['Home', home()], ['Title', titleEl()], ['Title (sample playing)', titleEl('playing')], ['Reading', <Reading title={title} onClose={noop} />]])('%s', (_, el) => {
+  it.each([['Home', home()], ['Described', <Described catalog={catalog} onOpen={noop} />], ['My list', <MyList catalog={catalog} myList={new Set(['tears-of-steel'])} onOpen={noop} />], ['Title', titleEl()], ['Title (sample playing)', titleEl('playing')], ['Reading', <Reading title={title} onClose={noop} />]])('%s', (_, el) => {
     const r = render(el)
     const f = focusables(r)
     expect(f.length).toBeGreaterThan(0)
@@ -126,5 +130,58 @@ describe('loading', () => {
   it('Title skeleton: nothing focusable', () => {
     const r = render(<Title title={null} captionKind="sdh" inList={false} sample="idle" onPlay={noop} onSample={noop} onCaptions={noop} onToggleList={noop} onMore={noop} />)
     expect(focusables(r)).toHaveLength(0)
+  })
+})
+
+describe('Described and My list grids', () => {
+  const four = { ...catalog, all: [sintel, tears, bunny, { ...bunny, slug: 'cosmos-laundromat', name: 'Cosmos Laundromat' }] }
+  const described = (c = four) => <Described catalog={c} onOpen={noop} />
+  const cardLabels = (r: TestRenderer.ReactTestRenderer) => focusables(r).map(label).filter((l) => l?.startsWith('Open '))
+  it('lays cards in rows of 3, aligned in a grid, each labelled like a Home card', () => {
+    const r = render(described())
+    const grid = r.root.find((n) => (n.type as unknown) === 'Node' && n.props.orientation === 'vertical' && n.props.alignInGrid === true)
+    const rows = grid.findAll((n) => (n.type as unknown) === 'Node' && n.props.orientation === 'horizontal')
+    expect(rows.map((row) => row.findAll((n) => (n.type as unknown) === 'FocusableView').length)).toEqual([3, 1])
+    const homeLabels = focusables(render(home())).map(label)
+    for (const l of cardLabels(r).slice(0, 3)) expect(homeLabels).toContain(l)
+  })
+  it('Grid focus memory returns to the last card', () => {
+    const first = render(described())
+    expect(label(defaults(first)[0]!.findByType('FocusableView' as never))).toMatch(/^Open Sintel/) // first visit: first card
+    act(() => focusables(first).find((n) => label(n)?.startsWith('Open Cosmos'))!.props.onFocus())
+    act(() => first.unmount())
+    const again = render(described())
+    expect(defaults(again)).toHaveLength(1)
+    expect(label(defaults(again)[0]!.findByType('FocusableView' as never))).toMatch(/^Open Cosmos/)
+    act(() => again.unmount())
+    // My list keeps its own memory: still starts on its first card.
+    const list = render(<MyList catalog={four} myList={new Set(['tears-of-steel', 'sintel-90-210'])} onOpen={noop} />)
+    expect(cardLabels(list)).toEqual([expect.stringMatching(/^Open Tears of Steel/), expect.stringMatching(/^Open Sintel/)]) // list order, newest first
+    expect(label(defaults(list)[0]!.findByType('FocusableView' as never))).toMatch(/^Open Tears of Steel/)
+  })
+  it('a remembered card that left the grid falls back to the first', () => {
+    const first = render(described())
+    act(() => focusables(first).find((n) => label(n)?.startsWith('Open Cosmos'))!.props.onFocus())
+    act(() => first.unmount())
+    expect(label(defaults(render(described(catalog)))[0]!.findByType('FocusableView' as never))).toMatch(/^Open Sintel/)
+  })
+  it('says the heading once on entering the grid', () => {
+    const r = render(described())
+    const grid = r.root.find((n) => (n.type as unknown) === 'Node' && n.props.alignInGrid === true)
+    expect(grid.props.onActive).toBeInstanceOf(Function)
+    expect(JSON.stringify(r.toJSON())).toContain(strings.described.heading)
+  })
+  it('loading: skeleton cards, nothing focusable', () => {
+    const r = render(<Described catalog={null} onOpen={noop} />)
+    expect(focusables(r)).toHaveLength(0)
+    expect(r.root.findAll((n) => (n.type as unknown) === 'View' && n.props.accessibilityElementsHidden === true).length).toBeGreaterThan(0)
+  })
+  it('empty My list: no cards, the empty sentence in a live region, announced once', () => {
+    const r = render(<MyList catalog={catalog} myList={new Set()} onOpen={noop} />)
+    expect(focusables(r)).toHaveLength(0)
+    const live = r.root.find((n) => (n.type as unknown) === 'View' && n.props.accessibilityLiveRegion === 'polite')
+    expect(JSON.stringify(live.findAll((n) => (n.type as unknown) === 'Text').map((t) => t.props.children))).toContain(strings.list.empty)
+    act(() => r.update(<MyList catalog={catalog} myList={new Set()} onOpen={noop} />))
+    expect(a11yCalls.filter((c) => c === strings.list.empty)).toHaveLength(1)
   })
 })

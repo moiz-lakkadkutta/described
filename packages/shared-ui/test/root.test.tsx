@@ -19,16 +19,23 @@ function api() {
     /** Paths that wait until settle(path, ok) is called. */
     held: new Map<string, { resolve: (r: Response) => void; reject: (e: Error) => void }>(),
     hold: [] as string[],
+    /** My list on the server (GET /me/list); `refuse` answers 404 for these paths. */
+    list: [] as string[], refuse: [] as string[],
+    /** Every PUT/DELETE as "METHOD path", in the order fetch saw them. */
+    writes: [] as string[],
   }
   const fetch = vi.fn((url: string, init?: RequestInit) => {
     const path = url.replace('http://api', '')
     state.calls.push(path); state.headers.push(init?.headers as Record<string, string>); state.bodies.push(String(init?.body ?? ''))
-    if (init?.method === 'PUT') state.puts.push({ path, body: JSON.parse(String(init.body)) })
+    if (init?.method === 'PUT' && init.body) state.puts.push({ path, body: JSON.parse(String(init.body)) })
+    if (init?.method === 'PUT' || init?.method === 'DELETE') state.writes.push(`${init.method} ${path}`)
     if (state.hold.includes(path)) return new Promise<Response>((resolve, reject) => state.held.set(path, { resolve, reject }))
     if (state.hang) return new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => reject(new Error('aborted'))))
     if (state.down) return Promise.reject(new Error('network'))
     if (path === '/catalog') return ok(catalog)
+    if (state.refuse.includes(path)) return Promise.resolve({ status: 404, json: async () => ({ success: false, error: { code: 'NOT_FOUND' } }) } as Response)
     if (path === '/me/prefs') return ok(prefs)
+    if (path === '/me/list') return ok({ slugs: state.list })
     if (path.startsWith('/titles/')) return ok(state.titles[path.slice('/titles/'.length)])
     return ok({})
   })
@@ -296,5 +303,93 @@ describe('Root', () => {
     act(() => r.root.find((n) => (n.type as unknown) === 'KitPlayer').props.onTracks({ audio: [], text: [{ id: '0', language: 'en', label: 'Rich captions', kind: 'captions', active: false }] }))
     expect(text(r)).toContain('Description on · Joanna · Rich captions')
     expect(text(r)).not.toContain('· sdh')
+  })
+
+  describe('Described and My list', () => {
+    const labels = (r: TestRenderer.ReactTestRenderer) => focusables(r).map((n) => String(n.props['aria-label']))
+    const cards = (r: TestRenderer.ReactTestRenderer) => labels(r).filter((l) => l.startsWith('Open '))
+    const railTo = async (r: TestRenderer.ReactTestRenderer, label: string) => { press(r, strings.a11y.rail(label)); await flush() }
+    const defaultFocus = (r: TestRenderer.ReactTestRenderer) => r.root.findAll((n) => (n.type as unknown) === 'DefaultFocus' && n.props.enable === true).map((d) => String(d.findByType('FocusableView' as never).props['aria-label']))
+
+    it('rail Described opens the Described grid with every title', async () => {
+      api(); const r = await mount()
+      await railTo(r, strings.rail.described)
+      expect(text(r)).toContain(strings.described.heading)
+      expect(cards(r)).toEqual(catalog.all.map((i) => expect.stringMatching(new RegExp(`^Open ${i.name}\\. `))))
+      expect(cards(r)[0]).toBe('Open Sintel. 2010. 15 minutes. Audio description') // the Home card label
+      expect(defaultFocus(r)).toEqual([cards(r)[0]])
+      expect(r.root.findAll((n) => (n.type as unknown) === 'FocusableView' && n.props.accessibilityState?.selected).map((n) => n.props['aria-label'])).toEqual([strings.a11y.rail(strings.rail.described)])
+    })
+
+    it('rail My list opens the list; empty state is announced', async () => {
+      api(); const r = await mount()
+      await railTo(r, strings.rail.list)
+      expect(text(r)).toContain(strings.list.heading)
+      expect(text(r)).toContain(strings.list.empty)
+      expect(a11yCalls.filter((c) => c === strings.list.empty)).toHaveLength(1)
+      expect(cards(r)).toEqual([])
+      expect(defaultFocus(r)).toEqual([strings.a11y.rail(strings.rail.list)]) // nothing else to focus: the rail
+    })
+
+    it('adding from Title shows the title in My list', async () => {
+      api(); const r = await mount()
+      await onTitle(r)
+      press(r, 'Add Sintel to My list'); await flush()
+      expect(a11yCalls).toContain(strings.a11y.listAdded('Sintel'))
+      act(() => { back.press() }); await flush()
+      await railTo(r, strings.rail.list)
+      expect(cards(r)).toEqual(['Open Sintel. 2010. 15 minutes. Audio description'])
+      expect(text(r)).not.toContain(strings.list.empty)
+    })
+
+    it('Back from Described or My list goes Home', async () => {
+      api(); const r = await mount()
+      for (const to of [strings.rail.described, strings.rail.list]) {
+        await railTo(r, to)
+        let handled = false
+        act(() => { handled = back.press() }); await flush()
+        expect(handled).toBe(true)
+        expect(text(r)).toContain(strings.home.newly.toUpperCase())
+      }
+    })
+
+    it('Back from a title opened in Described returns to Described, on the same card', async () => {
+      api(); const r = await mount()
+      await railTo(r, strings.rail.described)
+      const card = focusables(r).find((n) => String(n.props['aria-label']).startsWith('Open Tears of Steel'))!
+      act(() => card.props.onFocus())
+      act(() => card.props.onSelect()); await flush()
+      expect(text(r)).toContain(strings.title.playWithout)
+      act(() => { back.press() }); await flush()
+      expect(text(r)).toContain(strings.described.heading)
+      expect(defaultFocus(r)[0]).toMatch(/^Open Tears of Steel/)
+      expect(r.root.findAll((n) => (n.type as unknown) === 'FocusableView' && n.props.accessibilityState?.selected).map((n) => n.props['aria-label'])).toEqual([strings.a11y.rail(strings.rail.described)])
+    })
+
+    it('Root loads /me/list with the catalog and sends PUT/DELETE in order', async () => {
+      const s = api(); s.list = ['tears-of-steel']
+      s.hold.push('/me/list/sintel-90-210')
+      const r = await mount()
+      expect(s.calls.slice(0, 3)).toEqual(['/catalog', '/me/prefs', '/me/list'])
+      await railTo(r, strings.rail.list)
+      expect(cards(r)).toEqual([expect.stringMatching(/^Open Tears of Steel/)])
+      act(() => { back.press() }); await flush()
+      await onTitle(r)
+      press(r, 'Add Sintel to My list'); await flush()
+      press(r, 'Remove Sintel from My list'); await flush() // optimistic: the button already says Remove
+      expect(s.writes).toEqual(['PUT /me/list/sintel-90-210']) // the DELETE waits for the PUT
+      await act(async () => { s.held.get('/me/list/sintel-90-210')!.resolve(await ok({ slugs: ['sintel-90-210', 'tears-of-steel'] })) }); await flush()
+      expect(s.writes).toEqual(['PUT /me/list/sintel-90-210', 'DELETE /me/list/sintel-90-210'])
+      expect(labels(r)).toContain('Add Sintel to My list')
+    })
+
+    it('a refused My list change is undone and announced', async () => {
+      const s = api(); s.refuse.push('/me/list/sintel-90-210')
+      const r = await mount()
+      await onTitle(r)
+      press(r, 'Add Sintel to My list'); await flush()
+      expect(labels(r)).toContain('Add Sintel to My list')
+      expect(a11yCalls).toContain(strings.a11y.listNotSaved)
+    })
   })
 })
