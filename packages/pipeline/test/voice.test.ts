@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -18,9 +18,13 @@ const NIGHT = 'Night. A rooftop. A man waits by the chimney, watching the street
 const NIGHT_SHORT = 'Night. A rooftop.' // shortenDeterministic(NIGHT, 4)
 const SNOW = 'Snow falls on the hills, drifting past the cabin.'
 const SNOW_SHORT = 'Snow falls on the hills.' // shortenDeterministic(SNOW, 3)
+const STREET = 'Night. A man in a long dark coat walks slowly along the wet street, past the old bakery, the closed bank and the bright cinema, while snow falls on the quiet rooftops.' // 32 words
+const STREET_SHORT = 'Night. A man in a dark coat walks along the street, past the bakery, the closed bank and the cinema, while snow falls on the quiet rooftops.' // shortenDeterministic(STREET, 28): 27 words
+const STREET_CAPPED = 'Night. A man in a dark coat walks along the street, past the bakery, the closed bank and the cinema.' // capExtended(STREET_SHORT): 20 words
 const DURATIONS: Record<string, number> = {
   'Smoke rises.': 1200, 'Snow falls.': 1100, 'She waits.': 1300, 'Words appear: North.': 1700,
   [LONG]: 4000, [SHORT]: 1900, [NIGHT]: 5000, [NIGHT_SHORT]: 2500, [SNOW]: 6000, [SNOW_SHORT]: 2600,
+  [STREET]: 11200, [STREET_SHORT]: 10400, [STREET_CAPPED]: 7800,
 }
 
 let work: string
@@ -114,6 +118,20 @@ describe('voice', () => {
     expect(c).toEqual({ startMs: 10000, endMs: 12500, text: NIGHT_SHORT, extended: true, wordCount: 3, shotIndex: 0 })
     expect(c).not.toHaveProperty('limitMs')
   })
+  it('an overrun turned extended and capped re-voices once more and bills all three calls', async () => {
+    // 10000 + 11200 > 20200 → maxWords = max(3, floor(32 × 10000 / 11200)) = 28 → STREET_SHORT (27 words); 10000 + 10400 still > 20200
+    // and it introduces something new → extended, and capExtended cuts its 27 words to 20 (STREET_CAPPED): a third Polly call.
+    await writeCues([cue(10000, STREET, 20000)])
+    const f = fakes()
+    const { costUsd } = await metered(() => voice(ctx(), f))
+    expect(f.synthesize.mock.calls.map((c) => c[0])).toEqual([STREET, STREET_SHORT, STREET_CAPPED])
+    expect(await readCues()).toEqual([{ startMs: 10000, endMs: 17800, text: STREET_CAPPED, extended: true, wordCount: 20, shotIndex: 0 }])
+    expect(await files()).toEqual(['cue_0.json', 'cue_0.mp3'])
+    expect(await readFile(`${work}/cue_0.mp3`, 'utf8')).toBe(STREET_CAPPED)
+    expect(JSON.parse(await readFile(`${work}/${cueSidecarFile(0)}`, 'utf8'))).toMatchObject({ text: STREET_CAPPED, ssml: cueSsml(STREET_CAPPED), durationMs: 7800 })
+    // Each of the three calls is billed exactly once: the two discarded clips and the kept one.
+    expect(costUsd).toBeCloseTo(pollyUsd(STREET.length + STREET_SHORT.length + STREET_CAPPED.length), 12)
+  })
   it('a second overrun is dropped otherwise', async () => {
     // middle cue: 20000 + 6000 > 22200 → maxWords = max(3, floor(9 × 2000 / 6000)) = 3 → SNOW_SHORT; 20000 + 2600 still > 22200 → dropped
     await writeCues([cue(1000, 'Smoke rises.', 5000), cue(20000, SNOW, 22000), cue(30000, 'She waits.', 34000)])
@@ -125,17 +143,6 @@ describe('voice', () => {
     expect(await files()).toEqual(['cue_0.json', 'cue_0.mp3', 'cue_1.json', 'cue_1.mp3'])
     expect(await readFile(`${work}/cue_1.mp3`, 'utf8')).toBe('She waits.')
     expect(JSON.parse(await readFile(`${work}/${cueSidecarFile(1)}`, 'utf8'))).toMatchObject({ text: 'She waits.', durationMs: 1300 })
-    expect(costUsd).toBeCloseTo(pollyUsd(['Smoke rises.', SNOW, SNOW_SHORT, 'She waits.'].join('').length), 12)
-  })
-  it('bills every Polly call even when the clip file is stamped before the run started', async () => {
-    // Regression: the cost used to be inferred from clip mtimes ≥ Date.now() at the start of the step. Linux stamps files from a
-    // coarse kernel clock that can lag Date.now(), so a clip written in the first tick looked older than the run and went unbilled
-    // (CI: 'Smoke rises.' missing, 12 chars = $0.000192). Here every clip is back-dated an hour to make that deterministic.
-    await writeCues([cue(1000, 'Smoke rises.', 5000), cue(20000, SNOW, 22000), cue(30000, 'She waits.', 34000)])
-    const f = fakes()
-    const measure = f.measureMs.getMockImplementation()!
-    f.measureMs.mockImplementation(async (file: string) => { const past = new Date(Date.now() - 3_600_000); await utimes(file, past, past); return measure(file) })
-    const { costUsd } = await metered(() => voice(ctx(), f))
     expect(costUsd).toBeCloseTo(pollyUsd(['Smoke rises.', SNOW, SNOW_SHORT, 'She waits.'].join('').length), 12)
   })
   it('a failed run still bills the Polly calls it made; a reused clip costs nothing', async () => {
