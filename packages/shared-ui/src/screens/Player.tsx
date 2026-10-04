@@ -314,7 +314,7 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
     setAdOn(on)
     announce(on ? strings.tracks.announceOn : strings.tracks.announceOff)
     const t = audioTrackFor(tracksRef.current.audio, on)
-    if (t && ref.current) void crossfadeAudio(ref.current, t.id)
+    if (t && ref.current) crossfadeAudio(ref.current, t.id).catch(() => {}) // never rejects; belt and braces for a setVolume throw
   }
 
   // Raw keys (Select reaches the surface through spatial navigation; Back through BackHandler). A key the player acts

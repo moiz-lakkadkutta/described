@@ -115,7 +115,12 @@ const fades = new WeakMap<VolumePlayer, { gen: number; v: number }>()
  * midpoint, back up to 1 over the other half. A second switch on the same player while one is running takes over:
  * the older one stops where it is (it never selects its track), and the newer fades down from the current volume, so
  * the volume always ends at 1. On Vega the kit's `setVolume` is a no-op, so the switch lands at the midpoint without
- * a fade. Resolves when this switch is done or has given way.
+ * a fade. A `selectAudio` that throws is logged and the fade still comes back up to 1. Never rejects; resolves when
+ * this switch is done or has given way.
+ *
+ * `id` is the track id when the switch began. A source change on the same ref during a fade would let the pending
+ * `selectAudio` pick an id from the old source; Player changes source only by remounting the kit (`key={attempt}`),
+ * which gives a new ref, so that cannot happen today.
  */
 export async function crossfadeAudio(p: VolumePlayer, id: string, wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)), steps = 5): Promise<void> {
   const f = fades.get(p) ?? { gen: 0, v: 1 }
@@ -125,6 +130,6 @@ export async function crossfadeAudio(p: VolumePlayer, id: string, wait: (ms: num
   const set = (v: number) => { f.v = v; p.setVolume(v) }
   const half = tokens.motion.crossfadeMs / 2, from = f.v
   for (let i = steps - 1; i >= 0; i--) { set((from * i) / steps); await wait(half / steps); if (!live()) return }
-  p.selectAudio(id)
+  try { p.selectAudio(id) } catch (e) { console.warn('crossfadeAudio: selectAudio failed', e) }
   for (let i = 1; i <= steps; i++) { await wait(half / steps); if (!live()) return; set(i / steps) }
 }
