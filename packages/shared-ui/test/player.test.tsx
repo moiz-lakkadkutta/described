@@ -38,6 +38,8 @@ function mount(over: Partial<PlayerProps> = {}) {
   return props
 }
 const flush = () => act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve() })
+/** Runs an audio switch's fade to the end (selectAudio happens at its midpoint). */
+const fade = () => act(async () => { await vi.advanceTimersByTimeAsync(tokens.motion.crossfadeMs) })
 const player = () => r.root.find((n) => (n.type as unknown) === 'KitPlayer')
 const kitProps = () => player().props as Record<string, (...a: unknown[]) => void> & { startAt: number }
 const report = (name: string, ...a: unknown[]) => act(() => { kitProps()[name]!(...a) })
@@ -228,12 +230,54 @@ describe('tracks from the master playlist', () => {
     mount(); report('onTracks', tracks); report('onState', 'playing')
     press('menu')
     act(() => byLabel(strings.tracks.a11y.original)!.props.onSelect())
-    expect(kit.ref.selectAudio).toHaveBeenCalledWith(idOf('Original'))
     expect(a11yCalls).toContain('Description off')
     expect(status()).toBe('Description off · Rich captions')
+    await fade()
+    expect(kit.ref.selectAudio).toHaveBeenCalledWith(idOf('Original'))
     act(() => byLabel(strings.tracks.a11y.ad('Joanna'))!.props.onSelect())
+    await fade()
     expect(kit.ref.selectAudio).toHaveBeenLastCalledWith(idOf('Audio description'))
     expect(a11yCalls).toContain('Description on')
+  })
+  it('switching audio fades out, switches at the midpoint, fades back in', async () => {
+    mount(); report('onTracks', tracks); report('onState', 'playing')
+    press('menu')
+    const order: string[] = []
+    kit.ref.setVolume.mockImplementation((v: number) => { order.push(`v:${v}`) })
+    kit.ref.selectAudio.mockImplementation((id: string) => { order.push(`select:${id}`) })
+    act(() => byLabel(strings.tracks.a11y.original)!.props.onSelect())
+    const half = tokens.motion.crossfadeMs / 2
+    await act(async () => { await vi.advanceTimersByTimeAsync(half - 1) })
+    expect(kit.ref.selectAudio).not.toHaveBeenCalled()
+    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+    expect(kit.ref.selectAudio).toHaveBeenCalledTimes(1)
+    expect(kit.ref.selectAudio).toHaveBeenCalledWith(idOf('Original'))
+    await act(async () => { await vi.advanceTimersByTimeAsync(half) })
+    const at = order.indexOf(`select:${idOf('Original')}`)
+    const vols = (xs: string[]) => xs.map((x) => Number(x.slice(2)))
+    const down = vols(order.slice(0, at)), up = vols(order.slice(at + 1))
+    expect(down.length).toBeGreaterThan(1)
+    expect(down).toEqual([...down].sort((a, b) => b - a))
+    expect(down.at(-1)).toBe(0)
+    expect(up.length).toBeGreaterThan(1)
+    expect(up).toEqual([...up].sort((a, b) => a - b))
+    expect(up.at(-1)).toBe(1)
+    expect([...down, ...up].every((v) => v >= 0 && v <= 1)).toBe(true)
+  })
+  it('a second switch during a fade does not leave the volume at 0', async () => {
+    mount(); report('onTracks', tracks); report('onState', 'playing')
+    press('menu')
+    act(() => byLabel(strings.tracks.a11y.original)!.props.onSelect())
+    await act(async () => { await vi.advanceTimersByTimeAsync(tokens.motion.crossfadeMs / 2 - 10) }) // nearly silent, not yet switched
+    act(() => byLabel(strings.tracks.a11y.ad('Joanna'))!.props.onSelect())
+    await act(async () => { await vi.advanceTimersByTimeAsync(tokens.motion.crossfadeMs * 2) })
+    expect(kit.ref.setVolume).toHaveBeenLastCalledWith(1)
+    expect(kit.ref.selectAudio).toHaveBeenLastCalledWith(idOf('Audio description'))
+    // The first fade gave way: it never switched to Original, and nothing touched the volume after the second ended.
+    expect(kit.ref.selectAudio).not.toHaveBeenCalledWith(idOf('Original'))
+    const n = kit.ref.setVolume.mock.calls.length
+    await act(async () => { await vi.advanceTimersByTimeAsync(tokens.motion.crossfadeMs * 2) })
+    expect(kit.ref.setVolume.mock.calls.length).toBe(n)
   })
   it('captions and Extended mode chosen in the sheet are saved as prefs', () => {
     const p = mount(); press('menu')

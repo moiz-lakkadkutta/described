@@ -7,7 +7,7 @@ export const fetchHlsVtt = async (url: string) => (await fetch(url)).text()
 // Like the kit's Fire OS adapter, getPosition is the last position reported through onPosition (it does not move
 // when a seek is sent).
 const mocks = () => ({
-  play: vi.fn(), pause: vi.fn(), seek: vi.fn(), setRate: vi.fn(), selectAudio: vi.fn(), selectText: vi.fn(),
+  play: vi.fn(), pause: vi.fn(), seek: vi.fn(), setRate: vi.fn(), setVolume: vi.fn(), selectAudio: vi.fn(), selectText: vi.fn(),
   getPosition: vi.fn((): number | undefined => kit.position), getTracks: vi.fn(),
 })
 export const kit = { ref: mocks(), mounts: 0, position: 0, reset() { this.ref = mocks(); this.mounts = 0; this.position = 0 } }

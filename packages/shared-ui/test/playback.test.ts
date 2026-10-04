@@ -105,11 +105,59 @@ describe('audio crossfade', () => {
     expect(calls).toEqual(['v:0.8', 'v:0.6', 'v:0.4', 'v:0.2', 'v:0', 'select:1', 'v:0.2', 'v:0.4', 'v:0.6', 'v:0.8', 'v:1'])
     expect(waited).toBeCloseTo(tokens.motion.crossfadeMs)
   })
-  it('a kit player (no volume control yet) switches at once', async () => {
-    const selectAudio = vi.fn()
-    const wait = vi.fn(async () => {})
-    await crossfadeAudio({ selectAudio }, '1', wait)
-    expect(selectAudio).toHaveBeenCalledWith('1')
-    expect(wait).not.toHaveBeenCalled()
+  it('a selectAudio that throws still ends at volume 1', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const setVolume = vi.fn()
+    const p = { selectAudio: () => { throw new Error('no such track') }, setVolume }
+    await expect(crossfadeAudio(p, 'x', async () => {})).resolves.toBeUndefined()
+    expect(setVolume).toHaveBeenLastCalledWith(1)
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
+  })
+  it('a switch that starts during the previous fade-up takes over without the volume rising', async () => {
+    vi.useFakeTimers()
+    try {
+      const calls: string[] = []
+      const p = { selectAudio: (id: string) => calls.push(`select:${id}`), setVolume: (v: number) => calls.push(`v:${v}`) }
+      const first = crossfadeAudio(p, 'a')
+      await vi.advanceTimersByTimeAsync(200) // past the midpoint (150 ms): 'a' selected, fading up
+      expect(calls).toContain('select:a')
+      const vols = (xs: string[]) => xs.filter((c) => c.startsWith('v:')).map((c) => Number(c.slice(2)))
+      const at = calls.length, level = vols(calls).at(-1)!
+      expect(level).toBeGreaterThan(0)
+      expect(level).toBeLessThan(1)
+      const second = crossfadeAudio(p, 'b')
+      await vi.advanceTimersByTimeAsync(tokens.motion.crossfadeMs * 2)
+      await Promise.all([first, second])
+      const sel = calls.indexOf('select:b')
+      const between = vols(calls.slice(at, sel))
+      expect(between.every((v) => v <= level)).toBe(true) // the first fade-up stopped; nothing rose before the switch
+      expect(between.at(-1)).toBe(0)
+      expect(calls.filter((c) => c.startsWith('select'))).toEqual(['select:a', 'select:b'])
+      expect(calls.at(-1)).toBe('v:1')
+    } finally { vi.useRealTimers() }
+  })
+  it('a newer switch on the same player takes over: the older fade stops and never selects', async () => {
+    const calls: string[] = []
+    const p = { selectAudio: (id: string) => calls.push(`select:${id}`), setVolume: (v: number) => calls.push(`v:${v}`) }
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    let reached!: () => void
+    const atStep2 = new Promise<void>((r) => { reached = r })
+    let n = 0
+    // The first fade is held after its second step (volume 0.6); the second starts from there.
+    const first = crossfadeAudio(p, 'a', async () => { if (++n === 2) { reached(); await gate } })
+    await atStep2
+    expect(calls).toEqual(['v:0.8', 'v:0.6'])
+    const second = crossfadeAudio(p, 'b', async () => {})
+    await second
+    release(); await first
+    expect(calls).not.toContain('select:a')
+    expect(calls.filter((c) => c.startsWith('select'))).toEqual(['select:b'])
+    expect(calls.at(-1)).toBe('v:1')
+    const sel = calls.indexOf('select:b')
+    const down = calls.slice(2, sel).map((c) => Number(c.slice(2)))
+    expect(down[0]).toBeLessThan(0.6) // continues down from where the first fade was, no jump back up
+    expect(down.at(-1)).toBe(0)
   })
 })
