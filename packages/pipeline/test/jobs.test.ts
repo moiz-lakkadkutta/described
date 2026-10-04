@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
 import { FAILED_QUEUE, handleDeadLetter, stopOnSignals, handleJob, JOB_STEPS, persist, QUEUE_OPTIONS, queueName, registerPipeline, type Db, type JobStep } from '../src/jobs'
 import { meter } from '../src/cost'
+import { persistForCli } from '../src/cues'
 import type { Ctx } from '../src/steps'
 
 /** In-memory stand-ins for Prisma and pg-boss: no Postgres, no AWS. */
@@ -13,7 +14,7 @@ function fakes() {
   let shots: Array<Record<string, unknown>> = [], gaps: Array<Record<string, unknown>> = [], cues: Array<Record<string, unknown>> = [], renditions: Array<Record<string, unknown>> = [], textTracks: Array<Record<string, unknown>> = []
   const inc = (row: Record<string, unknown>, data: Record<string, unknown>) => { for (const [k, v] of Object.entries(data)) row[k] = v && typeof v === 'object' && 'increment' in v ? Number(row[k] ?? 0) + (v as { increment: number }).increment : v }
   const db = {
-    title: { findUniqueOrThrow: vi.fn(async () => title), update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => Object.assign(title, data)) },
+    title: { findUniqueOrThrow: vi.fn(async () => title), findUnique: vi.fn(async ({ where }: { where: { slug?: string } }) => (where.slug === title.slug ? { id: title.id as string } : null)), update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => Object.assign(title, data)) },
     job: {
       upsert: vi.fn(async ({ where, create, update }: { where: { id: string }; create: Record<string, unknown>; update: Record<string, unknown> }) => { const r = jobs.get(where.id); if (r) inc(r, update); else jobs.set(where.id, { costUsd: 0, ...create }) }),
       update: vi.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => inc(jobs.get(where.id)!, data)),
@@ -29,6 +30,7 @@ function fakes() {
     rendition: { deleteMany: vi.fn(async () => { renditions = [] }), createMany: vi.fn(async ({ data }: { data: Array<Record<string, unknown>> }) => { renditions.push(...data) }) },
     textTrack: { deleteMany: vi.fn(async () => { textTracks = [] }), createMany: vi.fn(async ({ data }: { data: Array<Record<string, unknown>> }) => { textTracks.push(...data) }) },
     $transaction: vi.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
+    $disconnect: vi.fn(async () => {}),
   }
   const boss = { createQueue: vi.fn(async () => {}), updateQueue: vi.fn(async () => {}), send: vi.fn(async () => 'next-id'), work: vi.fn(async () => 'worker-id') }
   return { db: db as unknown as Db, raw: db, boss, jobs, title, shots: () => shots, gaps: () => gaps, cues: () => cues, renditions: () => renditions, textTracks: () => textTracks }
@@ -205,6 +207,19 @@ describe('pipeline jobs', () => {
     f.title.posterKey = 'published/sintel/art/poster-by-hand.jpg'
     await persist('finish', 't1', work, f.db)
     expect(f.title.posterKey).toBe('published/sintel/art/poster-by-hand.jpg')
+  })
+  it('the CLI path writes description cues, track rows and art keys', async () => {
+    const f = fakes()
+    const work = await mkdtemp(join(tmpdir(), 'cli-'))
+    await finishFiles(work)
+    await mkdir(`${work}/art`); await writeFile(`${work}/art/poster.jpg`, 'jpg'); await writeFile(`${work}/art/hero.jpg`, 'jpg')
+    await persistForCli('sintel', work, async () => f.db as never)
+    expect(f.raw.title.findUnique).toHaveBeenCalledWith({ where: { slug: 'sintel' }, select: { id: true } })
+    expect(f.cues().map((c) => [c.titleId, c.pollyKey])).toEqual([['t1', 'published/sintel/cues/cue_0.aaaaaaaaaaaa.mp3'], ['t1', 'published/sintel/cues/cue_1.bbbbbbbbbbbb.mp3']])
+    expect(f.renditions().map((r) => r.kind)).toEqual(['audio_main', 'audio_ad'])
+    expect(f.textTracks().map((t) => [t.kind, t.cueCount])).toEqual([['captions', 12], ['sdh', 15], ['descriptions', 2]])
+    expect(f.title).toMatchObject({ posterKey: 'published/sintel/art/poster.jpg', heroKey: 'published/sintel/art/hero.jpg' })
+    expect(f.raw.$disconnect).toHaveBeenCalled()
   })
   it('finish that runs out of time writes no DescriptionCue rows and does not publish, even if steps 6–10 finish later', async () => {
     const f = fakes()

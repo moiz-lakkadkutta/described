@@ -16,8 +16,11 @@ export async function probe(ctx: Ctx) {
   const rate = (r?: string) => { const [n, d] = (r ?? '0/0').split('/').map(Number); return n && d ? n / d : 0 }
   await execa('ffmpeg', mezzanineArgs(ctx.work, rate(video?.r_frame_rate) || rate(video?.avg_frame_rate)), { stdio: 'inherit', cancelSignal: ctx.signal })
   const duration = Number((JSON.parse(stdout) as { format?: { duration?: string } }).format?.duration) || 0
-  await extractArt(ctx, Number(process.env.PIPELINE_ART_AT_S) || duration * 0.3)
+  await extractArt(ctx, artAtS(process.env.PIPELINE_ART_AT_S, duration))
 }
+
+/** PIPELINE_ART_AT_S when set to a number (0 included: the first frame), else 30 % into the title. */
+export const artAtS = (env: string | undefined, durationS: number) => (env !== undefined && env.trim() !== '' && Number.isFinite(Number(env)) ? Number(env) : durationS * 0.3)
 
 /**
  * Hero + poster stills from the mezzanine into work/art/ (10-publish uploads them to published/{slug}/art/; persist('finish')

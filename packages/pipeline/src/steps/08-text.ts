@@ -9,7 +9,8 @@ import { descriptionsVtt } from '../cues'
 
 /**
  * captions.vtt (Transcribe, segmented), sdh.vtt (Nova Lite adds [sounds] and [Speaker] IDs), descriptions.vtt (the AD script with {extended} meta),
- * sdh.json { degraded } — true when any SDH window fell back to the plain captions, so 09-package does not advertise it as Rich captions.
+ * sdh.json { degraded } — true when any SDH window fell back to the plain captions, or when there were captions but no window added a
+ * sound or a speaker tag (the SDH track would be the plain captions), so 09-package does not advertise it as Rich captions.
  * Nova Lite sees the captions in windows of ≤ 40 (DESC-014), one call each.
  */
 export async function sdh(ctx: Ctx, send?: SdhConverse) {
@@ -18,11 +19,11 @@ export async function sdh(ctx: Ctx, send?: SdhConverse) {
   const captions = segment(words)
   await writeFile(`${ctx.work}/captions.vtt`, serializeVtt(captions))
   // No dialogue → nothing for Nova Lite to annotate; write header-only files rather than spend a call on an empty array.
-  const { cues: sdhCues, degraded } = captions.length ? await sdhWithNovaLite(captions, cues, ctx.language, send) : { cues: [], degraded: false }
+  const { cues: sdhCues, degraded, added } = captions.length ? await sdhWithNovaLite(captions, cues, ctx.language, send) : { cues: [], degraded: false, added: 0 }
   const problems = lintCues(sdhCues)
   if (problems.length) console.warn('SDH lint', problems)
   await writeFile(`${ctx.work}/sdh.vtt`, serializeVtt(sdhCues))
-  await writeFile(`${ctx.work}/sdh.json`, JSON.stringify({ degraded }))
+  await writeFile(`${ctx.work}/sdh.json`, JSON.stringify({ degraded: degraded || (captions.length > 0 && added === 0) }))
   await writeFile(`${ctx.work}/descriptions.vtt`, descriptionsVtt(cues)) // ids d{n}: see ../cues
 }
 

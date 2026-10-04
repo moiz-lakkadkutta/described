@@ -1,6 +1,6 @@
 import { Command } from 'commander'
 import { ctxFor, runDescribe } from './steps'
-import { writeDescriptionCuesForCli } from './cues'
+import { persistForCli } from './cues'
 import { resolveLanguageAndVoice } from './steps/06-voice'
 import { promptOptions, synthesizePrompts } from './promptClips'
 const program = new Command().name('described-pipeline')
@@ -9,7 +9,7 @@ program.command('describe').requiredOption('--title <slug>').requiredOption('--s
     const { language, voice } = resolveLanguageAndVoice({ lang: o.lang, voice: o.voice })
     const input = { slug: o.title, source: o.source, language, voice, fromStep: o.from }
     await runDescribe(input)
-    await writeDescriptionCuesForCli(o.title, ctxFor(input).work) // the worker does this in persist('finish')
+    await persistForCli(o.title, ctxFor(input).work) // the worker does this in persist('finish')
     process.exit(0)
   })
 // App-voice prompt clips (DESC-010). A dry run by default: prints the texts and the Polly estimate, no AWS call. --run pays.

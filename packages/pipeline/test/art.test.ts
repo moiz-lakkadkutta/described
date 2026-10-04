@@ -38,7 +38,7 @@ describe('probe art', () => {
     await probe(ctx())
     expect((await stat(join(work, 'art'))).isDirectory()).toBe(true)
     expect(artCalls().map(([, a]) => (a as string[]).at(-1))).toEqual([`${work}/art/hero.jpg`, `${work}/art/poster.jpg`])
-    expect(artCalls().every(([, a]) => pair(a as string[], '-ss') === '180')) // 30 % of 600 s
+    expect(artCalls().every(([, a]) => pair(a as string[], '-ss') === '180')).toBe(true) // 30 % of 600 s
 
     execa.mockImplementation(async (cmd: string, a: string[]) => {
       if (cmd === 'ffprobe') return { stdout: JSON.stringify({ format: { duration: '600.0' }, streams: [] }) }
@@ -54,5 +54,10 @@ describe('probe art', () => {
     vi.stubEnv('PIPELINE_ART_AT_S', '12')
     await probe(ctx())
     expect(artCalls().map(([, a]) => pair(a as string[], '-ss'))).toEqual(['12', '12'])
+  })
+  it('PIPELINE_ART_AT_S=0 takes the first frame', async () => {
+    vi.stubEnv('PIPELINE_ART_AT_S', '0')
+    await probe(ctx())
+    expect(artCalls().map(([, a]) => pair(a as string[], '-ss'))).toEqual(['0', '0'])
   })
 })

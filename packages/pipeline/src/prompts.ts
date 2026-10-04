@@ -104,9 +104,10 @@ function sdhRequest(window: Cue[], descriptions: FitCue[], language: 'en' | 'de'
  * SDH: add [sounds] and [Speaker] identification per Netflix conventions. Captions go to Nova Lite in windows of ≤ 40 (chunkCaptions),
  * one call each, metered per call; each reply holds additions only. Replies are concatenated and merged once onto the input by mergeSdh,
  * so sound ids are numbered once and sounds overlapping across a window edge are dropped. A window whose reply is unreadable adds
- * nothing (its captions stay plain) and marks the whole title degraded.
+ * nothing (its captions stay plain) and marks the whole title degraded. `added` counts what the merge actually added (sound cues +
+ * speaker tags): 0 means the SDH track is the plain captions, which 08-text does not advertise as Rich captions.
  */
-export async function sdhWithNovaLite(captions: Cue[], descriptions: FitCue[], language: 'en' | 'de', send: SdhConverse = bedrockSend): Promise<{ cues: Cue[]; degraded: boolean; calls: number }> {
+export async function sdhWithNovaLite(captions: Cue[], descriptions: FitCue[], language: 'en' | 'de', send: SdhConverse = bedrockSend): Promise<{ cues: Cue[]; degraded: boolean; calls: number; added: number }> {
   const windows = chunkCaptions(captions)
   const added: ReplyCue[] = []
   let degraded = false
@@ -119,7 +120,10 @@ export async function sdhWithNovaLite(captions: Cue[], descriptions: FitCue[], l
     if (cues) added.push(...cues)
     else { degraded = true; console.warn(`SDH: window ${w[0]!.id}–${w.at(-1)!.id} reply is not {"cues":[…]}; its captions stay plain`, (typeof reply === 'string' ? reply : JSON.stringify(reply) ?? '').slice(0, 200)) }
   }
-  return { cues: mergeSdh(captions, added), degraded, calls: windows.length }
+  const cues = mergeSdh(captions, added)
+  const text = new Map(captions.map((c) => [c.id, c.text]))
+  const count = cues.filter((c) => c.sound || (text.has(c.id) && text.get(c.id) !== c.text)).length
+  return { cues, degraded, calls: windows.length, added: count }
 }
 
 /** Bracketed words that make a cue a sound: Nova Lite also tags objects and actions ([rock formation], [woman holds bowl]). Extend freely. */
@@ -128,24 +132,13 @@ export const SOUND_WORDS = new Set(['crackles', 'crackling', 'crunches', 'crunch
 const SdhReply = z.object({ cues: z.array(z.object({ id: z.string(), start: z.coerce.number(), end: z.coerce.number(), text: z.string(), speaker: z.string().optional(), sound: z.boolean().optional() }).passthrough()) })
 type ReplyCue = z.infer<typeof SdhReply>['cues'][number]
 
-/** Nova Lite's reply (the toolUse input object, or text holding {"cues":[…]}) as SDH cues. Anything else, or zero cues, falls back to the plain captions with degraded=true. */
-export function readSdhReply(reply: unknown, captions: Cue[]): { cues: Cue[]; degraded: boolean } {
-  const cues = replyCues(reply)
-  if (!cues?.length) {
-    console.warn('SDH: Nova Lite reply is not a non-empty {"cues":[…]}; using plain captions', (typeof reply === 'string' ? reply : JSON.stringify(reply) ?? '').slice(0, 200))
-    return { cues: captions.map((c) => ({ ...c, trackId: 'sdh' })), degraded: true }
-  }
-  return { cues: mergeSdh(captions, cues), degraded: false }
-}
 /** The reply's cues (the toolUse input object, or text holding {"cues":[…]}, fenced or not); undefined when it is neither. An empty list is valid. */
-function replyCues(reply: unknown): ReplyCue[] | undefined {
+export function replyCues(reply: unknown): ReplyCue[] | undefined {
   let json: unknown = reply
   if (typeof reply === 'string') try { json = JSON.parse(stripFence(reply)) } catch { json = undefined }
   const parsed = SdhReply.safeParse(json)
   return parsed.success ? parsed.data.cues : undefined
 }
-/** readSdhReply's cues only. */
-export const parseSdhReply = (reply: unknown, captions: Cue[]): Cue[] => readSdhReply(reply, captions).cues
 
 /**
  * Deterministic merge: caption cues always come from the input (by id; the reply may only add a leading "[Name] " tag),

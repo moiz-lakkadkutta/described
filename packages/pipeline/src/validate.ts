@@ -1,7 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 import { resolve } from 'node:path'
-import { audioTracksFromHls, parseHlsMaster, parseVtt, textTracksFromHls, type HlsMaster } from '@moizp/vega-media-kit/core'
+import { audioTracksFromHls, normalizeRoles, parseHlsMaster, parseVtt, textTracksFromHls, type HlsMaster } from '@moizp/vega-media-kit/core'
 import type { PackageReport } from './steps/09-package'
 
 /**
@@ -38,8 +38,9 @@ export function checkMaster(masterText: string, baseUrl: string, expect: Package
   const problems: string[] = []
   const audio = m.renditions.filter((r) => r.type === 'AUDIO')
   if (audio.length !== 2) problems.push(`expected 2 audio renditions (Original, Audio description), found ${audio.length}`)
-  const tracks = audioTracksFromHls(m)
-  if (!tracks.some((t, i) => t.label === 'Original' && t.roles.includes('main') && !audio[i]!.characteristics.includes(DESCRIBES_VIDEO))) problems.push('no main audio rendition named "Original"')
+  // By name (trimmed, as the kit's labelFor reads it) and characteristics on the rendition itself; roles as the kit derives them.
+  const original = audio.find((r) => r.name.trim() === 'Original' && !r.characteristics.includes(DESCRIBES_VIDEO))
+  if (!original || !normalizeRoles(original.characteristics).includes('main')) problems.push('no main audio rendition named "Original"')
   if (!audio.some((r) => r.characteristics.includes(DESCRIBES_VIDEO))) problems.push(`no audio rendition has CHARACTERISTICS ${DESCRIBES_VIDEO}`)
 
   const sound = new Set(m.renditions.filter((r) => r.type === 'SUBTITLES' && r.characteristics.includes(DESCRIBES_SOUND)).map((r) => r.uri))
@@ -66,7 +67,10 @@ const VTT_KIND: Record<VttFile, Kind> = { 'captions.vtt': 'captions', 'sdh.vtt':
  * Error(problems.join('\n')) when there is any problem.
  */
 export async function validateWork(work: string): Promise<ManifestProblems> {
-  const report = JSON.parse(await readFile(`${work}/package.json`, 'utf8')) as PackageReport
+  const report = JSON.parse(await readFile(`${work}/package.json`, 'utf8').catch((e: NodeJS.ErrnoException) => {
+    if (e.code === 'ENOENT') throw new Error('work/package.json missing: run --from package first')
+    throw e
+  })) as PackageReport
   const masterFile = resolve(work, 'hls/master.m3u8')
   const masterText = await readFile(masterFile, 'utf8').catch(() => '')
   const baseUrl = pathToFileURL(masterFile).href
