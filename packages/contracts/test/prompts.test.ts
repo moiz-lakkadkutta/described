@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { PromptKey, Voice, promptTextFor, promptTexts, voiceLanguage } from '../src/index'
+import { PromptKey, Voice, promptAudioKey, promptTextFor, promptTexts, voiceLanguage } from '../src/index'
 
 const BLOCK = JSON.parse(readFileSync(path.resolve(__dirname, '../../../scripts/lint-words.mjs'), 'utf8').match(/const BLOCK = (\[.*?\])/)![1]!) as string[]
 describe('prompt text', () => {
@@ -18,5 +18,10 @@ describe('prompt text', () => {
       for (const w of [...BLOCK, 'KI', 'aktivieren', 'deaktivieren']) expect(t, t).not.toMatch(new RegExp(`\\b${w}\\b`, 'i'))
     for (const t of Object.values(promptTexts['de-DE'])) expect(t, t).not.toMatch(/\b(du|dein|deine|dich|dir)\b/i)
     expect(promptTexts['de-DE'].firstRun2).toMatch(/\bSie\b/)
+  })
+  it('promptAudioKey lives under published/', () => {
+    // CloudFront serves /published/* only (infra/lib/media-stack.ts); anything else is a 403.
+    expect(promptAudioKey('Vicki', 'firstRun2')).toBe('published/prompts/Vicki/firstRun2.mp3')
+    for (const v of Voice.options) for (const k of PromptKey.options) expect(promptAudioKey(v, k)).toMatch(/^published\/prompts\/\w+\/\w+\.mp3$/)
   })
 })

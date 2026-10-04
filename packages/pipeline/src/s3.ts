@@ -1,5 +1,7 @@
+import { CloudFrontClient, CreateInvalidationCommand } from '@aws-sdk/client-cloudfront'
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { Upload } from '@aws-sdk/lib-storage'
+import { randomUUID } from 'node:crypto'
 import { createReadStream, createWriteStream } from 'node:fs'
 import { extname } from 'node:path'
 import type { Readable } from 'node:stream'
@@ -32,7 +34,22 @@ export async function upload(file: string, uri: string, opts: { ContentType: str
   await new Upload({ client: s3(region), params: { ...parseS3Uri(uri), Body: createReadStream(file), ...meta } }).done()
 }
 
-const CONTENT_TYPES: Record<string, string> = { '.m3u8': 'application/vnd.apple.mpegurl', '.m4s': 'video/iso.segment', '.mp4': 'video/mp4', '.vtt': 'text/vtt', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.json': 'application/json' }
+const CONTENT_TYPES: Record<string, string> = { '.m3u8': 'application/vnd.apple.mpegurl', '.m4s': 'video/iso.segment', '.mp4': 'video/mp4', '.vtt': 'text/vtt', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.json': 'application/json', '.jpg': 'image/jpeg' }
 export const contentType = (file: string) => CONTENT_TYPES[extname(file)] ?? 'application/octet-stream'
-/** Playlists are re-fetched (60 s); segments never change under a given name, so CloudFront may keep them a year. */
-export const cacheControl = (file: string) => (extname(file) === '.m3u8' ? 'public,max-age=60' : 'public,max-age=31536000,immutable')
+/**
+ * 60 s for whatever a re-run rewrites under the same name: playlists, VTTs (whole-file and segmented) and art. A year +
+ * immutable for media segments, init files and MP3s (cue clips carry a hash of their bytes in the key, ../cues).
+ */
+const SHORT = new Set(['.m3u8', '.vtt', '.jpg'])
+export const cacheControl = (file: string) => (SHORT.has(extname(file)) ? 'public,max-age=60' : 'public,max-age=31536000,immutable')
+
+/**
+ * CloudFront CreateInvalidation (opt-in from 10-publish: the first 1,000 paths a month are free, then $0.005 each; one
+ * wildcard path per publish). CallerReference must be unique per request. CloudFront is a global service (us-east-1).
+ * https://docs.aws.amazon.com/cloudfront/latest/APIReference/API_CreateInvalidation.html
+ * https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/client/cloudfront/command/CreateInvalidationCommand/
+ * https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/PayingForInvalidation.html
+ */
+export async function createInvalidation(distributionId: string, paths: string[], client: Pick<CloudFrontClient, 'send'> = new CloudFrontClient({ region: 'us-east-1' })) {
+  await client.send(new CreateInvalidationCommand({ DistributionId: distributionId, InvalidationBatch: { CallerReference: randomUUID(), Paths: { Quantity: paths.length, Items: paths } } }))
+}

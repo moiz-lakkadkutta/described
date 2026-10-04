@@ -1,13 +1,38 @@
 import { runDescribe, STEPS } from '../src/steps'
+import { runJobStep } from '../src/jobs'
 import { resolveLanguageAndVoice } from '../src/steps/06-voice'
 import { waitForTranscription, TRANSCRIBE_TIMEOUT_MS } from '../src/steps/03-speech'
+
+const calls = vi.hoisted(() => [] as string[])
+vi.mock('../src/steps/09-package', () => ({ pack: vi.fn(async () => { calls.push('package') }) }))
+vi.mock('../src/validate', () => ({ validateWork: vi.fn(async () => { calls.push('validate') }) }))
+vi.mock('../src/steps/10-publish', () => ({ publish: vi.fn(async () => { calls.push('publish') }) }))
 
 const input = { slug: 'sintel-90-150', source: 's3://bucket/sintel.mp4', language: 'en' as const, voice: 'Joanna' }
 
 describe('runDescribe', () => {
   it('throws on an unknown --from step and lists the valid steps', async () => {
     await expect(runDescribe({ ...input, fromStep: 'transcribe' })).rejects.toThrow(`unknown step "transcribe"; valid steps: ${STEPS.join(', ')}`)
-    expect(STEPS).toEqual(['probe', 'shots', 'speech', 'describe', 'fit', 'voice', 'mix', 'text', 'package', 'publish'])
+    expect(STEPS).toEqual(['probe', 'shots', 'speech', 'describe', 'fit', 'voice', 'mix', 'text', 'package', 'validate', 'publish'])
+  })
+  it('runDescribe runs validate between package and publish', async () => {
+    calls.length = 0
+    vi.spyOn(console, 'log').mockImplementation(() => {}); vi.spyOn(console, 'time').mockImplementation(() => {}); vi.spyOn(console, 'timeEnd').mockImplementation(() => {})
+    await runDescribe({ ...input, fromStep: 'package' })
+    expect(calls).toEqual(['package', 'validate', 'publish'])
+    calls.length = 0
+    await runDescribe({ ...input, fromStep: 'validate' }) // --from validate re-checks a packaged work dir, then publishes
+    expect(calls).toEqual(['validate', 'publish'])
+    vi.restoreAllMocks()
+  })
+  it('the finish job runs validate too (steps 6–10 end with package, validate, publish)', async () => {
+    calls.length = 0
+    const runStep = await import('../src/steps')
+    const spy = vi.spyOn(runStep, 'runStep')
+    spy.mockImplementation(async (s) => { calls.push(s) })
+    await runJobStep('finish', { ...input, work: 'work/x' })
+    expect(calls.slice(-3)).toEqual(['package', 'validate', 'publish'])
+    spy.mockRestore()
   })
   it('rejects a slug outside ^[a-z0-9-]{1,64}$ before running any step', async () => {
     for (const slug of ['', 'Sintel', '../etc', 'a/b', 'a b', 'x'.repeat(65), 'sintel_90']) await expect(runDescribe({ ...input, slug, fromStep: 'transcribe' })).rejects.toThrow(/slug/)

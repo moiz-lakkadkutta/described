@@ -10,4 +10,6 @@ cd vega && pnpm add @described/shared-ui@workspace:* @moizp/vega-media-kit
 vega virtual-device start && npm run build:app && vega run-app build/aarch64-release/described_aarch64.vpkg
 ```
 
+Per decision 0004 this is a template only (no Vega build yet). The entry wires the remote with `configureRemote` over Vega's `TVEventHandler`.
+
 Only this entry file is Vega-specific. All screens live in `packages/shared-ui`.

@@ -16,12 +16,12 @@ export const CaptionStyle = z.enum(['box', 'shadow'])
 export const Prefs = z.object({ adDefault: z.boolean(), extendedMode: z.boolean(), voice: Voice, captionKind: z.enum(['off', 'captions', 'sdh', 'descriptions']), captionScale: z.union([z.literal(100), z.literal(125), z.literal(150), z.literal(200)]), captionStyle: CaptionStyle, firstRunDone: z.boolean() })
 /**
  * Prompts the app voice speaks: the three first-run panels and the Settings voice preview. Clips live at CloudFront
- * `prompts/<voice>/<key>.mp3` (see promptAudioKey); the API's GET /prompts/:voice/:key.mp3 redirects there. Each clip
- * says the prompt in its voice's own language (promptTextFor), so a German voice never reads English. The screen and
- * VoiceView use the UI language (promptText, English today).
- * TODO(DESC-010): generate the clips with Polly in the pipeline: per voice × key, neural, mp3, the 06-voice SSML
- * settings, LanguageCode = voiceLanguage[voice], Text = promptTextFor(voice, key); upload under prompts/. Until then the
- * redirect ends in a 404 and the app only announces the text.
+ * `published/prompts/<voice>/<key>.mp3` (see promptAudioKey; CloudFront serves `/published/*` only, infra/lib/media-stack.ts);
+ * the API's GET /prompts/:voice/:key.mp3 redirects there. Each clip says the prompt in its voice's own language
+ * (promptTextFor), so a German voice never reads English. The screen and VoiceView use the UI language (promptText, English today).
+ * The clips come from `pnpm pipeline prompts --run` (packages/pipeline/src/promptClips.ts: Polly neural, mp3, the 06-voice SSML
+ * wrapper, LanguageCode = voiceLanguage[voice], Text = promptTextFor(voice, key)). Until that has run, the redirect ends in
+ * a 404 and the app only announces the text.
  */
 export const PromptKey = z.enum(['firstRun1', 'firstRun2', 'firstRun3', 'voicePreview'])
 export type PromptLanguage = 'en-US' | 'de-DE'
@@ -46,7 +46,7 @@ export const promptTexts: Record<PromptLanguage, Record<z.infer<typeof PromptKey
 export const promptText = promptTexts['en-US']
 /** What the clip in `voice` says. */
 export const promptTextFor = (voice: z.infer<typeof Voice>, key: z.infer<typeof PromptKey>) => promptTexts[voiceLanguage[voice]][key]
-export const promptAudioKey = (voice: z.infer<typeof Voice>, key: z.infer<typeof PromptKey>) => `prompts/${voice}/${key}.mp3`
+export const promptAudioKey = (voice: z.infer<typeof Voice>, key: z.infer<typeof PromptKey>) => `published/prompts/${voice}/${key}.mp3`
 /** Settings → About & licenses: one attribution sentence per published title. */
 export const About = z.object({ titles: z.array(z.object({ slug: z.string(), name: z.string(), attribution: z.string() })) })
 export const ProgressPut = z.object({ titleSlug: z.string(), positionS: z.number().min(0) })
