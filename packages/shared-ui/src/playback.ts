@@ -106,19 +106,25 @@ export function clock(s: number): string {
 }
 
 // ── Audio switch ───────────────────────────────────────────────────────────────────────────────────────────────────
-/** A player that can set its volume (0–1). The kit's KitPlayerRef cannot yet — see crossfadeAudio. */
-export type VolumePlayer = Pick<KitPlayerRef, 'selectAudio'> & { setVolume?: (v: number) => void }
+/** What an audio switch needs from the kit player: `setVolume` (0–1, a property update — no reload) and `selectAudio`. */
+export type VolumePlayer = Pick<KitPlayerRef, 'selectAudio' | 'setVolume'>
+/** Per player: the newest switch (`gen`) and the volume last set, so a newer switch takes over a fade mid-way. */
+const fades = new WeakMap<VolumePlayer, { gen: number; v: number }>()
 /**
- * Switch the audio rendition with a fade out and in around `selectAudio` (tokens.motion.crossfadeMs in total).
- * KitPlayerRef has no volume control today (react-native-video's `volume` prop is not passed through by the kit's
- * Fire OS adapter), so on a kit player this is a plain `selectAudio`; the fade runs as soon as the ref gains
- * `setVolume`. Resolves when the switch is done.
+ * Switch the audio rendition inside a fade: down to 0 over half of tokens.motion.crossfadeMs, `selectAudio` at the
+ * midpoint, back up to 1 over the other half. A second switch on the same player while one is running takes over:
+ * the older one stops where it is (it never selects its track), and the newer fades down from the current volume, so
+ * the volume always ends at 1. On Vega the kit's `setVolume` is a no-op, so the switch lands at the midpoint without
+ * a fade. Resolves when this switch is done or has given way.
  */
 export async function crossfadeAudio(p: VolumePlayer, id: string, wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)), steps = 5): Promise<void> {
-  const setVolume = p.setVolume
-  if (!setVolume) { p.selectAudio(id); return }
-  const half = tokens.motion.crossfadeMs / 2
-  for (let i = steps - 1; i >= 0; i--) { setVolume(i / steps); await wait(half / steps) }
+  const f = fades.get(p) ?? { gen: 0, v: 1 }
+  fades.set(p, f)
+  const gen = ++f.gen
+  const live = () => f.gen === gen
+  const set = (v: number) => { f.v = v; p.setVolume(v) }
+  const half = tokens.motion.crossfadeMs / 2, from = f.v
+  for (let i = steps - 1; i >= 0; i--) { set((from * i) / steps); await wait(half / steps); if (!live()) return }
   p.selectAudio(id)
-  for (let i = 1; i <= steps; i++) { await wait(half / steps); setVolume(i / steps) }
+  for (let i = 1; i <= steps; i++) { await wait(half / steps); if (!live()) return; set(i / steps) }
 }

@@ -27,7 +27,7 @@ It is the demo, it unblocks DESC-006–009, and it needs no pipeline work: Sinte
   - `apps/expo/metro.config.js` with the custom resolver (friction 2026-09-26 Metro exports condition order)
   - done when: on the stick, Home → Title → Play reaches the published Sintel with AD selected, D-pad only
 - [ ] DESC-006 · week 2 · Player + track sheet: chrome auto-hide, status line, seek, crossfade, Back saves progress
-  - kit: pass volume through KitPlayerRef (setVolume) so the 300 ms crossfade works on Fire OS; until then the switch is a hard cut
+  - kit: KitPlayerRef.setVolume landed (kit PR #1); the audio switch is a 300 ms crossfade (selectAudio at the midpoint, a newer switch takes over mid-fade). Device check: docs/device-checks/DESC-006.md §4
   - kit: TextTrack.characteristics (HLS CHARACTERISTICS), so the Player's extra master-playlist fetch for Rich vs plain captions can go
   - kit: the Fire OS adapter's seek should set position.current (and honour startAt), so getPosition is right before the next onProgress; the Player works around it with a pending-seek position and a resume seek
 - [ ] DESC-007 · week 2 · Extended mode: per-cue Polly audio, prefetch 10 s, pause–speak–resume, ochre bar, setting

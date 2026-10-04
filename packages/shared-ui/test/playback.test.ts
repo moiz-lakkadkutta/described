@@ -105,11 +105,27 @@ describe('audio crossfade', () => {
     expect(calls).toEqual(['v:0.8', 'v:0.6', 'v:0.4', 'v:0.2', 'v:0', 'select:1', 'v:0.2', 'v:0.4', 'v:0.6', 'v:0.8', 'v:1'])
     expect(waited).toBeCloseTo(tokens.motion.crossfadeMs)
   })
-  it('a kit player (no volume control yet) switches at once', async () => {
-    const selectAudio = vi.fn()
-    const wait = vi.fn(async () => {})
-    await crossfadeAudio({ selectAudio }, '1', wait)
-    expect(selectAudio).toHaveBeenCalledWith('1')
-    expect(wait).not.toHaveBeenCalled()
+  it('a newer switch on the same player takes over: the older fade stops and never selects', async () => {
+    const calls: string[] = []
+    const p = { selectAudio: (id: string) => calls.push(`select:${id}`), setVolume: (v: number) => calls.push(`v:${v}`) }
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    let reached!: () => void
+    const atStep2 = new Promise<void>((r) => { reached = r })
+    let n = 0
+    // The first fade is held after its second step (volume 0.6); the second starts from there.
+    const first = crossfadeAudio(p, 'a', async () => { if (++n === 2) { reached(); await gate } })
+    await atStep2
+    expect(calls).toEqual(['v:0.8', 'v:0.6'])
+    const second = crossfadeAudio(p, 'b', async () => {})
+    await second
+    release(); await first
+    expect(calls).not.toContain('select:a')
+    expect(calls.filter((c) => c.startsWith('select'))).toEqual(['select:b'])
+    expect(calls.at(-1)).toBe('v:1')
+    const sel = calls.indexOf('select:b')
+    const down = calls.slice(2, sel).map((c) => Number(c.slice(2)))
+    expect(down[0]).toBeLessThan(0.6) // continues down from where the first fade was, no jump back up
+    expect(down.at(-1)).toBe(0)
   })
 })
