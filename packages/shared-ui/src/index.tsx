@@ -83,7 +83,11 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   const [attempt, setAttempt] = useState(0)
   /** My list slugs, newest first (Set keeps insertion order). From GET /me/list; changed optimistically by toggleList. */
   const [myList, setMyList] = useState<ReadonlySet<string>>(new Set())
-  /** Where Title was opened from, so its Back returns there (Home, Described or My list) and the rail marks it. */
+  /**
+   * Where Title was opened from, so its Back returns there (Home, Described or My list) and the rail marks it. Follows the
+   * last listing screen shown (an effect below), so any way into Title or Player — a card, the hero, a deep link — Backs
+   * to the screen you were on.
+   */
   const titleFrom = useRef<'home' | 'described' | 'list'>('home')
   const [sample, setSample] = useState<SampleState>('idle')
   const [about, setAbout] = useState<AboutData | null | 'offline'>(null)
@@ -111,8 +115,9 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   }, [apiBaseUrl, deviceId])
 
   useEffect(() => {
-    // My list loads with the catalog; a server that refuses it (4xx) leaves the list empty rather than the app offline.
-    Promise.all([api<Catalog>('/catalog'), api<Prefs>('/me/prefs'), api<MyListData>('/me/list').catch((e) => { if (refused(e)) return { slugs: [] }; throw e })])
+    // My list loads with the catalog; any failure (a refusal, a 500 before the migration ran, the network) starts with an
+    // empty list rather than the offline screen — the catalog and prefs decide that.
+    Promise.all([api<Catalog>('/catalog'), api<Prefs>('/me/prefs'), api<MyListData>('/me/list').catch((): MyListData => ({ slugs: [] }))])
       .then(([c, p, l]) => {
         const merged = { ...defaultPrefs, ...p, ...unsaved.current } // unsaved local changes win over the server's copy
         setCatalog(c); setPrefs(merged); setMyList(new Set(l?.slugs ?? [])); setOffline(false)
@@ -138,6 +143,10 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   const stopSample = useCallback(() => { if (sampleOn.current) { sampleOn.current = false; stopSpeaking(); setSample('idle') } }, [stopSpeaking])
   // Leaving a screen stops any clip it started (Title's sample; Player's description audio from DESC-007).
   const key = routeKey(route)
+  useEffect(() => {
+    if (route.name === 'title' || route.name === 'reading' || route.name === 'player') return
+    titleFrom.current = route.name === 'described' || route.name === 'list' ? route.name : 'home'
+  }, [route])
   useEffect(() => () => { stopSpeaking(); sampleOn.current = false; setSample('idle') }, [key, stopSpeaking])
   const toggleSample = () => {
     if (sampleOn.current) return stopSample()
@@ -240,7 +249,7 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
     const s = playerSession.current
     if (route.name === 'player' && !offline && current && s?.slug === current.slug) exitPlayer(current, s.state === 'ended' ? 0 : s.controls.getPosition(), r)
     else setRoute(r)
-    titleFrom.current = 'home'
+    titleFrom.current = 'home' // a deep link starts a new path: its Title Backs to Home
   }
   useLaunchRoute(launches, { catalog, holding: offline || route.name === 'firstRun', adDefault: prefs.adDefault, navigate: launchTo })
   // App-voice prompts: clips at /prompts/<voice>/<key>.mp3 (API → CloudFront; TODO(DESC-010) generate them with Polly in
@@ -254,8 +263,10 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   const finishFirstRun = (p: Partial<Prefs>) => { savePrefs({ ...p, firstRunDone: true }); setRoute(route.name === 'firstRun' && route.from === 'settings' ? { name: 'settings' } : { name: 'home' }) }
   useEffect(() => { if (route.name === 'about') api<AboutData>('/about').then(setAbout).catch(() => setAbout('offline')) }, [route.name, api])
   // My list: the change shows at once; PUT/DELETE /me/list/:slug go through `requests`, in order after any save before
-  // them. A failed change is undone and announced — unless a newer press on the same title already decided it.
+  // them. A failed change is undone and announced — unless a newer press on the same title already decided it. Each
+  // answer is the server's whole list; once no change is pending the app settles on it (another session's changes too).
   const listPresses = useRef(new Map<string, number>())
+  const listPending = useRef(0)
   const toggleList = (s: string) => {
     const name = catalog?.all.find((i) => i.slug === s)?.name ?? (current?.slug === s ? current.name : s)
     const adding = !myList.has(s)
@@ -264,11 +275,15 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
     apply(adding)
     const press = (listPresses.current.get(s) ?? 0) + 1
     listPresses.current.set(s, press)
-    requests(() => api<MyListData>(`/me/list/${encodeURIComponent(s)}`, { method: adding ? 'PUT' : 'DELETE' })).catch(() => {
-      if (listPresses.current.get(s) !== press) return
-      apply(!adding)
-      AccessibilityInfo.announceForAccessibility(strings.a11y.listNotSaved)
-    })
+    listPending.current++
+    requests(() => api<MyListData>(`/me/list/${encodeURIComponent(s)}`, { method: adding ? 'PUT' : 'DELETE' })).then(
+      (l) => { if (--listPending.current === 0 && l?.slugs) setMyList(new Set(l.slugs)) },
+      () => {
+        listPending.current--
+        if (listPresses.current.get(s) !== press) return
+        apply(!adding)
+        AccessibilityInfo.announceForAccessibility(strings.a11y.listNotSaved)
+      })
   }
   const cycleCaptions = () => {
     const next = nextCaptionKind(prefs.captionKind)
@@ -280,7 +295,7 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   const listEmpty = route.name === 'list' && !!catalog && myListItems(catalog, myList).length === 0
   const rail = <Rail current={railCurrent} focusCurrent={listEmpty} items={[{ key: 'home', label: strings.rail.home }, { key: 'described', label: strings.rail.described }, { key: 'list', label: strings.rail.list }, { key: 'settings', label: strings.rail.settings }]}
     onSelect={(k) => setRoute(k === 'settings' ? { name: 'settings' } : screenRoute(k))} />
-  const openTitle = (from: typeof titleFrom.current) => (s: string) => { titleFrom.current = from; setRoute({ name: 'title', slug: s }) }
+  const openTitle = (s: string) => setRoute({ name: 'title', slug: s })
 
   const loading = !offline && (((route.name === 'home' || route.name === 'described' || route.name === 'list') && !catalog) || ((route.name === 'title' || route.name === 'reading') && !current) || (route.name === 'about' && about === null))
   // Loading beyond 2 s is spoken (PLAN §8); the skeletons say it to everyone else.
@@ -301,8 +316,8 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
       case 'firstRun': return <Screen><FirstRun speakPrompt={speakPrompt} onDone={(ext) => finishFirstRun({ extendedMode: ext })} onSkip={() => finishFirstRun({})} /></Screen>
       case 'settings': return <Screen rail={rail}><Settings prefs={prefs} onChange={savePrefs} onHearVoice={hearVoice} onResetFirstRun={() => { savePrefs({ firstRunDone: false }); setRoute({ name: 'firstRun', from: 'settings' }) }} onAbout={() => { setAbout(null); setRoute({ name: 'about' }) }} /></Screen>
       case 'about': return <Screen rail={rail}><About about={about} onClose={() => setRoute({ name: 'settings' })} /></Screen>
-      case 'described': return <Screen rail={rail}><Described catalog={catalog} onOpen={openTitle('described')} /></Screen>
-      case 'list': return <Screen rail={rail}><MyList catalog={catalog} myList={myList} onOpen={openTitle('list')} /></Screen>
+      case 'described': return <Screen rail={rail}><Described catalog={catalog} onOpen={openTitle} /></Screen>
+      case 'list': return <Screen rail={rail}><MyList catalog={catalog} myList={myList} onOpen={openTitle} /></Screen>
       case 'reading': return <Screen><Reading title={current} onClose={() => setRoute({ name: 'title', slug: route.slug })} /></Screen>
       case 'title': return (
         <Screen rail={rail}>
@@ -319,7 +334,7 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
           onProgress={(s) => { if (savedAt.current === null) savedAt.current = s; else if (Math.abs(s - savedAt.current) >= PROGRESS_SAVE_S) saveProgress(current.slug, s) }}
           onBack={(s) => exitPlayer(current, s)} />
       ) : <Screen><T variant="body">{strings.player.loading}</T></Screen>
-      default: return <Screen rail={rail}><Home catalog={catalog} myList={myList} adDefault={prefs.adDefault} onOpen={openTitle('home')} onPlay={(s, withAd) => setRoute({ name: 'player', slug: s, withAd })} onToggleList={toggleList} /></Screen>
+      default: return <Screen rail={rail}><Home catalog={catalog} myList={myList} adDefault={prefs.adDefault} onOpen={openTitle} onPlay={(s, withAd) => setRoute({ name: 'player', slug: s, withAd })} onToggleList={toggleList} /></Screen>
     }
   })()
   return (

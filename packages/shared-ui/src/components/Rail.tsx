@@ -11,8 +11,9 @@ export interface RailItem { key: string; label: string }
 /**
  * Left navigation rail: 96 px collapsed, 336 px while it holds focus. The wide panel overlays the content, so
  * content geometry never moves. ▲▼ between items; ► returns to the content's last focused element.
+ * `focusCurrent`: the current item takes focus when the screen mounts (a screen with nothing else to focus, e.g. an
+ * empty My list).
  */
-/** `focusCurrent`: the current item takes focus when the screen mounts (a screen with nothing else to focus, e.g. an empty My list). */
 export function Rail({ items, current, onSelect, focusCurrent }: { items: RailItem[]; current: string; onSelect: (k: string) => void; focusCurrent?: boolean }) {
   const [open, setOpen] = useState(false)
   return (

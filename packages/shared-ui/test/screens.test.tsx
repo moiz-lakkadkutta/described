@@ -5,7 +5,8 @@ import { Reading, Title } from '../src/screens/Title'
 import { Described } from '../src/screens/Described'
 import { MyList } from '../src/screens/MyList'
 import { strings } from '../src/strings'
-import { skeletonCount } from '../src/layout'
+import { rowPadY, skeletonCount } from '../src/layout'
+import { ANNOUNCE_DEBOUNCE_MS, _setScreenReader } from '../src/a11y'
 import { tokens } from '../src/theme/tokens'
 import { animCalls } from './stubs/react-native'
 import { stub } from './stubs/space-navigation'
@@ -166,22 +167,38 @@ describe('Described and My list grids', () => {
     expect(label(defaults(render(described(catalog)))[0]!.findByType('FocusableView' as never))).toMatch(/^Open Sintel/)
   })
   it('says the heading once on entering the grid', () => {
+    vi.useFakeTimers(); _setScreenReader(true)
+    try {
+      const r = render(described())
+      expect(JSON.stringify(r.toJSON())).toContain(strings.described.heading)
+      const grid = r.root.find((n) => (n.type as unknown) === 'Node' && n.props.alignInGrid === true)
+      act(() => grid.props.onActive())
+      const [a, b] = focusables(r).filter((n) => label(n)?.startsWith('Open '))
+      for (const card of [a!, b!]) { act(() => card.props.onFocus()); act(() => { vi.advanceTimersByTime(ANNOUNCE_DEBOUNCE_MS) }) }
+      expect(a11yCalls).toEqual([`${strings.described.heading}. ${label(a!)}`, label(b!)])
+    } finally { vi.useRealTimers(); _setScreenReader(false) }
+  })
+  it("the last row keeps room below for the focus outline", () => {
     const r = render(described())
     const grid = r.root.find((n) => (n.type as unknown) === 'Node' && n.props.alignInGrid === true)
-    expect(grid.props.onActive).toBeInstanceOf(Function)
-    expect(JSON.stringify(r.toJSON())).toContain(strings.described.heading)
+    const box = grid.findAll((n) => (n.type as unknown) === 'View')[0]!
+    expect(box.props.style).toMatchObject({ paddingBottom: rowPadY })
   })
   it('loading: skeleton cards, nothing focusable', () => {
     const r = render(<Described catalog={null} onOpen={noop} />)
     expect(focusables(r)).toHaveLength(0)
     expect(r.root.findAll((n) => (n.type as unknown) === 'View' && n.props.accessibilityElementsHidden === true).length).toBeGreaterThan(0)
   })
-  it('empty My list: no cards, the empty sentence in a live region, announced once', () => {
-    const r = render(<MyList catalog={catalog} myList={new Set()} onOpen={noop} />)
-    expect(focusables(r)).toHaveLength(0)
-    const live = r.root.find((n) => (n.type as unknown) === 'View' && n.props.accessibilityLiveRegion === 'polite')
-    expect(JSON.stringify(live.findAll((n) => (n.type as unknown) === 'Text').map((t) => t.props.children))).toContain(strings.list.empty)
-    act(() => r.update(<MyList catalog={catalog} myList={new Set()} onOpen={noop} />))
-    expect(a11yCalls.filter((c) => c === strings.list.empty)).toHaveLength(1)
+  it('empty My list: no cards, the empty sentence in a live region, said once with the rail item as one utterance', () => {
+    vi.useFakeTimers(); _setScreenReader(true)
+    try {
+      const r = render(<MyList catalog={catalog} myList={new Set()} onOpen={noop} />)
+      expect(focusables(r)).toHaveLength(0)
+      const live = r.root.find((n) => (n.type as unknown) === 'View' && n.props.accessibilityLiveRegion === 'polite')
+      expect(JSON.stringify(live.findAll((n) => (n.type as unknown) === 'Text').map((t) => t.props.children))).toContain(strings.list.empty)
+      act(() => r.update(<MyList catalog={catalog} myList={new Set()} onOpen={noop} />))
+      act(() => { vi.advanceTimersByTime(ANNOUNCE_DEBOUNCE_MS) })
+      expect(a11yCalls).toEqual([[strings.list.heading, strings.list.empty.replace(/\.$/, ''), strings.a11y.rail(strings.rail.list)].join('. ')])
+    } finally { vi.useRealTimers(); _setScreenReader(false) }
   })
 })

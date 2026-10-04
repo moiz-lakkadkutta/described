@@ -1,6 +1,7 @@
 import React from 'react'
 import TestRenderer, { act } from 'react-test-renderer'
 import { FETCH_TIMEOUT_MS, Root } from '../src/index'
+import { ANNOUNCE_DEBOUNCE_MS, _setScreenReader } from '../src/a11y'
 import { Player } from '../src/screens/Player'
 import { Title } from '../src/screens/Title'
 import { strings } from '../src/strings'
@@ -19,8 +20,8 @@ function api() {
     /** Paths that wait until settle(path, ok) is called. */
     held: new Map<string, { resolve: (r: Response) => void; reject: (e: Error) => void }>(),
     hold: [] as string[],
-    /** My list on the server (GET /me/list); `refuse` answers 404 for these paths. */
-    list: [] as string[], refuse: [] as string[],
+    /** My list on the server (GET /me/list; PUT/DELETE /me/list/:slug change it); `refuse` answers 404, `broken` 500. */
+    list: [] as string[], refuse: [] as string[], broken: [] as string[],
     /** Every PUT/DELETE as "METHOD path", in the order fetch saw them. */
     writes: [] as string[],
   }
@@ -35,7 +36,13 @@ function api() {
     if (path === '/catalog') return ok(catalog)
     if (state.refuse.includes(path)) return Promise.resolve({ status: 404, json: async () => ({ success: false, error: { code: 'NOT_FOUND' } }) } as Response)
     if (path === '/me/prefs') return ok(prefs)
+    if (state.broken.includes(path)) return Promise.resolve({ status: 500, json: async () => ({ success: false, error: { code: 'INTERNAL' } }) } as Response)
     if (path === '/me/list') return ok({ slugs: state.list })
+    if (path.startsWith('/me/list/')) {
+      const slug = path.slice('/me/list/'.length)
+      state.list = [...(init?.method === 'PUT' ? [slug] : []), ...state.list.filter((x) => x !== slug)]
+      return ok({ slugs: state.list })
+    }
     if (path.startsWith('/titles/')) return ok(state.titles[path.slice('/titles/'.length)])
     return ok({})
   })
@@ -323,12 +330,19 @@ describe('Root', () => {
 
     it('rail My list opens the list; empty state is announced', async () => {
       api(); const r = await mount()
-      await railTo(r, strings.rail.list)
-      expect(text(r)).toContain(strings.list.heading)
-      expect(text(r)).toContain(strings.list.empty)
-      expect(a11yCalls.filter((c) => c === strings.list.empty)).toHaveLength(1)
-      expect(cards(r)).toEqual([])
-      expect(defaultFocus(r)).toEqual([strings.a11y.rail(strings.rail.list)]) // nothing else to focus: the rail
+      vi.useFakeTimers(); _setScreenReader(true)
+      try {
+        await railTo(r, strings.rail.list)
+        expect(text(r)).toContain(strings.list.heading)
+        expect(text(r)).toContain(strings.list.empty)
+        expect(cards(r)).toEqual([])
+        const railItem = strings.a11y.rail(strings.rail.list)
+        expect(defaultFocus(r)).toEqual([railItem]) // nothing else to focus: the rail
+        // The rail item takes focus (DefaultFocus) and announces itself: one utterance, the empty sentence first.
+        act(() => focusables(r).find((n) => n.props['aria-label'] === railItem)!.props.onFocus())
+        act(() => { vi.advanceTimersByTime(ANNOUNCE_DEBOUNCE_MS) })
+        expect(a11yCalls.filter((c) => c.includes(strings.list.empty.slice(0, 20)))).toEqual([[strings.list.heading, strings.list.empty.replace(/\.$/, ''), railItem].join('. ')])
+      } finally { vi.useRealTimers(); _setScreenReader(false) }
     })
 
     it('adding from Title shows the title in My list', async () => {
@@ -380,6 +394,51 @@ describe('Root', () => {
       expect(s.writes).toEqual(['PUT /me/list/sintel-90-210']) // the DELETE waits for the PUT
       await act(async () => { s.held.get('/me/list/sintel-90-210')!.resolve(await ok({ slugs: ['sintel-90-210', 'tears-of-steel'] })) }); await flush()
       expect(s.writes).toEqual(['PUT /me/list/sintel-90-210', 'DELETE /me/list/sintel-90-210'])
+      expect(labels(r)).toContain('Add Sintel to My list')
+    })
+
+    it('Player started from the Home hero Backs to Home even after a Described visit', async () => {
+      api(); const r = await mount()
+      await railTo(r, strings.rail.described)
+      press(r, 'Open Sintel'); await flush() // Title from Described
+      act(() => { back.press() }); await flush() // → Described
+      await railTo(r, strings.rail.home)
+      press(r, 'Play Sintel with audio description'); await flush() // hero → Player
+      act(() => { back.press() }); await flush() // → Title
+      expect(text(r)).toContain(strings.title.playWithout)
+      act(() => { back.press() }); await flush() // → Home, not Described
+      expect(text(r)).toContain(strings.home.newly.toUpperCase())
+      expect(r.root.findAll((n) => (n.type as unknown) === 'FocusableView' && n.props.accessibilityState?.selected).map((n) => n.props['aria-label'])).toEqual([strings.a11y.rail(strings.rail.home)])
+    })
+
+    it('a failed PUT that a newer press already replaced is not rolled back; the DELETE still goes out', async () => {
+      const s = api(); s.hold.push('/me/list/sintel-90-210')
+      const r = await mount()
+      await onTitle(r)
+      press(r, 'Add Sintel to My list'); await flush()
+      press(r, 'Remove Sintel from My list'); await flush()
+      a11yCalls.length = 0
+      await act(async () => { s.held.get('/me/list/sintel-90-210')!.reject(new Error('network')) }); await flush()
+      expect(s.writes).toEqual(['PUT /me/list/sintel-90-210', 'DELETE /me/list/sintel-90-210'])
+      expect(labels(r)).toContain('Add Sintel to My list') // the newer press (Remove) stands
+      expect(a11yCalls).not.toContain(strings.a11y.listNotSaved)
+    })
+
+    it("settles on the server's list once no change is pending", async () => {
+      const s = api(); s.list = ['tears-of-steel']
+      const r = await mount()
+      s.list = ['big-buck-bunny', 'tears-of-steel'] // added from another session meanwhile
+      await onTitle(r)
+      press(r, 'Add Sintel to My list'); await flush()
+      act(() => { back.press() }); await flush()
+      await railTo(r, strings.rail.list)
+      expect(cards(r)).toEqual([expect.stringMatching(/^Open Sintel/), expect.stringMatching(/^Open Big Buck Bunny/), expect.stringMatching(/^Open Tears of Steel/)])
+    })
+
+    it.each([['refused (404)', 'refuse'], ['broken (500, e.g. before the migration)', 'broken']] as const)('a %s /me/list starts with an empty list, not the offline screen', async (_, kind) => {
+      const s = api(); s[kind].push('/me/list')
+      const r = await mount()
+      expect(labels(r)).not.toContain(strings.a11y.retry)
       expect(labels(r)).toContain('Add Sintel to My list')
     })
 
