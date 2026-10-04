@@ -1,4 +1,4 @@
-import { BedrockRuntimeClient, ConverseCommand } from '@aws-sdk/client-bedrock-runtime'
+import { BedrockRuntimeClient, ConverseCommand, type ConverseCommandInput, type ConverseCommandOutput } from '@aws-sdk/client-bedrock-runtime'
 import { z } from 'zod'
 import type { Cue } from '@moizp/vega-media-kit/core'
 import type { Shot } from './steps/02-shots'
@@ -52,25 +52,74 @@ export const SDH_TOOL_SCHEMA = {
   properties: { cues: { type: 'array', items: { type: 'object', required: ['id', 'start', 'end', 'text'], properties: { id: { type: 'string' }, start: { type: 'number' }, end: { type: 'number' }, text: { type: 'string' }, speaker: { type: 'string' }, sound: { type: 'boolean' } } } } },
 }
 
-/** SDH: add [sounds] and [Speaker] identification per Netflix conventions; the reply is merged onto the input by mergeSdh. */
-export async function sdhWithNovaLite(captions: Cue[], descriptions: FitCue[], language: 'en' | 'de'): Promise<{ cues: Cue[]; degraded: boolean }> {
-  const input = JSON.stringify({ language, captions: captions.map(({ id, start, end, text, speaker }) => ({ id, start, end, text, speaker })), descriptions: descriptions.map((d) => ({ start: d.startMs / 1000, text: d.text })) })
-  const r = await client().send(new ConverseCommand({
+/** Captions per SDH call (DESC-014): one Converse call with every caption of a full-length title overflowed maxTokens 4000. */
+export const SDH_CHUNK_CAPTIONS = 40
+/** Seconds of description context either side of a window. */
+const SDH_CONTEXT_S = 5
+
+/**
+ * Splits captions into windows of ≤ max, in order. A window that must split ends at the latest caption followed by a gap ≥ splitGapS
+ * within its first max captions (a pause between conversations); with no such gap it ends at max.
+ */
+export function chunkCaptions(captions: Cue[], max = SDH_CHUNK_CAPTIONS, splitGapS = 1): Cue[][] {
+  const out: Cue[][] = []
+  let i = 0
+  while (i < captions.length) {
+    let j = Math.min(captions.length, i + max) // exclusive end
+    if (j < captions.length) for (let k = j; k > i + 1; k--) if (captions[k]!.start - captions[k - 1]!.end >= splitGapS) { j = k; break }
+    out.push(captions.slice(i, j))
+    i = j
+  }
+  return out
+}
+
+/** The Converse call SDH makes; injectable so tests replay recorded replies. */
+export type SdhConverse = (input: ConverseCommandInput) => Promise<Pick<ConverseCommandOutput, 'output' | 'usage'>>
+const bedrockSend: SdhConverse = (i) => client().send(new ConverseCommand(i), { abortSignal: meter()?.signal })
+
+/** One window's request: its captions and the descriptions overlapping [start − 5 s, end + 5 s]. */
+function sdhRequest(window: Cue[], descriptions: FitCue[], language: 'en' | 'de'): ConverseCommandInput {
+  const from = window[0]!.start - SDH_CONTEXT_S, to = window.at(-1)!.end + SDH_CONTEXT_S
+  const near = descriptions.filter((d) => d.startMs / 1000 < to && d.endMs / 1000 > from)
+  const input = JSON.stringify({ language, captions: window.map(({ id, start, end, text, speaker }) => ({ id, start, end, text, speaker })), descriptions: near.map((d) => ({ start: d.startMs / 1000, text: d.text })) })
+  return {
     modelId: LITE(),
     system: [{ text: [
       'You produce SDH (subtitles for the deaf and hard of hearing) from plain captions, following Netflix SDH conventions.',
-      'Rules: keep every input caption unchanged (same id, start, end, text, speaker). Insert extra cues for sounds that the audio-description cues imply, as [lowercase brackets], at most 3 words, naming an audible event only (crackles, clatters, footsteps, wind) — never an object, a person or on-screen text. Each sound cue has its own id starting with "s" and its own start/end (≤ 2 s) that do not overlap a caption. Add a speaker tag as "[Name] " at the start of a caption only when the speaker is off-screen or ambiguous. ≤ 42 characters per line, ≤ 2 lines.',
+      'Return only (a) sound cues to add and (b) captions that need a speaker tag — omit every caption you leave unchanged. An empty cues list is a valid answer.',
+      'Sound cues: for sounds that the audio-description cues imply, as [lowercase brackets], at most 3 words, naming an audible event only (crackles, clatters, footsteps, wind) — never an object, a person or on-screen text. Each sound cue has its own id starting with "s" and its own start/end (≤ 2 s) that do not overlap a caption.',
+      'Speaker tags: return the caption with its id, start and end, and its text prefixed "[Name] ", only when the speaker is off-screen or ambiguous. ≤ 42 characters per line, ≤ 2 lines.',
     ].join('\n') }],
     // The task goes after the data (with the request alone as user content Nova Lite echoed it back).
     messages: [{ role: 'user', content: [{ text: `Input:\n${input}\n\nUse the emit_sdh tool to return the SDH cues.` }] }],
     // A toolConfig makes Nova constrain its output to the tool's inputSchema, and toolChoice { tool } forces that one call:
     // https://docs.aws.amazon.com/nova/latest/userguide/concept-chapter-servicename.html · https://docs.aws.amazon.com/bedrock/latest/userguide/structured-output.html
-    toolConfig: { tools: [{ toolSpec: { name: 'emit_sdh', description: 'Return the SDH cue list', inputSchema: { json: SDH_TOOL_SCHEMA } } }], toolChoice: { tool: { name: 'emit_sdh' } } },
+    // Converse API: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html
+    toolConfig: { tools: [{ toolSpec: { name: 'emit_sdh', description: 'Return the SDH cues to add or tag', inputSchema: { json: SDH_TOOL_SCHEMA } } }], toolChoice: { tool: { name: 'emit_sdh' } } },
     inferenceConfig: { maxTokens: 4000, temperature: 0 },
-  }), { abortSignal: meter()?.signal })
-  meter()?.bedrock(LITE(), r.usage)
-  const content = r.output?.message?.content ?? []
-  return readSdhReply(content.find((c) => c.toolUse)?.toolUse?.input ?? content.find((c) => c.text)?.text ?? '', captions)
+  }
+}
+
+/**
+ * SDH: add [sounds] and [Speaker] identification per Netflix conventions. Captions go to Nova Lite in windows of ≤ 40 (chunkCaptions),
+ * one call each, metered per call; each reply holds additions only. Replies are concatenated and merged once onto the input by mergeSdh,
+ * so sound ids are numbered once and sounds overlapping across a window edge are dropped. A window whose reply is unreadable adds
+ * nothing (its captions stay plain) and marks the whole title degraded.
+ */
+export async function sdhWithNovaLite(captions: Cue[], descriptions: FitCue[], language: 'en' | 'de', send: SdhConverse = bedrockSend): Promise<{ cues: Cue[]; degraded: boolean; calls: number }> {
+  const windows = chunkCaptions(captions)
+  const added: ReplyCue[] = []
+  let degraded = false
+  for (const w of windows) {
+    const r = await send(sdhRequest(w, descriptions, language))
+    meter()?.bedrock(LITE(), r.usage)
+    const content = r.output?.message?.content ?? []
+    const reply = content.find((c) => c.toolUse)?.toolUse?.input ?? content.find((c) => c.text)?.text ?? ''
+    const cues = replyCues(reply)
+    if (cues) added.push(...cues)
+    else { degraded = true; console.warn(`SDH: window ${w[0]!.id}–${w.at(-1)!.id} reply is not {"cues":[…]}; its captions stay plain`, (typeof reply === 'string' ? reply : JSON.stringify(reply) ?? '').slice(0, 200)) }
+  }
+  return { cues: mergeSdh(captions, added), degraded, calls: windows.length }
 }
 
 /** Bracketed words that make a cue a sound: Nova Lite also tags objects and actions ([rock formation], [woman holds bowl]). Extend freely. */
@@ -81,14 +130,19 @@ type ReplyCue = z.infer<typeof SdhReply>['cues'][number]
 
 /** Nova Lite's reply (the toolUse input object, or text holding {"cues":[…]}) as SDH cues. Anything else, or zero cues, falls back to the plain captions with degraded=true. */
 export function readSdhReply(reply: unknown, captions: Cue[]): { cues: Cue[]; degraded: boolean } {
-  let json: unknown = reply
-  if (typeof reply === 'string') try { json = JSON.parse(stripFence(reply)) } catch { json = undefined }
-  const parsed = SdhReply.safeParse(json)
-  if (!parsed.success || parsed.data.cues.length === 0) {
+  const cues = replyCues(reply)
+  if (!cues?.length) {
     console.warn('SDH: Nova Lite reply is not a non-empty {"cues":[…]}; using plain captions', (typeof reply === 'string' ? reply : JSON.stringify(reply) ?? '').slice(0, 200))
     return { cues: captions.map((c) => ({ ...c, trackId: 'sdh' })), degraded: true }
   }
-  return { cues: mergeSdh(captions, parsed.data.cues), degraded: false }
+  return { cues: mergeSdh(captions, cues), degraded: false }
+}
+/** The reply's cues (the toolUse input object, or text holding {"cues":[…]}, fenced or not); undefined when it is neither. An empty list is valid. */
+function replyCues(reply: unknown): ReplyCue[] | undefined {
+  let json: unknown = reply
+  if (typeof reply === 'string') try { json = JSON.parse(stripFence(reply)) } catch { json = undefined }
+  const parsed = SdhReply.safeParse(json)
+  return parsed.success ? parsed.data.cues : undefined
 }
 /** readSdhReply's cues only. */
 export const parseSdhReply = (reply: unknown, captions: Cue[]): Cue[] => readSdhReply(reply, captions).cues

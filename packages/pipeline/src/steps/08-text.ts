@@ -4,20 +4,21 @@ import type { Cue } from '@moizp/vega-media-kit/core'
 import type { Ctx } from './index'
 import type { Word } from './03-speech'
 import type { FitCue } from './05-fit'
-import { sdhWithNovaLite } from '../prompts'
+import { sdhWithNovaLite, type SdhConverse } from '../prompts'
 import { descriptionsVtt } from '../cues'
 
 /**
  * captions.vtt (Transcribe, segmented), sdh.vtt (Nova Lite adds [sounds] and [Speaker] IDs), descriptions.vtt (the AD script with {extended} meta),
- * sdh.json { degraded } — true when sdh.vtt fell back to the plain captions, so 09-package does not advertise it as Rich captions.
+ * sdh.json { degraded } — true when any SDH window fell back to the plain captions, so 09-package does not advertise it as Rich captions.
+ * Nova Lite sees the captions in windows of ≤ 40 (DESC-014), one call each.
  */
-export async function sdh(ctx: Ctx) {
+export async function sdh(ctx: Ctx, send?: SdhConverse) {
   const words = JSON.parse(await readFile(`${ctx.work}/words.json`, 'utf8')) as Word[]
   const cues = JSON.parse(await readFile(`${ctx.work}/cues.json`, 'utf8')) as FitCue[]
   const captions = segment(words)
   await writeFile(`${ctx.work}/captions.vtt`, serializeVtt(captions))
   // No dialogue → nothing for Nova Lite to annotate; write header-only files rather than spend a call on an empty array.
-  const { cues: sdhCues, degraded } = captions.length ? await sdhWithNovaLite(captions, cues, ctx.language) : { cues: [], degraded: false }
+  const { cues: sdhCues, degraded } = captions.length ? await sdhWithNovaLite(captions, cues, ctx.language, send) : { cues: [], degraded: false }
   const problems = lintCues(sdhCues)
   if (problems.length) console.warn('SDH lint', problems)
   await writeFile(`${ctx.work}/sdh.vtt`, serializeVtt(sdhCues))
