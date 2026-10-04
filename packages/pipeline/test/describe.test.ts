@@ -220,9 +220,24 @@ describe('known names', () => {
     expect(knownNames(said('Hello there Hope. I hope so.'), 99000, 'en')).toEqual([])
     expect(knownNames(said('Run Fast', ['spk_0', 'spk_1']), 99000, 'en')).toEqual([])
   })
-  it('finds no names in the sintel-90-150 transcript, and none for German', () => {
+  it('finds no names in the sintel-90-150 transcript, and none for a German line said once', () => {
     const t = JSON.parse(readFileSync(new URL('./fixtures/sintel-90-150.transcript.json', import.meta.url), 'utf8'))
     expect(knownNames(wordsFromTranscribe(t), 60000, 'en')).toEqual([])
     expect(knownNames(said('Danke, Sintel.'), 99000, 'de')).toEqual([])
+  })
+  it('knownNames accepts "Sintel, wait."', () => {
+    expect(knownNames(said('Sintel, wait.'), 99000, 'en')).toEqual(['Sintel'])
+    expect(knownNames(said('Look out. Scales! Where? Sintel?'), 99000, 'en')).toEqual(['Scales', 'Sintel'])
+    // a sentence opener without a vocative comma, or a common word, is still no name
+    expect(knownNames(said('Sintel runs. So, now. Wait! Yes, go.'), 99000, 'en')).toEqual([])
+  })
+  it('knownNames (de) accepts "Ich heiße Sintel" said twice and rejects a lone capitalised noun', () => {
+    const twice = said('Ich heiße Sintel. Ich heiße Sintel. Das Schwert ist alt.')
+    expect(knownNames(twice, 99000, 'de')).toEqual(['Sintel'])
+    expect(knownNames(twice, 3000, 'de')).toEqual([]) // heard once before the shot
+    expect(knownNames(said('Ich heiße Sintel. Der Drache fliegt.'), 99000, 'de')).toEqual([])
+    expect(knownNames(said('Das Schwert. Das Schwert glänzt.'), 99000, 'de')).toEqual([]) // a noun said twice, after no name cue
+    expect(knownNames(said('Sintel, warte. Sintel, komm.'), 99000, 'de')).toEqual(['Sintel'])
+    expect(knownNames(said('Mein Name ist Sintel. Er ist Sintel.'), 99000, 'de')).toEqual(['Sintel'])
   })
 })
