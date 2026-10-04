@@ -43,7 +43,7 @@ describe('voice', () => {
   it('voice reuses a clip whose sidecar matches text, voice and language', async () => {
     await writeCues([cue(1000, 'Smoke rises.', 5000)])
     await writeFile(`${work}/cue_0.mp3`, 'Smoke rises.')
-    await writeFile(`${work}/${cueSidecarFile(0)}`, JSON.stringify({ text: 'Smoke rises.', voice: 'Joanna', language: 'en', durationMs: 1234 } satisfies CueSidecar))
+    await writeFile(`${work}/${cueSidecarFile(0)}`, JSON.stringify({ text: 'Smoke rises.', voice: 'Joanna', language: 'en', ssml: cueSsml('Smoke rises.'), durationMs: 1234 } satisfies CueSidecar))
     const f = fakes()
     const { costUsd } = await metered(() => voice(ctx(), f))
     expect(f.synthesize).not.toHaveBeenCalled()
@@ -59,7 +59,12 @@ describe('voice', () => {
     await voice(ctx(), f)
     expect(f.synthesize).toHaveBeenCalledTimes(1)
     expect(f.synthesize).toHaveBeenCalledWith('Smoke rises.', 'Joanna', 'en')
-    expect(JSON.parse(await readFile(`${work}/${cueSidecarFile(0)}`, 'utf8'))).toEqual({ text: 'Smoke rises.', voice: 'Joanna', language: 'en', durationMs: 1200 })
+    expect(JSON.parse(await readFile(`${work}/${cueSidecarFile(0)}`, 'utf8'))).toEqual({ text: 'Smoke rises.', voice: 'Joanna', language: 'en', ssml: cueSsml('Smoke rises.'), durationMs: 1200 })
+    // A sidecar written with another SSML wrapper (or none, before the wrapper was recorded) is a different clip.
+    await writeFile(`${work}/${cueSidecarFile(0)}`, JSON.stringify({ text: 'Smoke rises.', voice: 'Joanna', language: 'en', ssml: '<speak>Smoke rises.</speak>', durationMs: 1200 }))
+    const h = fakes()
+    await voice(ctx(), h)
+    expect(h.synthesize).toHaveBeenCalledTimes(1)
     // A different voice or language is a different clip too.
     const g = fakes()
     await voice({ ...ctx(), voice: 'Matthew' }, g)
@@ -92,6 +97,15 @@ describe('voice', () => {
     // The discarded first clip is billed by voice itself; the kept clip by pollyChars (steps/index.ts), so nothing is counted twice.
     expect(costUsd).toBeCloseTo(pollyUsd(LONG.length), 12)
     expect(await pollyChars(work, since)).toBe(SHORT.length)
+  })
+  it('a clip that would run into the next cue in the same gap is shortened', async () => {
+    // One gap 0–10000; fit placed the next cue at 3500. LONG (4000 ms) from 1000 ends at 5000 > min(10000, 3500 − 150) + 200 = 3550
+    // → maxWords = max(3, floor(10 × (3350 − 1000) / 4000)) = 5 → SHORT, 1000 + 1900 = 2900 ≤ 3550: kept, no overlap.
+    await writeCues([cue(1000, LONG, 10000), cue(3500, 'Smoke rises.', 10000), cue(9000, 'Words appear: North.', undefined, true)])
+    const f = fakes()
+    await voice(ctx(), f)
+    expect(f.synthesize.mock.calls.map((c) => c[0])).toEqual([LONG, SHORT, 'Smoke rises.', 'Words appear: North.'])
+    expect((await readCues()).map((c) => [c.startMs, c.endMs, c.text, c.extended])).toEqual([[1000, 2900, SHORT, false], [3500, 4700, 'Smoke rises.', false], [9000, 10700, 'Words appear: North.', true]])
   })
   it('a second overrun becomes extended when the text introduces something new', async () => {
     // 10000 + 5000 > 12200 → maxWords = floor(12 × 2000 / 5000) = 4 → NIGHT_SHORT; 10000 + 2500 still > 12200
