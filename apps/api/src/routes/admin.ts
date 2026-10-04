@@ -8,12 +8,18 @@ import { AppError, ok, validate } from '../lib/http'
 export const admin: Router = Router()
 admin.use((req, _res, next) => (req.header('x-admin-token') === process.env.ADMIN_TOKEN && process.env.ADMIN_TOKEN ? next() : next(new AppError(401, 'UNAUTHORIZED', 'admin token required'))))
 
-const NewTitle = z.object({ slug: z.string().regex(/^[a-z0-9-]+$/), name: z.string(), year: z.number().int().optional(), license: z.string(), attribution: z.string(), synopsis: z.string().optional(), language: z.enum(['en', 'de']).default('en'), voice: z.enum(['Joanna', 'Matthew', 'Vicki', 'Daniel']).default('Joanna'), sourceS3Key: z.string() })
+/**
+ * Poster/hero override: a key the human uploaded by hand. CloudFront serves `published/*` only (infra/lib/media-stack.ts), so
+ * any other prefix would be a 403 on the TV. Without it, the pipeline's own stills fill the null columns (published/{slug}/art/).
+ */
+const PublishedKey = z.string().regex(/^published\/[\w.-]+(\/[\w.-]+)*$/, 'must be an S3 key under published/').refine((k) => !k.split('/').includes('..'), 'must not contain ..')
+/** `prompts` is reserved: published/prompts/ holds the app-voice clips (promptAudioKey in contracts). */
+const NewTitle = z.object({ slug: z.string().regex(/^[a-z0-9-]+$/).refine((s) => s !== 'prompts', 'slug "prompts" is reserved'), posterKey: PublishedKey.optional(), heroKey: PublishedKey.optional(), name: z.string(), year: z.number().int().optional(), license: z.string(), attribution: z.string(), synopsis: z.string().optional(), language: z.enum(['en', 'de']).default('en'), voice: z.enum(['Joanna', 'Matthew', 'Vicki', 'Daniel']).default('Joanna'), sourceS3Key: z.string() })
 
 admin.post('/titles', validate(NewTitle, (r) => r.body), async (req, res, next) => {
   try {
     const v = (req as never as { valid: z.infer<typeof NewTitle> }).valid
-    const t = await db.title.create({ data: { slug: v.slug, name: v.name, year: v.year, license: v.license, attribution: v.attribution, synopsis: v.synopsis, language: v.language, voice: v.voice, assets: { create: { kind: 'source', s3Key: v.sourceS3Key, region: process.env.AWS_REGION ?? 'eu-central-1' } } } })
+    const t = await db.title.create({ data: { slug: v.slug, name: v.name, year: v.year, license: v.license, attribution: v.attribution, synopsis: v.synopsis, language: v.language, voice: v.voice, posterKey: v.posterKey, heroKey: v.heroKey, assets: { create: { kind: 'source', s3Key: v.sourceS3Key, region: process.env.AWS_REGION ?? 'eu-central-1' } } } })
     ok(res, t, 201)
   } catch (e) { next(e) }
 })

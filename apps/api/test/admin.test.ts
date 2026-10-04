@@ -1,7 +1,7 @@
 import request from 'supertest'
-const { send, updateMany, find } = vi.hoisted(() => ({ send: vi.fn(), updateMany: vi.fn(), find: vi.fn() }))
+const { send, updateMany, find, create } = vi.hoisted(() => ({ send: vi.fn(), updateMany: vi.fn(), find: vi.fn(), create: vi.fn() }))
 vi.mock('../src/lib/queue', () => ({ boss: { send } }))
-vi.mock('../src/lib/db', () => ({ db: { title: { findUniqueOrThrow: find, updateMany } } }))
+vi.mock('../src/lib/db', () => ({ db: { title: { findUniqueOrThrow: find, updateMany, create } } }))
 import { createApp } from '../src/app'
 
 const post = (q = '') => request(createApp()).post(`/admin/titles/t1/describe${q}`).set('x-admin-token', 'x')
@@ -41,5 +41,26 @@ describe('POST /admin/titles/:id/describe', () => {
     expect((await post('?force=1')).status).toBe(409)
     expect(updateMany).toHaveBeenCalledTimes(1)
     expect(updateMany).toHaveBeenCalledWith({ where: { id: 't1', status: undefined }, data: { status: 'processing' } })
+  })
+})
+
+describe('POST /admin/titles', () => {
+  const title = { slug: 'sintel-90-150', name: 'Sintel', license: 'CC-BY 3.0', attribution: 'Sintel © Blender Foundation, CC-BY 3.0.', sourceS3Key: 'sources/sintel.mp4' }
+  const postTitle = (body: object) => request(createApp()).post('/admin/titles').set('x-admin-token', 'x').send(body)
+  beforeEach(() => { vi.stubEnv('ADMIN_TOKEN', 'x'); create.mockReset().mockImplementation(async ({ data }) => ({ id: 't1', ...data })) })
+  it('POST /admin/titles accepts posterKey under published/ and rejects other prefixes', async () => {
+    const art = { posterKey: 'published/sintel-90-150/art/poster.jpg', heroKey: 'published/sintel-90-150/art/hero.jpg' }
+    expect((await postTitle({ ...title, ...art })).status).toBe(201)
+    expect(create.mock.calls[0]![0].data).toMatchObject(art)
+    expect((await postTitle(title)).status).toBe(201)
+    expect(create.mock.calls[1]![0].data.posterKey).toBeUndefined()
+    for (const bad of [{ posterKey: 'work/sintel-90-150/art/poster.jpg' }, { heroKey: 'sources/hero.jpg' }, { posterKey: '/published/x.jpg' }, { heroKey: 'published/../work/x.jpg' }]) {
+      expect((await postTitle({ ...title, ...bad })).status, JSON.stringify(bad)).toBe(400)
+    }
+    expect(create).toHaveBeenCalledTimes(2)
+  })
+  it('rejects the slug "prompts": published/prompts/ holds the app-voice clips', async () => {
+    expect((await postTitle({ ...title, slug: 'prompts' })).status).toBe(400)
+    expect(create).not.toHaveBeenCalled()
   })
 })

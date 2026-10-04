@@ -34,7 +34,7 @@ describe('GET /prompts/:voice/:key.mp3', () => {
   it('redirects to the clip on CloudFront', async () => {
     const res = await request(createApp()).get('/prompts/Vicki/firstRun2.mp3')
     expect(res.status).toBe(302)
-    expect(res.header.location).toBe('https://cdn.test/prompts/Vicki/firstRun2.mp3')
+    expect(res.header.location).toBe('https://cdn.test/published/prompts/Vicki/firstRun2.mp3')
   })
   it.each(['/prompts/Brian/firstRun1.mp3', '/prompts/Joanna/anything.mp3', '/prompts/Joanna/firstRun1.wav'])('404 for %s', async (path) => {
     expect((await request(createApp()).get(path)).status).toBe(404)
