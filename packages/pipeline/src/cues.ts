@@ -67,13 +67,22 @@ export async function writeDescriptionCues(db: CueDb, titleId: string, work: str
   await db.$transaction([db.descriptionCue.deleteMany({ where: { titleId } }), db.descriptionCue.createMany({ data: rows })] as never[])
 }
 
-/** The CLI's path (no job, no titleId): looks the title up by slug. Without DATABASE_URL, or without a Title row, it warns and skips. */
-export async function writeDescriptionCuesForCli(slug: string, work: string, open?: () => Promise<CueDb & { title: { findUnique(a: { where: { slug: string }; select: { id: true } }): Promise<{ id: string } | null> }; $disconnect(): Promise<void> }>) {
-  if (!open && !process.env.DATABASE_URL) { console.warn('no DATABASE_URL: DescriptionCue rows not written'); return }
-  const db = open ? await open() : (new (await import('@prisma/client')).PrismaClient() as never as Awaited<ReturnType<NonNullable<typeof open>>>)
+/** What the CLI path needs: the worker's Db plus a lookup by slug and a disconnect (Prisma's client satisfies it). */
+export type CliDb = import('./jobs').Db & { $disconnect(): Promise<void> }
+
+/**
+ * The CLI's path (no job, no titleId): looks the title up by slug and writes what the worker's persist('finish') writes —
+ * DescriptionCue rows, Rendition and TextTrack rows, and the art keys (src/jobs.ts writeTrackRows). Without DATABASE_URL, or
+ * without a Title row, it warns and skips.
+ */
+export async function persistForCli(slug: string, work: string, open?: () => Promise<CliDb>) {
+  if (!open && !process.env.DATABASE_URL) { console.warn('no DATABASE_URL: DescriptionCue, Rendition and TextTrack rows not written'); return }
+  const db = open ? await open() : (new (await import('@prisma/client')).PrismaClient() as CliDb)
   try {
     const t = await db.title.findUnique({ where: { slug }, select: { id: true } })
-    if (!t) { console.warn(`no Title row for ${slug}: DescriptionCue rows not written`); return }
-    await writeDescriptionCues(db, t.id, work)
+    if (!t) { console.warn(`no Title row for ${slug}: DescriptionCue, Rendition and TextTrack rows not written`); return }
+    const { writeTrackRows } = await import('./jobs') // dynamic: jobs.ts imports this module
+    await writeDescriptionCues(db as never, t.id, work)
+    await writeTrackRows(t.id, work, db)
   } finally { await db.$disconnect() }
 }

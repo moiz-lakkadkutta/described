@@ -45,12 +45,25 @@ describe('checkMaster', () => {
     const oneAudio = (await master()).split('\n').filter((l) => !l.includes('audio_ad.m3u8')).join('\n')
     expect(checkMaster(oneAudio, BASE, ALL)).toEqual(expect.arrayContaining([expect.stringMatching(/2 audio renditions.*1/)]))
   })
+  it('finds "Original" by its own NAME and characteristics, in either order, and rejects one that describes video', async () => {
+    const lines = (await master()).split('\n')
+    const [main, ad] = [lines.findIndex((l) => l.includes('audio_main.m3u8')), lines.findIndex((l) => l.includes('audio_ad.m3u8'))]
+    const swapped = lines.map((l, i) => (i === main ? lines[ad]! : i === ad ? lines[main]! : l)).join('\n')
+    expect(checkMaster(swapped, BASE, ALL)).toEqual([])
+    const adNamedOriginal = (await master()).replace('NAME="Original"', 'NAME="Main"').replace('NAME="Audio description"', 'NAME="Original"')
+    expect(checkMaster(adNamedOriginal, BASE, ALL)).toEqual([expect.stringMatching(/no main audio rendition named "Original"/)])
+  })
   it('reports a playlist that does not parse instead of throwing', () => {
     expect(checkMaster('<html>', BASE, ALL)).toEqual([expect.stringMatching(/EXTM3U/)])
   })
 })
 
 describe('validateWork', () => {
+  it('validateWork names the step to re-run when work/package.json is missing', async () => {
+    const work = await workDir(await master())
+    await rm(join(work, 'package.json'))
+    await expect(validateWork(work)).rejects.toThrow('work/package.json missing: run --from package first')
+  })
   it('passes the fixture work dir and writes validate.json with the tracks and cue counts', async () => {
     const work = await workDir(await master())
     const r = await validateWork(work)

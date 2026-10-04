@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import type { ConverseCommandInput } from '@aws-sdk/client-bedrock-runtime'
 import { serializeVtt } from '@moizp/vega-media-kit/core'
 import type { Cue } from '@moizp/vega-media-kit/core'
-import { parseSdhReply, readSdhReply, mergeSdh, chunkCaptions, sdhWithNovaLite, SDH_CHUNK_CAPTIONS, type SdhConverse } from '../src/prompts'
+import { replyCues, mergeSdh, chunkCaptions, sdhWithNovaLite, SDH_CHUNK_CAPTIONS, type SdhConverse } from '../src/prompts'
 import type { FitCue } from '../src/steps/05-fit'
 import { sdh } from '../src/steps/08-text'
 import { metered, bedrockUsd } from '../src/cost'
@@ -15,10 +15,11 @@ const captions: Cue[] = [
 ]
 const plain = captions.map((c) => ({ ...c, trackId: 'sdh' }))
 
-describe('parseSdhReply', () => {
+describe('replyCues', () => {
+  const merged = (reply: unknown) => mergeSdh(captions, replyCues(reply)!)
   it('reads the requested {"cues":[…]} shape, fenced or not', () => {
     const reply = '```json\n{"cues":[{"id":"c1","start":16.92,"end":23.729,"text":"This blade has a dark past"},{"id":"s1","start":24,"end":25,"text":"[fire crackles]","sound":true}]}\n```'
-    const out = parseSdhReply(reply, captions)
+    const out = merged(reply)
     expect(out.map((c) => c.text)).toEqual(['This blade has a dark past', '[fire crackles]', "Um I'm searching for someone"])
     expect(out.every((c) => c.trackId === 'sdh')).toBe(true)
     expect(out[1]).toMatchObject({ sound: true })
@@ -26,29 +27,28 @@ describe('parseSdhReply', () => {
   })
 
   // Nova Lite on Sintel 1:30–2:30 (2026-10-01) echoed the request envelope instead of {"cues":[…]}.
-  it('falls back to the plain captions when the reply echoes the input envelope', () => {
+  it('reads nothing when the reply echoes the input envelope', () => {
     const reply = JSON.stringify({ language: 'en', captions: [{ id: 'c1', start: 16.92, end: 23.729, text: 'This blade has a dark past' }], descriptions: [{ start: 0, text: 'A person stands.' }] })
-    expect(readSdhReply(reply, captions)).toEqual({ cues: plain, degraded: true })
+    expect(replyCues(reply)).toBeUndefined()
   })
 
-  it('falls back on non-JSON and on cues missing timing or text', () => {
-    expect(parseSdhReply('Sorry, I cannot help with that.', captions)).toHaveLength(2)
-    expect(parseSdhReply('{"cues":[{"id":"c1","text":"no timing"}]}', captions).map((c) => c.id)).toEqual(['c1', 'c2'])
+  it('reads nothing on non-JSON and on cues missing timing or text', () => {
+    expect(replyCues('Sorry, I cannot help with that.')).toBeUndefined()
+    expect(replyCues('{"cues":[{"id":"c1","text":"no timing"}]}')).toBeUndefined()
   })
 
   it('accepts a toolUse input object as the reply', () => {
-    const out = readSdhReply({ cues: [{ id: 'c1', start: 16.92, end: 23.729, text: 'This blade has a dark past' }, { id: 's1', start: 24, end: 25, text: '[fire crackles]', sound: true }] }, captions)
-    expect(out.degraded).toBe(false)
-    expect(out.cues.map((c) => c.id)).toEqual(['c1', 's1', 'c2'])
+    const out = merged({ cues: [{ id: 'c1', start: 16.92, end: 23.729, text: 'This blade has a dark past' }, { id: 's1', start: 24, end: 25, text: '[fire crackles]', sound: true }] })
+    expect(out.map((c) => c.id)).toEqual(['c1', 's1', 'c2'])
   })
 
-  it('falls back when the reply has zero cues', () => {
-    expect(readSdhReply({ cues: [] }, captions)).toEqual({ cues: plain, degraded: true })
-    expect(readSdhReply('{"cues":[]}', captions)).toEqual({ cues: plain, degraded: true })
+  it('reads zero cues as a valid empty list (the merge is the plain captions)', () => {
+    expect(replyCues({ cues: [] })).toEqual([])
+    expect(merged('{"cues":[]}')).toEqual(plain)
   })
 
   it('coerces numeric strings and drops a sound cue whose start is not before its end', () => {
-    const out = parseSdhReply({ cues: [{ id: 's1', start: '24', end: '25.5', text: '[fire crackles]' }, { id: 's2', start: 30, end: 30, text: '[door slams]' }] }, captions)
+    const out = merged({ cues: [{ id: 's1', start: '24', end: '25.5', text: '[fire crackles]' }, { id: 's2', start: 30, end: 30, text: '[door slams]' }] })
     expect(out.filter((c) => c.sound).map((c) => [c.start, c.end, c.text])).toEqual([[24, 25.5, '[fire crackles]']])
   })
 })
@@ -162,10 +162,11 @@ describe('sdhWithNovaLite (chunked, additions only)', () => {
     const send = vi.fn<SdhConverse>(async () => toolReply([{ id: 'c2', start: 2.5, end: 4.5, text: '[Sintel] Line 2' }]))
     const out = await sdhWithNovaLite(caps, [], 'en', send)
     expect(out.degraded).toBe(false)
+    expect(out.added).toBe(1)
     expect(out.cues.map((c) => c.text)).toEqual(['Line 1', '[Sintel] Line 2', 'Line 3', 'Line 4', 'Line 5'])
     expect(out.cues.every((c) => c.trackId === 'sdh')).toBe(true)
     // A window with nothing to add is a valid empty reply, not a failure.
-    expect(await sdhWithNovaLite(caps, [], 'en', async () => toolReply([]))).toEqual({ cues: caps.map((c) => ({ ...c, trackId: 'sdh' })), degraded: false, calls: 1 })
+    expect(await sdhWithNovaLite(caps, [], 'en', async () => toolReply([]))).toEqual({ cues: caps.map((c) => ({ ...c, trackId: 'sdh' })), degraded: false, calls: 1, added: 0 })
   })
 
   it('sound ids are numbered once across windows and overlaps at a window edge are dropped', async () => {
@@ -180,6 +181,7 @@ describe('sdhWithNovaLite (chunked, additions only)', () => {
     expect(sounds.map((c) => [c.id, c.start, c.text])).toEqual([['s1', 2.1, '[door slams]'], ['s2', 75, '[thunder]'], ['s3', 77.5, '[footsteps]']])
     expect(out.cues.find((c) => c.id === 'c40')!.text).toBe('[Sintel] Line 40')
     expect(out.cues.filter((c) => !c.sound)).toHaveLength(60)
+    expect(out.added).toBe(4) // three sounds + one speaker tag
     expect(out.cues.map((c) => c.start)).toEqual([...out.cues.map((c) => c.start)].sort((x, y) => x - y))
   })
 
@@ -225,5 +227,17 @@ describe('08-text sdh step', () => {
     const vtt = await readFile(`${work}/sdh.vtt`, 'utf8')
     expect(vtt).toContain('00:01:15.000 --> 00:01:16.500\n[thunder]')
     expect(vtt).toContain('Line60.')
+  })
+  it('a title where no window added anything is not advertised as Rich captions', async () => {
+    const work = await mkdtemp(join(tmpdir(), 'sdh-'))
+    await writeFile(`${work}/words.json`, JSON.stringify([{ start: 0, end: 2, text: 'Hello.', speaker: 'spk_0' }, { start: 3, end: 5, text: 'Goodbye.', speaker: 'spk_0' }]))
+    await writeFile(`${work}/cues.json`, JSON.stringify([]))
+    // Valid replies that add nothing: an empty list, and a caption echoed without a speaker tag.
+    await sdh({ slug: 't', source: 's', language: 'en', voice: 'Joanna', work }, async () => toolReply([{ id: 'c1', start: 0, end: 2, text: 'Hello.' }]))
+    expect(JSON.parse(await readFile(`${work}/sdh.json`, 'utf8'))).toEqual({ degraded: true })
+    // No dialogue at all: no call, not degraded (09-package advertises SDH only when there are captions).
+    await writeFile(`${work}/words.json`, JSON.stringify([]))
+    await sdh({ slug: 't', source: 's', language: 'en', voice: 'Joanna', work }, async () => { throw new Error('no call expected') })
+    expect(JSON.parse(await readFile(`${work}/sdh.json`, 'utf8'))).toEqual({ degraded: false })
   })
 })

@@ -5,7 +5,7 @@ import { parseVtt } from '@moizp/vega-media-kit/core'
 import { EXTENDED_WORDS, fit } from '../src/steps/05-fit'
 import type { Described } from '../src/steps/04-describe'
 import type { FitCue } from '../src/steps/05-fit'
-import { CLIPS_FILE, clipHash, cueAudioKey, descriptionCueRows, descriptionsVtt, writeDescriptionCues, writeDescriptionCuesForCli } from '../src/cues'
+import { CLIPS_FILE, clipHash, cueAudioKey, descriptionCueRows, descriptionsVtt, writeDescriptionCues, persistForCli } from '../src/cues'
 import { publish } from '../src/steps/10-publish'
 // The Player's own scheduler (pure, no React): the last hop of fit → VTT → kit parseVtt → app.
 import { ExtendedScheduler, extendedCues } from '../../shared-ui/src/extended'
@@ -134,19 +134,16 @@ describe('publish and DescriptionCue rows (no AWS, no Postgres: upload and datab
     expect(f.rows()[0]!.pollyKey).toBe(`published/x/cues/cue_0.${h0}.mp3`) // unchanged clip, same key
     expect(f.rows()[1]!.pollyKey).toBe(`published/x/cues/cue_1.${clipHash(Buffer.from('clip one, voiced again'))}.mp3`)
   })
-  it('CLI: without DATABASE_URL it warns and skips; with a database it finds the title by slug', async () => {
+  it('CLI: without DATABASE_URL, or without a Title row for the slug, it warns and writes nothing', async () => {
     const dir = work(); await publish(ctx(dir), { upload: vi.fn(async () => {}) })
     vi.stubEnv('DATABASE_URL', '')
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    await writeDescriptionCuesForCli('x', dir)
+    await persistForCli('x', dir)
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('no DATABASE_URL'))
     const none = fakeDb(null)
-    await writeDescriptionCuesForCli('x', dir, async () => none.db as never)
+    await persistForCli('x', dir, async () => none.db as never)
+    expect(none.db.title.findUnique).toHaveBeenCalledWith({ where: { slug: 'x' }, select: { id: true } })
     expect(none.db.$transaction).not.toHaveBeenCalled(); expect(none.db.$disconnect).toHaveBeenCalled()
     warn.mockRestore()
-    const f = fakeDb()
-    await writeDescriptionCuesForCli('x', dir, async () => f.db as never)
-    expect(f.db.title.findUnique).toHaveBeenCalledWith({ where: { slug: 'x' }, select: { id: true } })
-    expect(f.rows()).toHaveLength(2)
   })
 })
