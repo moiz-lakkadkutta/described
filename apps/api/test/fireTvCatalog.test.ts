@@ -1,8 +1,9 @@
-import request from 'supertest'
+import { serve } from './serve'
 import { escapeXml, renderFireTvCatalog, type FeedTitle } from '../src/lib/fireTvCatalog'
 const findMany = vi.fn()
 vi.mock('../src/lib/db', () => ({ db: { title: { findMany: (...a: unknown[]) => findMany(...a) } } }))
 const { createApp } = await import('../src/app')
+const http = serve(createApp())
 
 const sintel: FeedTitle = { slug: 'sintel-90-210', name: 'Sintel', year: 2010, durationS: 888, synopsis: 'A girl & her "dragon" <Scales>.', posterUrl: 'https://cdn.example/p.jpg?a=1&b=2' }
 const bare: FeedTitle = { slug: 'big-buck-bunny', name: 'Big Buck Bunny', year: null, durationS: null, synopsis: null, posterUrl: null }
@@ -59,7 +60,7 @@ describe('renderFireTvCatalog', () => {
 describe('GET /catalog/fire-tv.xml', () => {
   it('serves published titles as XML, poster from the CDN key', async () => {
     findMany.mockResolvedValueOnce([{ slug: 'sintel-90-210', name: 'Sintel', year: 2010, durationS: 888, synopsis: null, posterKey: null }])
-    const res = await request(createApp()).get('/catalog/fire-tv.xml?partner=Described%20Ltd')
+    const res = await http().get('/catalog/fire-tv.xml?partner=Described%20Ltd')
     expect(res.status).toBe(200)
     expect(res.headers['content-type']).toMatch(/application\/xml/)
     expect(res.text).toContain('<ID>sintel-90-210</ID>')

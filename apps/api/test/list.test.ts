@@ -1,4 +1,4 @@
-import request from 'supertest'
+import { serve } from './serve'
 // In-memory stand-in for the three tables My list touches: Profile (by device), Title (slug, status) and ListItem.
 const titles = [
   { id: 't1', slug: 'sintel-90-210', status: 'published' },
@@ -36,9 +36,9 @@ const db = {
 }
 vi.mock('../src/lib/db', () => ({ db }))
 const { createApp } = await import('../src/app')
+const app = serve(createApp())
 beforeEach(() => { items = []; clock = 0 })
 
-const app = () => request(createApp())
 const list = async (device: string) => (await app().get('/me/list').set('x-device-id', device)).body.data
 
 describe('My list', () => {

@@ -1,10 +1,11 @@
-import request from 'supertest'
+import { serve } from './serve'
 const { send, updateMany, find, create } = vi.hoisted(() => ({ send: vi.fn(), updateMany: vi.fn(), find: vi.fn(), create: vi.fn() }))
 vi.mock('../src/lib/queue', () => ({ boss: { send } }))
 vi.mock('../src/lib/db', () => ({ db: { title: { findUniqueOrThrow: find, updateMany, create } } }))
 import { createApp } from '../src/app'
+const http = serve(createApp())
 
-const post = (q = '') => request(createApp()).post(`/admin/titles/t1/describe${q}`).set('x-admin-token', 'x')
+const post = (q = '') => http().post(`/admin/titles/t1/describe${q}`).set('x-admin-token', 'x')
 const claim = { where: { id: 't1', status: { not: 'processing' } }, data: { status: 'processing' } }
 describe('POST /admin/titles/:id/describe', () => {
   beforeEach(() => {
@@ -46,7 +47,7 @@ describe('POST /admin/titles/:id/describe', () => {
 
 describe('POST /admin/titles', () => {
   const title = { slug: 'sintel-90-150', name: 'Sintel', license: 'CC-BY 3.0', attribution: 'Sintel © Blender Foundation, CC-BY 3.0.', sourceS3Key: 'sources/sintel.mp4' }
-  const postTitle = (body: object) => request(createApp()).post('/admin/titles').set('x-admin-token', 'x').send(body)
+  const postTitle = (body: object) => http().post('/admin/titles').set('x-admin-token', 'x').send(body)
   beforeEach(() => { vi.stubEnv('ADMIN_TOKEN', 'x'); create.mockReset().mockImplementation(async ({ data }) => ({ id: 't1', ...data })) })
   it('POST /admin/titles accepts posterKey under published/ and rejects other prefixes', async () => {
     const art = { posterKey: 'published/sintel-90-150/art/poster.jpg', heroKey: 'published/sintel-90-150/art/hero.jpg' }
