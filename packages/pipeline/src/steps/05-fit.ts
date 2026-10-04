@@ -3,7 +3,11 @@ import type { Ctx } from './index'
 import type { Described } from './04-describe'
 import type { Gap } from './03-speech'
 
-export interface FitCue { startMs: number; endMs: number; text: string; extended: boolean; wordCount: number; shotIndex: number }
+/**
+ * endMs: fit's estimate (words / WPS + 300 ms) until 06-voice measures the Polly clip and rewrites it as startMs + clip duration (DESC-013).
+ * limitMs: placed cues only — the end of the gap the cue was placed in, which the clip must not overrun (06-voice); absent on extended cues.
+ */
+export interface FitCue { startMs: number; endMs: number; text: string; extended: boolean; wordCount: number; shotIndex: number; limitMs?: number }
 export const WPS = 160 / 60 // 2.67 words per second
 /** A description may start up to 1 s after its shot ends, never later (Gate C, approved 2026-10-01). */
 export const LATE_MS = 1000
@@ -34,7 +38,7 @@ export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, max
         if (words(text) > maxWords) text = await shorten(text, maxWords)
         if (words(text) > maxWords) continue
         const end = Math.min(g.endMs, start + Math.round((words(text) / WPS) * 1000) + 300)
-        out.push({ startMs: start, endMs: end, text, extended: false, wordCount: words(text), shotIndex: s.index })
+        out.push({ startMs: start, endMs: end, text, extended: false, wordCount: words(text), shotIndex: s.index, limitMs: g.endMs })
         g.cursor = end + 150
         placed = true
         break
@@ -49,8 +53,24 @@ const words = (t: string) => t.trim().split(/\s+/).filter(Boolean).length
 const extended = (s: Described): FitCue => ({ startMs: s.startMs, endMs: s.startMs + 100, text: s.description, extended: true, wordCount: words(s.description), shotIndex: s.index })
 /** Extended cues pause the film, so they keep the 25-word budget (PLAN §4.2); longer text is shortened like any other. */
 export const EXTENDED_WORDS = 25
-async function capExtended(text: string, shorten: (text: string, maxWords: number) => Promise<string> | string) {
-  if (words(text) > EXTENDED_WORDS) { const t = await shorten(text, EXTENDED_WORDS); if (words(t) <= EXTENDED_WORDS) text = t; else text = text.split(/\s+/).slice(0, EXTENDED_WORDS).join(' ') }
+/** A clause-boundary cut that leaves fewer words than this is too little; the cut stays at EXTENDED_WORDS. */
+export const MIN_CLAUSE_CUT_WORDS = 8
+/**
+ * Caps an extended cue at EXTENDED_WORDS. The shortener's text is used when it fits; otherwise the text is cut after the last word
+ * ending a clause ([,;:.]) within the first EXTENDED_WORDS, when that keeps ≥ MIN_CLAUSE_CUT_WORDS words (a trailing , ; : becomes .),
+ * else at EXTENDED_WORDS words. Also used by 06-voice when an overrun cue becomes extended.
+ */
+export async function capExtended(text: string, shorten: (text: string, maxWords: number) => Promise<string> | string) {
+  if (words(text) > EXTENDED_WORDS) {
+    const t = await shorten(text, EXTENDED_WORDS)
+    if (words(t) <= EXTENDED_WORDS) text = t
+    else {
+      const head = text.trim().split(/\s+/).slice(0, EXTENDED_WORDS)
+      let last = head.length - 1
+      while (last >= 0 && !/[,;:.]$/.test(head[last]!)) last--
+      text = last + 1 >= MIN_CLAUSE_CUT_WORDS ? head.slice(0, last + 1).join(' ').replace(/[,;:]$/, '.') : head.join(' ')
+    }
+  }
   return { text, wordCount: words(text) }
 }
 

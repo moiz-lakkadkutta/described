@@ -220,9 +220,29 @@ describe('known names', () => {
     expect(knownNames(said('Hello there Hope. I hope so.'), 99000, 'en')).toEqual([])
     expect(knownNames(said('Run Fast', ['spk_0', 'spk_1']), 99000, 'en')).toEqual([])
   })
-  it('finds no names in the sintel-90-150 transcript, and none for German', () => {
+  it('finds no names in the sintel-90-150 transcript, and none for a German line said once', () => {
     const t = JSON.parse(readFileSync(new URL('./fixtures/sintel-90-150.transcript.json', import.meta.url), 'utf8'))
     expect(knownNames(wordsFromTranscribe(t), 60000, 'en')).toEqual([])
     expect(knownNames(said('Danke, Sintel.'), 99000, 'de')).toEqual([])
+  })
+  it('knownNames accepts "Sintel, wait." when the name is heard again', () => {
+    expect(knownNames(said('Sintel, wait. Where is Sintel going?'), 99000, 'en')).toEqual(['Sintel'])
+    expect(knownNames(said('Scales! Where? Scales?'), 99000, 'en')).toEqual(['Scales']) // a call heard twice
+    expect(knownNames(said('Sintel, wait.'), 99000, 'en')).toEqual([]) // a lone sentence opener: could be any word
+    expect(knownNames(said('Sintel, wait. Sintel!'), 2000, 'en')).toEqual([]) // the second call comes after the shot
+  })
+  it('knownNames rejects sentence adverbs and calls that open a sentence', () => {
+    for (const line of ['However, the dragon is gone.', 'Tomorrow, we ride.', 'Stop! Thief!', 'Stop! Thief! Stop! Thief!', 'Honestly, I know. Honestly, I do.', 'Sintel runs. So, now. Wait! Yes, go.']) expect(knownNames(said(line), 99000, 'en'), line).toEqual([])
+  })
+  it('knownNames (de) accepts "Ich heiße Sintel" said twice and rejects a lone capitalised noun', () => {
+    const twice = said('Ich heiße Sintel. Ich heiße Sintel. Das Schwert ist alt.')
+    expect(knownNames(twice, 99000, 'de')).toEqual(['Sintel'])
+    expect(knownNames(twice, 3000, 'de')).toEqual([]) // heard once before the shot
+    expect(knownNames(said('Ich heiße Sintel. Der Drache fliegt.'), 99000, 'de')).toEqual([])
+    expect(knownNames(said('Das Schwert. Das Schwert glänzt.'), 99000, 'de')).toEqual([]) // a noun said twice, after no name cue
+    expect(knownNames(said('Es ist Zeit. Es ist Zeit.'), 99000, 'de')).toEqual([]) // bare "ist" is no name cue
+    expect(knownNames(said('Ich bin Soldat. Ich bin Soldat.'), 99000, 'de')).toEqual([]) // nor "bin"
+    expect(knownNames(said('Sintel, warte. Sintel, komm.'), 99000, 'de')).toEqual(['Sintel'])
+    expect(knownNames(said('Mein Name ist Sintel. Er ruft Sintel.'), 99000, 'de')).toEqual(['Sintel'])
   })
 })

@@ -111,25 +111,49 @@ export function dedupe(shots: Shot[], replies: RawReply[]): Described[] {
   })
 }
 
-/** Capitalised words that are not names when Transcribe writes them mid-sentence ("So, What brings you…"). */
-const NOT_NAMES = new Set(['i', "i'm", "i'll", "i've", "i'd", 'ok', 'okay', 'what', 'who', 'where', 'when', 'why', 'how', 'the', 'a', 'an', 'and', 'but', 'or', 'so', 'yes', 'no', 'oh', 'hey', 'god', 'mr', 'mrs', 'ms', 'dr', 'sir', 'miss', 'mister', 'lady', 'lord', 'king', 'queen', 'captain', 'mom', 'dad', 'mum'])
+/** Capitalised words that are not names when Transcribe writes them mid-sentence ("So, What brings you…") or open a sentence as a call ("Wait!"). */
+const NOT_NAMES = new Set(['i', "i'm", "i'll", "i've", "i'd", 'ok', 'okay', 'what', 'who', 'where', 'when', 'why', 'how', 'the', 'a', 'an', 'and', 'but', 'or', 'so', 'yes', 'no', 'oh', 'hey', 'god', 'mr', 'mrs', 'ms', 'dr', 'sir', 'miss', 'mister', 'lady', 'lord', 'king', 'queen', 'captain', 'mom', 'dad', 'mum',
+  'wait', 'stop', 'help', 'come', 'look', 'listen', 'run', 'go', 'please', 'thanks', 'hello', 'hi', 'sorry', 'well', 'now', 'here', 'there', 'quick', 'careful', 'really', 'right', 'good', 'great', 'fine', 'nope', 'yeah', 'ah', 'uh', 'um', 'wow', 'father', 'mother', 'brother', 'sister', 'friend', 'everyone', 'guys',
+  'however', 'anyway', 'tomorrow', 'today', 'tonight', 'yesterday', 'honestly', 'actually', 'maybe', 'perhaps', 'later', 'meanwhile', 'besides', 'otherwise', 'finally', 'first', 'next', 'then', 'still', 'also', 'again', 'soon', 'sure', 'alright', 'thief', 'fool', 'quiet', 'enough', 'damn', 'hurry', 'together', 'everybody', 'nobody', 'someone', 'somebody', 'anyone'])
+/** German: the pronouns, calls and kinship words that open a sentence with a comma ("Danke, …", "Komm, …"). */
+const NOT_NAMES_DE = new Set(['ich', 'du', 'er', 'sie', 'es', 'wir', 'ihr', 'ja', 'nein', 'doch', 'hallo', 'danke', 'bitte', 'herr', 'frau', 'gott', 'mama', 'papa', 'vater', 'mutter', 'also', 'gut', 'komm', 'warte', 'hilfe', 'los', 'schnell', 'hier', 'dort', 'jetzt', 'na', 'ach', 'oh', 'hey', 'nun', 'okay', 'freund', 'leute'])
 const HONORIFIC = /^(mr|mrs|ms|dr|st)\.$/i
+/** German words after which a capitalised word is someone's name ("Ich heiße Sintel"); "Name ist Sintel" is matched as two tokens. */
+const DE_NAME_CUE = new Set(['heiße', 'heisse', 'heißt', 'heisst'])
+/** A name must be heard this often before the shot when its only evidence is a sentence-opening call (en) — and always in German, where every noun is capitalised. */
+export const MIN_MENTIONS = 2
 
 /**
- * Names spoken before beforeMs, in the order first heard: a capitalised word that does not open a sentence or a speaker turn,
- * is not a common capitalised word, and never appears lowercase in the transcript. English only — German capitalises every noun.
+ * Names spoken before beforeMs, in the order first heard, each once. Never a common capitalised word, nor a word also heard lowercase.
+ * - English: a capitalised word that does not open a sentence or a speaker turn — or that does open one as a call, directly followed
+ *   by `,` `!` or `?` ("Sintel, wait.", "Scales!"), when it is also heard capitalised mid-sentence or heard ≥ MIN_MENTIONS times
+ *   ("However, …", "Tomorrow, …" open sentences the same way; those and other sentence adverbs are in the common-word list).
+ * - German (every noun is capitalised): a capitalised word right after heiße/heißt ("Ich heiße Sintel") or "Name ist"
+ *   ("Mein Name ist Sintel") — never after a bare ist/bin ("Es ist Zeit", "Ich bin Soldat") — or opening a sentence or turn with
+ *   a vocative comma ("Sintel, warte."); and in every case heard ≥ MIN_MENTIONS times before beforeMs.
  */
 export function knownNames(words: Word[], beforeMs: number, language: 'en' | 'de'): string[] {
-  if (language !== 'en') return []
   const bare = (t: string) => t.replace(/[^\p{L}\p{N}'-]/gu, '').replace(/'s$/i, '')
   const lower = new Set(words.map((w) => bare(w.text)).filter((t) => /^\p{Ll}/u.test(t)).map((t) => t.toLowerCase()))
+  const heard = words.filter((w) => w.end * 1000 <= beforeMs)
+  const mentions = new Map<string, number>()
+  for (const w of heard) mentions.set(bare(w.text), (mentions.get(bare(w.text)) ?? 0) + 1)
+  const common = language === 'de' ? NOT_NAMES_DE : NOT_NAMES
   const out: string[] = []
-  words.forEach((w, i) => {
-    if (w.end * 1000 > beforeMs) return
-    const p = words[i - 1]
-    const opens = !p || p.speaker !== w.speaker || (/[.?!]$/.test(p.text) && !HONORIFIC.test(p.text))
+  const opensAt = (i: number) => { const p = heard[i - 1], w = heard[i]!; return !p || p.speaker !== w.speaker || (/[.?!]$/.test(p.text) && !HONORIFIC.test(p.text)) }
+  const midSentence = new Set(heard.filter((_, i) => !opensAt(i)).map((w) => bare(w.text)))
+  heard.forEach((w, i) => {
+    const p = heard[i - 1]
+    const opens = opensAt(i)
     const t = bare(w.text)
-    if (opens || !/^\p{Lu}\p{Ll}/u.test(t) || NOT_NAMES.has(t.toLowerCase()) || lower.has(t.toLowerCase()) || out.includes(t)) return
+    if (!/^\p{Lu}\p{Ll}/u.test(t) || common.has(t.toLowerCase()) || NOT_NAMES.has(t.toLowerCase()) || lower.has(t.toLowerCase()) || out.includes(t)) return
+    if (language === 'en') { if (opens && (!/[,!?]$/.test(w.text) || !(midSentence.has(t) || (mentions.get(t) ?? 0) >= MIN_MENTIONS))) return }
+    else {
+      const low = (x: Word | undefined) => (x?.text ?? '').replace(/[^\p{L}]/gu, '').toLowerCase()
+      const afterCue = !!p && !opens && (DE_NAME_CUE.has(low(p)) || (low(p) === 'ist' && low(heard[i - 2]) === 'name'))
+      const vocative = opens && /,$/.test(w.text)
+      if (!(afterCue || vocative) || (mentions.get(t) ?? 0) < MIN_MENTIONS) return
+    }
     out.push(t)
   })
   return out
