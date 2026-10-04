@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -6,7 +6,6 @@ import { execa } from 'execa'
 import { OVERRUN_TOLERANCE_MS, clipDurationArgs, cueSidecarFile, cueSsml, parseClipDurationMs, voice, type CueSidecar, type VoiceDeps } from '../src/steps/06-voice'
 import type { FitCue } from '../src/steps/05-fit'
 import type { Ctx } from '../src/steps/index'
-import { pollyChars } from '../src/steps/index'
 import { metered, pollyUsd } from '../src/cost'
 
 /**
@@ -90,13 +89,11 @@ describe('voice', () => {
     // 10000 + 4000 = 14000 > 12000 + 200 → maxWords = max(3, floor(10 × 2000 / 4000)) = 5
     await writeCues([cue(10000, LONG, 12000)])
     const f = fakes()
-    const since = Date.now()
     const { costUsd } = await metered(() => voice(ctx(), f))
     expect(f.synthesize.mock.calls.map((c) => c[0])).toEqual([LONG, SHORT])
     expect(await readCues()).toEqual([{ ...cue(10000, SHORT, 12000), endMs: 11900, wordCount: 5 }])
-    // The discarded first clip is billed by voice itself; the kept clip by pollyChars (steps/index.ts), so nothing is counted twice.
-    expect(costUsd).toBeCloseTo(pollyUsd(LONG.length), 12)
-    expect(await pollyChars(work, since)).toBe(SHORT.length)
+    // Both Polly calls are billed once each: the discarded first clip and the kept one.
+    expect(costUsd).toBeCloseTo(pollyUsd(LONG.length + SHORT.length), 12)
   })
   it('a clip that would run into the next cue in the same gap is shortened', async () => {
     // One gap 0–10000; fit placed the next cue at 3500. LONG (4000 ms) from 1000 ends at 5000 > min(10000, 3500 − 150) + 200 = 3550
@@ -121,7 +118,6 @@ describe('voice', () => {
     // middle cue: 20000 + 6000 > 22200 → maxWords = max(3, floor(9 × 2000 / 6000)) = 3 → SNOW_SHORT; 20000 + 2600 still > 22200 → dropped
     await writeCues([cue(1000, 'Smoke rises.', 5000), cue(20000, SNOW, 22000), cue(30000, 'She waits.', 34000)])
     const f = fakes()
-    const since = Date.now()
     const { costUsd } = await metered(() => voice(ctx(), f))
     expect(f.synthesize.mock.calls.map((c) => c[0])).toEqual(['Smoke rises.', SNOW, SNOW_SHORT, 'She waits.'])
     expect((await readCues()).map((c) => [c.startMs, c.endMs, c.text])).toEqual([[1000, 2200, 'Smoke rises.'], [30000, 31300, 'She waits.']])
@@ -129,7 +125,26 @@ describe('voice', () => {
     expect(await files()).toEqual(['cue_0.json', 'cue_0.mp3', 'cue_1.json', 'cue_1.mp3'])
     expect(await readFile(`${work}/cue_1.mp3`, 'utf8')).toBe('She waits.')
     expect(JSON.parse(await readFile(`${work}/${cueSidecarFile(1)}`, 'utf8'))).toMatchObject({ text: 'She waits.', durationMs: 1300 })
-    expect(costUsd + pollyUsd(await pollyChars(work, since))).toBeCloseTo(pollyUsd(['Smoke rises.', SNOW, SNOW_SHORT, 'She waits.'].join('').length), 12)
+    expect(costUsd).toBeCloseTo(pollyUsd(['Smoke rises.', SNOW, SNOW_SHORT, 'She waits.'].join('').length), 12)
+  })
+  it('bills every Polly call even when the clip file is stamped before the run started', async () => {
+    // Regression: the cost used to be inferred from clip mtimes ≥ Date.now() at the start of the step. Linux stamps files from a
+    // coarse kernel clock that can lag Date.now(), so a clip written in the first tick looked older than the run and went unbilled
+    // (CI: 'Smoke rises.' missing, 12 chars = $0.000192). Here every clip is back-dated an hour to make that deterministic.
+    await writeCues([cue(1000, 'Smoke rises.', 5000), cue(20000, SNOW, 22000), cue(30000, 'She waits.', 34000)])
+    const f = fakes()
+    const measure = f.measureMs.getMockImplementation()!
+    f.measureMs.mockImplementation(async (file: string) => { const past = new Date(Date.now() - 3_600_000); await utimes(file, past, past); return measure(file) })
+    const { costUsd } = await metered(() => voice(ctx(), f))
+    expect(costUsd).toBeCloseTo(pollyUsd(['Smoke rises.', SNOW, SNOW_SHORT, 'She waits.'].join('').length), 12)
+  })
+  it('a failed run still bills the Polly calls it made; a reused clip costs nothing', async () => {
+    await writeCues([cue(1000, 'Smoke rises.', 5000), cue(7000, 'Snow falls.', 9000), cue(12000, 'She waits.', 15000)])
+    await writeFile(`${work}/cue_0.mp3`, 'Smoke rises.')
+    await writeFile(`${work}/${cueSidecarFile(0)}`, JSON.stringify({ text: 'Smoke rises.', voice: 'Joanna', language: 'en', ssml: cueSsml('Smoke rises.'), durationMs: 1200 } satisfies CueSidecar))
+    const f = fakes()
+    f.synthesize.mockImplementation(async (text: string) => { if (text === 'She waits.') throw new Error('throttled'); return new TextEncoder().encode(text) })
+    await expect(metered(() => voice(ctx(), f))).rejects.toMatchObject({ message: 'throttled', costUsd: pollyUsd('Snow falls.'.length) })
   })
   it('stale cue files beyond cues.length are deleted', async () => {
     await writeCues([cue(1000, 'Smoke rises.', 5000), cue(7000, 'Snow falls.', 9000)])

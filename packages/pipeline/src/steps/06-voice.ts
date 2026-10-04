@@ -64,7 +64,8 @@ const words = (t: string) => t.trim().split(/\s+/).filter(Boolean).length
  * 3. cues.json is written back with endMs = startMs + durationMs for every kept cue; 07-mix and 08-text read those ends.
  * Clips keep following cues.json indices: a kept cue after a dropped one moves down (cue_{i} → cue_{j}), and every
  * cue_{k}.mp3|json with k ≥ the cue count is deleted (DESC-016), before synthesis and again after drops.
- * Cost: pollyChars (steps/index.ts) bills the final text of every clip written this run; voice bills the clips it discarded.
+ * Cost: every Polly call is billed to the job's meter as soon as it returns (its text's characters; the SSML wrapper is not
+ * billed), kept or discarded, so a run that fails later still counts what it paid for. Reused clips cost nothing.
  * After a drop, the later clips sit one slot lower; re-running from fit (which restores the dropped cue) finds their sidecars
  * no longer match their slots and re-synthesizes them — a cost only, the clips stay correct.
  */
@@ -74,49 +75,45 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
   const cues = JSON.parse(await readFile(`${ctx.work}/cues.json`, 'utf8')) as FitCue[]
   const language = ctx.language
   await removeCueFilesFrom(ctx.work, cues.length)
-  let discardedChars = 0
   /** Synthesizes text into slot i (overwriting it) and returns the clip's duration. */
   const synth = async (i: number, text: string) => {
     const file = `${ctx.work}/${cueAudioFile(i)}`
-    await writeFile(file, await synthesize(text, ctx.voice, language))
+    const audio = await synthesize(text, ctx.voice, language)
+    meter()?.add(pollyUsd(text.length))
+    await writeFile(file, audio)
     const durationMs = await measureMs(file)
     await writeFile(`${ctx.work}/${cueSidecarFile(i)}`, JSON.stringify({ text, voice: ctx.voice, language, ssml: cueSsml(text), durationMs } satisfies CueSidecar))
     return durationMs
   }
   const kept: FitCue[] = []
-  try {
-    for (const [i, c] of cues.entries()) {
-      ctx.signal?.throwIfAborted()
-      let text = c.text
-      let durationMs = (await reusable(ctx.work, i, { text, voice: ctx.voice, language, ssml: cueSsml(text) })) ?? await synth(i, text)
-      let cue: FitCue | null = { ...c }
-      const next = cues.slice(i + 1).find((x) => !x.extended)
-      const limit = c.limitMs === undefined ? undefined : Math.min(c.limitMs, next ? next.startMs - NEXT_CUE_SPACING_MS : Infinity)
-      if (limit !== undefined && c.startMs + durationMs > limit + OVERRUN_TOLERANCE_MS) {
-        const maxWords = Math.max(3, Math.floor((words(text) * (limit - c.startMs)) / durationMs))
-        const shorter = shortenDeterministic(text, maxWords)
-        if (shorter !== text) { discardedChars += text.length; text = shorter; durationMs = await synth(i, text) }
-        if (c.startMs + durationMs > limit + OVERRUN_TOLERANCE_MS) {
-          if (introducesNew(text)) {
-            const capped = (await capExtended(text, shortenDeterministic)).text
-            if (capped !== text) { discardedChars += text.length; text = capped; durationMs = await synth(i, text) }
-            const { limitMs: _, ...rest } = c
-            cue = { ...rest, extended: true }
-            console.log(`voice: cue ${i} at ${c.startMs} ms runs ${c.startMs + durationMs - limit} ms past its limit; now extended: ${JSON.stringify(text)}`)
-          } else {
-            cue = null
-            discardedChars += text.length
-            console.log(`voice: cue ${i} at ${c.startMs} ms runs ${c.startMs + durationMs - limit} ms past its limit; dropped: ${JSON.stringify(text)}`)
-          }
+  for (const [i, c] of cues.entries()) {
+    ctx.signal?.throwIfAborted()
+    let text = c.text
+    let durationMs = (await reusable(ctx.work, i, { text, voice: ctx.voice, language, ssml: cueSsml(text) })) ?? await synth(i, text)
+    let cue: FitCue | null = { ...c }
+    const next = cues.slice(i + 1).find((x) => !x.extended)
+    const limit = c.limitMs === undefined ? undefined : Math.min(c.limitMs, next ? next.startMs - NEXT_CUE_SPACING_MS : Infinity)
+    if (limit !== undefined && c.startMs + durationMs > limit + OVERRUN_TOLERANCE_MS) {
+      const maxWords = Math.max(3, Math.floor((words(text) * (limit - c.startMs)) / durationMs))
+      const shorter = shortenDeterministic(text, maxWords)
+      if (shorter !== text) { text = shorter; durationMs = await synth(i, text) }
+      if (c.startMs + durationMs > limit + OVERRUN_TOLERANCE_MS) {
+        if (introducesNew(text)) {
+          const capped = (await capExtended(text, shortenDeterministic)).text
+          if (capped !== text) { text = capped; durationMs = await synth(i, text) }
+          const { limitMs: _, ...rest } = c
+          cue = { ...rest, extended: true }
+          console.log(`voice: cue ${i} at ${c.startMs} ms runs ${c.startMs + durationMs - limit} ms past its limit; now extended: ${JSON.stringify(text)}`)
+        } else {
+          cue = null
+          console.log(`voice: cue ${i} at ${c.startMs} ms runs ${c.startMs + durationMs - limit} ms past its limit; dropped: ${JSON.stringify(text)}`)
         }
       }
-      if (!cue) continue
-      const j = kept.length
-      if (j !== i) for (const f of [cueAudioFile, cueSidecarFile]) await rename(`${ctx.work}/${f(i)}`, `${ctx.work}/${f(j)}`)
-      kept.push({ ...cue, text, endMs: cue.startMs + durationMs, wordCount: words(text) })
     }
-  } finally {
-    meter()?.add(pollyUsd(discardedChars))
+    if (!cue) continue
+    const j = kept.length
+    if (j !== i) for (const f of [cueAudioFile, cueSidecarFile]) await rename(`${ctx.work}/${f(i)}`, `${ctx.work}/${f(j)}`)
+    kept.push({ ...cue, text, endMs: cue.startMs + durationMs, wordCount: words(text) })
   }
   await removeCueFilesFrom(ctx.work, kept.length)
   warnOverlaps(kept)

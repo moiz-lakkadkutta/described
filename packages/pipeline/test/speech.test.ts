@@ -10,7 +10,6 @@ vi.mock('@aws-sdk/client-transcribe', () => ({
   GetTranscriptionJobCommand: class Get { kind = 'get'; constructor(public input: unknown) {} },
 }))
 import { mezzMarker, speechMap, transcribe, TranscribeFailed, waitForTranscription } from '../src/steps/03-speech'
-import { pollyChars } from '../src/steps'
 import { metered } from '../src/cost'
 
 const fixture = readFileSync(new URL('./fixtures/sintel-90-150.transcript.json', import.meta.url))
@@ -99,16 +98,5 @@ describe('speech', () => {
     const sleep = async () => {}
     await expect(waitForTranscription(async () => ({ status: 'IN_PROGRESS' }), { sleep, signal: AbortSignal.abort() })).rejects.toThrow()
     await expect(waitForTranscription(async () => ({ status: 'FAILED', failureReason: 'x' }), { sleep })).rejects.toBeInstanceOf(TranscribeFailed)
-  })
-})
-
-describe('polly cost', () => {
-  it('counts only cues voiced in this run, so a failed finish still records what it paid for', async () => {
-    const work = await mkdtemp(join(tmpdir(), 'voice-'))
-    await writeFile(join(work, 'cues.json'), JSON.stringify([{ text: 'Snow falls.' }, { text: 'A girl climbs.' }, { text: 'Night.' }]))
-    await writeFile(join(work, 'cue_0.mp3'), '')
-    await writeFile(join(work, 'cue_2.mp3'), '')
-    await utimes(join(work, 'cue_2.mp3'), new Date(0), new Date(0)) // stale, from an earlier run
-    expect(await pollyChars(work, Date.now() - 60_000)).toBe('Snow falls.'.length)
   })
 })
