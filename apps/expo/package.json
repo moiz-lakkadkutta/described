@@ -4,6 +4,7 @@
   "main": "index.js",
   "scripts": {
     "start": "expo start",
+    "dev": "expo start",
     "android": "expo run:android",
     "typecheck": "tsc --noEmit",
     "build:tv": "eas build -p android --profile preview",
