@@ -15,6 +15,33 @@ export async function probe(ctx: Ctx) {
   const video = (JSON.parse(stdout) as { streams: Array<{ codec_type: string; r_frame_rate?: string; avg_frame_rate?: string }> }).streams.find((s) => s.codec_type === 'video')
   const rate = (r?: string) => { const [n, d] = (r ?? '0/0').split('/').map(Number); return n && d ? n / d : 0 }
   await execa('ffmpeg', mezzanineArgs(ctx.work, rate(video?.r_frame_rate) || rate(video?.avg_frame_rate)), { stdio: 'inherit', cancelSignal: ctx.signal })
+  const duration = Number((JSON.parse(stdout) as { format?: { duration?: string } }).format?.duration) || 0
+  await extractArt(ctx, Number(process.env.PIPELINE_ART_AT_S) || duration * 0.3)
+}
+
+/**
+ * Hero + poster stills from the mezzanine into work/art/ (10-publish uploads them to published/{slug}/art/; persist('finish')
+ * fills a null Title.posterKey/heroKey). Art is optional: a failed grab logs and the run continues.
+ */
+async function extractArt(ctx: Ctx, atS: number) {
+  try {
+    await mkdir(`${ctx.work}/art`, { recursive: true })
+    const { hero, poster } = artArgs(ctx.work, atS)
+    for (const a of [hero, poster]) await execa('ffmpeg', a, { cancelSignal: ctx.signal })
+  } catch (e) {
+    if (ctx.signal?.aborted) throw e
+    console.warn(`probe: art not extracted for ${ctx.slug}; continuing`, e)
+  }
+}
+
+/**
+ * Pure (tested). One frame at `atS` (input seek, before -i: fast) → hero 1488×560 (the Title screen's hero band at 1920×1080:
+ * scaled to cover, centre-cropped) and poster 480×720 (2:3, a centre crop of the full height).
+ * https://ffmpeg.org/ffmpeg.html#Main-options (-ss, -frames:v) · https://ffmpeg.org/ffmpeg-filters.html#crop · https://ffmpeg.org/ffmpeg-filters.html#scale-1
+ */
+export function artArgs(work: string, atS: number): { hero: string[]; poster: string[] } {
+  const grab = (vf: string, out: string) => ['-y', '-ss', String(atS), '-i', `${work}/mezz.mp4`, '-frames:v', '1', '-vf', vf, '-q:v', '3', `${work}/art/${out}`]
+  return { hero: grab('scale=1488:560:force_original_aspect_ratio=increase,crop=1488:560', 'hero.jpg'), poster: grab('crop=ih*2/3:ih,scale=480:720', 'poster.jpg') }
 }
 
 /**
