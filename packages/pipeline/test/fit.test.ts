@@ -134,6 +134,21 @@ describe('fit', () => {
     const [c] = await fit([shot(0, 0, 4000, long)], [], shorten)
     expect(c).toMatchObject({ extended: true, wordCount: EXTENDED_WORDS })
   })
+  it('fit sets limitMs to the gap end for placed cues', async () => {
+    const cues = await fit([shot(0, 0, 1000, 'Snow falls on the hills.'), shot(1, 1000, 3000, 'Smoke rises from the chimney.'), shot(2, 20000, 22000, 'Words appear: North.')], [{ startMs: 0, endMs: 10000 }, { startMs: 12000, endMs: 13500 }], shorten)
+    expect(cues.map((c) => [c.shotIndex, c.extended, c.limitMs])).toEqual([[0, false, 10000], [1, false, 10000], [2, true, undefined]])
+    expect(cues[2]).not.toHaveProperty('limitMs')
+  })
+  it('capExtended cuts at a clause boundary', async () => {
+    const same = (t: string) => t // the shortener fails: returns the text unchanged
+    // 18th word "railing," is the last clause end within the first 25 words; 18 ≥ 8 words, so the cut is there.
+    const long = 'Night. A rooftop. A tall man in an olive coat and a burgundy scarf leans over the railing, looks down at the empty street below and then turns to face the old wooden door.'
+    const [c] = await fit([shot(0, 0, 4000, long)], [], same)
+    expect(c).toMatchObject({ extended: true, text: 'Night. A rooftop. A tall man in an olive coat and a burgundy scarf leans over the railing.', wordCount: 18 })
+    // Only "North." (3 words) ends a clause in the first 25: fewer than 8 words, so the cut stays at 25 words.
+    const [d] = await fit([shot(0, 0, 4000, `Words appear: North. ${'snow '.repeat(30).trim()}.`)], [], same)
+    expect(d).toMatchObject({ extended: true, text: `Words appear: North. ${'snow '.repeat(22).trim()}`, wordCount: EXTENDED_WORDS })
+  })
   it('rejects a shortening that changes a fact and places the deterministic one', async () => {
     const model = vi.fn(() => 'Dragon spreads bloodied wings, roars.')
     const cues = await fit([shot(26, 0, 3000, 'The dragon spreads its bloodied wing, then roars.')], [{ startMs: 0, endMs: 2300 }], (t, n) => safeShorten(t, n, model))
