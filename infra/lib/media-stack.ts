@@ -71,17 +71,29 @@ export class MediaStack extends Stack {
       },
       priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
     })
-    // Pipeline / API role: S3 read-write on media, Transcribe, Polly, Translate here; Bedrock in us-east-1 (see NovaIngestStack).
-    const pipelineRole = new iam.Role(this, 'PipelineRole', { assumedBy: new iam.AccountRootPrincipal(), description: 'described pipeline: media bucket + speech/translate services' })
+    // Pipeline / API role: S3 read-write on media, Transcribe and Polly here; Bedrock in us-east-1 (BEDROCK_REGION).
+    const pipelineRole = new iam.Role(this, 'PipelineRole', { assumedBy: new iam.AccountRootPrincipal(), description: 'described pipeline: media bucket, Transcribe, Polly, Bedrock, CDN invalidation' })
     media.grantReadWrite(pipelineRole)
-    pipelineRole.addToPolicy(new iam.PolicyStatement({ actions: ['transcribe:StartTranscriptionJob', 'transcribe:GetTranscriptionJob', 'polly:SynthesizeSpeech', 'translate:TranslateText'], resources: ['*'] }))
-    // Converse is authorised by bedrock:InvokeModel — https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html
-    // Nova Lite still shortens / writes SDH; shot description is Qwen3-VL 235B, InvokeModel only (Converse, no streaming), in-Region us-east-1 —
-    // https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-qwen-qwen3-vl-235b-a22b.html
-    pipelineRole.addToPolicy(new iam.PolicyStatement({ actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'], resources: ['arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-*', `arn:aws:bedrock:us-east-1:${this.account}:inference-profile/*`] }))
-    pipelineRole.addToPolicy(new iam.PolicyStatement({ actions: ['bedrock:InvokeModel'], resources: ['arn:aws:bedrock:us-east-1::foundation-model/qwen.qwen3-vl-235b-a22b'] }))
-    // Nova ingest bucket read: unused since Gate C (describe sends key-frame bytes, no S3 URIs); removal is DESC-015.
-    pipelineRole.addToPolicy(new iam.PolicyStatement({ actions: ['s3:GetObject'], resources: [`arn:aws:s3:::described-nova-ingest-${props.stage}-${this.account}/*`] }))
+    pipelineRole.addToPolicy(new iam.PolicyStatement({ actions: ['transcribe:StartTranscriptionJob', 'transcribe:GetTranscriptionJob', 'polly:SynthesizeSpeech'], resources: ['*'] }))
+    // Publish invalidates `/published/<slug>/*` when PUBLISH_INVALIDATE=1 (re-runs rewrite VTTs under the same key); scoped to this distribution —
+    // https://docs.aws.amazon.com/cloudfront/latest/APIReference/API_CreateInvalidation.html
+    dist.grantCreateInvalidation(pipelineRole)
+    // Converse is authorised by bedrock:InvokeModel; no call streams, so no InvokeModelWithResponseStream —
+    // https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html
+    // Two models only: Nova Lite shortens / writes SDH (prompts.ts, NOVA_LITE_MODEL_ID); Qwen3-VL 235B describes shots (DESCRIBE_MODEL_ID),
+    // in-Region us-east-1 — https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-qwen-qwen3-vl-235b-a22b.html
+    // The inference-profile ARN stays because NOVA_LITE_MODEL_ID may be set to the `us.` cross-Region profile (cost.ts strips the prefix).
+    // That path also needs the model ARN in every destination Region, not granted here: with a `us.` id, widen the Nova Lite ARN to
+    // `arn:aws:bedrock:*::foundation-model/amazon.nova-lite-v1:0` — https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-prereq.html
+    // Any other DESCRIBE_MODEL_ID (e.g. a Gate C bake-off model) is deliberately denied: widen this statement if the model changes.
+    pipelineRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['bedrock:InvokeModel'],
+      resources: [
+        'arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-lite-v1:0',
+        'arn:aws:bedrock:us-east-1::foundation-model/qwen.qwen3-vl-235b-a22b',
+        `arn:aws:bedrock:us-east-1:${this.account}:inference-profile/us.amazon.nova-lite-v1:0`,
+      ],
+    }))
     new CfnOutput(this, 'MediaBucket', { value: media.bucketName })
     new CfnOutput(this, 'CdnDomain', { value: dist.distributionDomainName })
     new CfnOutput(this, 'CdnId', { value: dist.distributionId }) // CLOUDFRONT_DISTRIBUTION_ID, for invalidations on re-runs

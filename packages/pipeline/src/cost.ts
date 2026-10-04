@@ -10,8 +10,6 @@ export const BEDROCK_PRICES: Record<string, { inputPerM: number; outputPerM: num
   'qwen.qwen3-vl-235b-a22b': { inputPerM: 0.53, outputPerM: 2.66 },
   // TODO(price): verify — Nova Lite v1
   'amazon.nova-lite-v1:0': { inputPerM: 0.06, outputPerM: 0.24 },
-  // TODO(price): verify — Nova Pro v1
-  'amazon.nova-pro-v1:0': { inputPerM: 0.8, outputPerM: 3.2 },
 }
 /** Transcribe standard batch, tier 1, billed per second with a 15 s minimum — https://aws.amazon.com/transcribe/pricing/ TODO(price): verify (eu-central-1) */
 export const TRANSCRIBE_PER_MIN = 0.024

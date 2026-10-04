@@ -19,7 +19,7 @@ with [Lingo](https://github.com/moiz-lakkadkutta/lingo). MIT. All demo content i
 4. Vega: experimental and deferred ([decision 0004](docs/decisions/0004-vega-deferred.md)). `apps/vega` is a template, not
    yet built or run; the shipping app is Fire OS.
 5. Process a title: `pnpm pipeline describe --title sintel --source s3://…/sintel.mp4` (needs AWS creds; see `docs/aws.md`).
-6. Infra: `cd infra && pnpm synth` / `cd infra && pnpm run deploy:stack --all -c stage=dev --outputs-file cdk-outputs.json` (S3 + CloudFront in eu-central-1, Nova ingest bucket in us-east-1; copy the outputs into `.env`).
+6. Infra: `cd infra && pnpm synth` / `cd infra && pnpm run deploy:stack --all -c stage=dev --outputs-file cdk-outputs.json` (one stack: S3 + CloudFront in eu-central-1; Bedrock is called in us-east-1 without a stack there; copy the outputs into `.env`).
 
 ## Architecture
 ```
