@@ -8,13 +8,14 @@ import { mix } from './07-mix'
 import { sdh } from './08-text'
 import { pack } from './09-package'
 import { publish } from './10-publish'
+import { validateWork } from '../validate'
 import { readFile, stat } from 'node:fs/promises'
 import { meter, metered, pollyUsd } from '../cost'
 import type { FitCue } from './05-fit'
 import { cueAudioFile } from '../cues'
 
 export interface DescribeInput { slug: string; source: string; language: 'en' | 'de'; voice: string; fromStep?: string }
-export const STEPS = ['probe', 'shots', 'speech', 'describe', 'fit', 'voice', 'mix', 'text', 'package', 'publish'] as const
+export const STEPS = ['probe', 'shots', 'speech', 'describe', 'fit', 'voice', 'mix', 'text', 'package', 'validate', 'publish'] as const
 export type Step = typeof STEPS[number]
 /** The slug names the work dir and S3 keys, so it is kept to a path-safe alphabet. */
 export const SLUG_RE = /^[a-z0-9-]{1,64}$/
@@ -22,7 +23,7 @@ export const ctxFor = (input: DescribeInput): Ctx => ({ ...input, work: `work/${
 
 const RUNNERS: Record<Step, (ctx: Ctx) => Promise<void>> = {
   probe, shots: detectShots, speech: speechMap, describe: (ctx) => describeShots(ctx), fit: fitDescriptions,
-  voice: async (ctx) => { const since = Date.now(); try { await voice(ctx) } finally { meter()?.add(pollyUsd(await pollyChars(ctx.work, since))) } }, mix, text: sdh, package: pack, publish,
+  voice: async (ctx) => { const since = Date.now(); try { await voice(ctx) } finally { meter()?.add(pollyUsd(await pollyChars(ctx.work, since))) } }, mix, text: sdh, package: pack, validate: async (ctx) => { await validateWork(ctx.work) }, publish,
 }
 /** Characters Polly billed since `since`: the texts of cues whose clip (cueAudioFile; the hashed key only exists once published) 06-voice wrote by now (its SSML wrapper is not billed), so a failed run still counts what it paid for. */
 export async function pollyChars(work: string, since = 0): Promise<number> {

@@ -1,15 +1,17 @@
 import type PgBoss from 'pg-boss'
 import type { PrismaClient } from '@prisma/client'
 import { randomUUID } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
+import { access, readFile } from 'node:fs/promises'
 import { metered } from './cost'
 import { writeDescriptionCues } from './cues'
 import { ctxFor, runStep, SLUG_RE, STEPS, type Ctx } from './steps'
 import type { Shot } from './steps/02-shots'
 import type { Gap } from './steps/03-speech'
 import type { Described } from './steps/04-describe'
+import type { PackageReport } from './steps/09-package'
+import type { ManifestProblems } from './validate'
 
-/** One pg-boss job per step 1–5; `finish` runs steps 6–10 unchanged (they become their own jobs in DESC-004). */
+/** One pg-boss job per step 1–5; `finish` runs steps 6–10 (voice … package, validate, publish) in one job (open question Q4 / decision pending). */
 export const JOB_STEPS = ['probe', 'shots', 'speech', 'describe', 'fit', 'finish'] as const
 export type JobStep = typeof JOB_STEPS[number]
 /** Queue names: letters, digits, `-` and `_` only. apps/api/src/routes/admin.ts sends the first one by name. */
@@ -42,10 +44,10 @@ export interface StepJob { id: string; data: StepData; retryCount: number; retry
 /** Sends a step for a title with a fresh id that is also in its data. */
 export const sendStep = (boss: Pick<Boss, 'send'>, step: JobStep, titleId: string) => { const id = randomUUID(); return boss.send(queueName(step), { titleId, step, jobId: id } satisfies StepData, { id, singletonKey: titleId }) }
 export type Boss = Pick<PgBoss, 'createQueue' | 'updateQueue' | 'send' | 'work'>
-export type Db = Pick<PrismaClient, 'title' | 'job' | 'shot' | 'gap' | 'descriptionCue' | '$transaction'>
+export type Db = Pick<PrismaClient, 'title' | 'job' | 'shot' | 'gap' | 'descriptionCue' | 'rendition' | 'textTrack' | '$transaction'>
 export interface Deps { boss: Boss; db: Db; run?: (step: JobStep, ctx: Ctx) => Promise<void>; timeoutMs?: number }
 
-/** Steps 6–10 in order, unchanged. */
+/** Steps 6–10 in order, with validate between package and publish. */
 const STEPS_6_10 = STEPS.slice(STEPS.indexOf('voice'))
 export const runJobStep = async (step: JobStep, ctx: Ctx) => { if (step !== 'finish') return runStep(step, ctx); for (const s of STEPS_6_10) await runStep(s, ctx) }
 
@@ -88,7 +90,7 @@ export async function handleJob(step: JobStep, job: StepJob, { boss, db, run = r
     // Done first, then enqueue: if this update fails, the retry re-runs an idempotent step instead of starting a second chain.
     await db.job.update({ where: { id: job.id }, data: { status: 'done', finishedAt: new Date(), costUsd: { increment: costUsd } } })
     const next = JOB_STEPS[JOB_STEPS.indexOf(step) + 1]
-    if (!next) { await db.title.update({ where: { id: titleId }, data: { status: 'published' } }); return } // Rendition/TextTrack rows: DESC-004
+    if (!next) { await db.title.update({ where: { id: titleId }, data: { status: 'published' } }); return }
     if (!(await sendStep(boss, next, titleId))) {
       const note = `${queueName(next)} not queued: a job for this title is already waiting there`
       console.warn(`pipeline: ${note} (title ${titleId})`)
@@ -119,7 +121,8 @@ const json = async <T>(work: string, f: string) => JSON.parse(await readFile(`${
 
 /**
  * Rows each step owns, replaced wholesale so a re-run overwrites them (Title.durationS, Shot, Gap; describe fills Shot text;
- * finish writes DescriptionCue rows with their published clip keys). handleJob calls it only inside the deadline.
+ * finish writes DescriptionCue rows with their published clip keys, Rendition and TextTrack rows, and the art keys).
+ * handleJob calls it only inside the deadline.
  */
 export async function persist(step: JobStep, titleId: string, work: string, db: Db) {
   if (step === 'probe') {
@@ -139,7 +142,33 @@ export async function persist(step: JobStep, titleId: string, work: string, db: 
     }))
   } else if (step === 'finish') {
     await writeDescriptionCues(db as never, titleId, work)
+    await writeTrackRows(titleId, work, db)
   }
+}
+
+const exists = (f: string) => access(f).then(() => true, () => false)
+
+/**
+ * Rendition rows (Original, Audio description) and one TextTrack row per track 09-package advertised (package.json), with
+ * validate's cue counts (validate.json); keys are where 10-publish put them. Poster/hero: work/art/*.jpg (01-probe) fill
+ * Title.posterKey/heroKey only while they are null, so a key the admin set by hand is never overwritten.
+ */
+export async function writeTrackRows(titleId: string, work: string, db: Db) {
+  const t = await db.title.findUniqueOrThrow({ where: { id: titleId } })
+  const { language, tracks } = await json<PackageReport>(work, 'package.json')
+  const { vttCues } = await json<ManifestProblems>(work, 'validate.json')
+  const key = (f: string) => `published/${t.slug}/${f}`
+  const kinds = (['captions', 'sdh', 'descriptions'] as const).filter((k) => tracks[k])
+  await db.$transaction([
+    db.rendition.deleteMany({ where: { titleId } }),
+    db.rendition.createMany({ data: (['audio_main', 'audio_ad'] as const).map((kind) => ({ titleId, kind, language, s3Key: key(`${kind}.m3u8`) })) }),
+    db.textTrack.deleteMany({ where: { titleId } }),
+    db.textTrack.createMany({ data: kinds.map((kind) => ({ titleId, kind, language, s3Key: key(`${kind}.vtt`), cueCount: vttCues[`${kind}.vtt`] })) }),
+  ])
+  const art: { posterKey?: string; heroKey?: string } = {}
+  if (t.posterKey == null && (await exists(`${work}/art/poster.jpg`))) art.posterKey = key('art/poster.jpg')
+  if (t.heroKey == null && (await exists(`${work}/art/hero.jpg`))) art.heroKey = key('art/hero.jpg')
+  if (Object.keys(art).length) await db.title.update({ where: { id: titleId }, data: art })
 }
 
 /**

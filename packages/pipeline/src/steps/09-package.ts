@@ -1,18 +1,25 @@
 import { execa } from 'execa'
-import { readFile } from 'node:fs/promises'
+import { readFile, rm, writeFile } from 'node:fs/promises'
 import type { Ctx } from './index'
+/** work/package.json: what pack() advertised in the master playlist, read by validate and persist('finish'). */
+export interface PackageReport { language: 'en' | 'de'; tracks: { captions: boolean; sdh: boolean; descriptions: boolean } }
 /**
  * Shaka Packager → HLS master with two audio renditions (main, AD with CHARACTERISTICS=public.accessibility.describes-video)
  * and three WebVTT tracks. Aligned 4 s segments (4 s GOP from 01-probe) so audio switching doesn't rebuffer.
  * Runs in the work dir with relative paths, as the docs' examples do (`playlist_name` is relative to the master playlist):
  * https://shaka-project.github.io/shaka-packager/html/tutorials/hls.html · https://shaka-project.github.io/shaka-packager/html/documentation.html
+ * work/hls is removed first: Packager overwrites only the names it writes, so segments left by an earlier, longer run would
+ * otherwise be published with this one (DESC-016). work/package.json records what was advertised, for validate and persist.
  */
 export async function pack(ctx: Ctx) {
   const hasCaptions = /-->/.test(await readFile(`${ctx.work}/captions.vtt`, 'utf8'))
   // no sdh.json (a work dir from before the text step wrote it) → treat as degraded rather than advertise Rich captions
   const { degraded } = JSON.parse(await readFile(`${ctx.work}/sdh.json`, 'utf8').catch((e: NodeJS.ErrnoException) => { if (e.code === 'ENOENT') return '{"degraded":true}'; throw e })) as { degraded: boolean }
   const hasDescriptions = /-->/.test(await readFile(`${ctx.work}/descriptions.vtt`, 'utf8'))
-  await execa('packager', buildPackagerArgs(ctx.language, hasCaptions, hasCaptions && !degraded, hasDescriptions), { cwd: ctx.work, stdio: 'inherit' })
+  const tracks = { captions: hasCaptions, sdh: hasCaptions && !degraded, descriptions: hasDescriptions }
+  await rm(`${ctx.work}/hls`, { recursive: true, force: true })
+  await execa('packager', buildPackagerArgs(ctx.language, tracks.captions, tracks.sdh, tracks.descriptions), { cwd: ctx.work, stdio: 'inherit' })
+  await writeFile(`${ctx.work}/package.json`, JSON.stringify({ language: ctx.language, tracks } satisfies PackageReport))
 }
 
 /**

@@ -9,8 +9,8 @@ import type { Ctx } from '../src/steps'
 /** In-memory stand-ins for Prisma and pg-boss: no Postgres, no AWS. */
 function fakes() {
   const jobs = new Map<string, Record<string, unknown>>()
-  const title: Record<string, unknown> = { id: 't1', slug: 'sintel', language: 'en', voice: 'Joanna', status: 'draft', assets: [{ s3Key: 'sources/sintel.mp4' }] }
-  let shots: Array<Record<string, unknown>> = [], gaps: Array<Record<string, unknown>> = [], cues: Array<Record<string, unknown>> = []
+  const title: Record<string, unknown> = { id: 't1', slug: 'sintel', language: 'en', voice: 'Joanna', status: 'draft', posterKey: null, heroKey: null, assets: [{ s3Key: 'sources/sintel.mp4' }] }
+  let shots: Array<Record<string, unknown>> = [], gaps: Array<Record<string, unknown>> = [], cues: Array<Record<string, unknown>> = [], renditions: Array<Record<string, unknown>> = [], textTracks: Array<Record<string, unknown>> = []
   const inc = (row: Record<string, unknown>, data: Record<string, unknown>) => { for (const [k, v] of Object.entries(data)) row[k] = v && typeof v === 'object' && 'increment' in v ? Number(row[k] ?? 0) + (v as { increment: number }).increment : v }
   const db = {
     title: { findUniqueOrThrow: vi.fn(async () => title), update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => Object.assign(title, data)) },
@@ -26,15 +26,19 @@ function fakes() {
     },
     gap: { deleteMany: vi.fn(async () => { gaps = [] }), createMany: vi.fn(async ({ data }: { data: Array<Record<string, unknown>> }) => { gaps.push(...data) }) },
     descriptionCue: { deleteMany: vi.fn(async () => { cues = [] }), createMany: vi.fn(async ({ data }: { data: Array<Record<string, unknown>> }) => { cues.push(...data) }) },
+    rendition: { deleteMany: vi.fn(async () => { renditions = [] }), createMany: vi.fn(async ({ data }: { data: Array<Record<string, unknown>> }) => { renditions.push(...data) }) },
+    textTrack: { deleteMany: vi.fn(async () => { textTracks = [] }), createMany: vi.fn(async ({ data }: { data: Array<Record<string, unknown>> }) => { textTracks.push(...data) }) },
     $transaction: vi.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
   }
   const boss = { createQueue: vi.fn(async () => {}), updateQueue: vi.fn(async () => {}), send: vi.fn(async () => 'next-id'), work: vi.fn(async () => 'worker-id') }
-  return { db: db as unknown as Db, raw: db, boss, jobs, title, shots: () => shots, gaps: () => gaps, cues: () => cues }
+  return { db: db as unknown as Db, raw: db, boss, jobs, title, shots: () => shots, gaps: () => gaps, cues: () => cues, renditions: () => renditions, textTracks: () => textTracks }
 }
 const job = (id: string, retryCount = 0, retryLimit = 2) => ({ id, data: { titleId: 't1' }, retryCount, retryLimit })
-/** What steps 6–10 leave for persist('finish'): cues.json and publish's clips.json. */
-const finishFiles = async (work: string) => {
+/** What steps 6–10 leave for persist('finish'): cues.json, package's package.json, validate's validate.json and publish's clips.json. */
+const finishFiles = async (work: string, tracks = { captions: true, sdh: true, descriptions: true }) => {
   await mkdir(work, { recursive: true })
+  await writeFile(`${work}/package.json`, JSON.stringify({ language: 'en', tracks }))
+  await writeFile(`${work}/validate.json`, JSON.stringify({ problems: [], audio: ['Original', 'Audio description'], text: [], vttCues: { 'captions.vtt': 12, 'sdh.vtt': 15, 'descriptions.vtt': 2 } }))
   await writeFile(`${work}/cues.json`, JSON.stringify([{ startMs: 0, endMs: 2000, text: 'Snow.', extended: false, wordCount: 1, shotIndex: 0 }, { startMs: 5000, endMs: 5100, text: 'Words appear: Berlin.', extended: true, wordCount: 3, shotIndex: 1 }]))
   await writeFile(`${work}/clips.json`, JSON.stringify({ 0: 'published/sintel/cues/cue_0.aaaaaaaaaaaa.mp3', 1: 'published/sintel/cues/cue_1.bbbbbbbbbbbb.mp3' }))
 }
@@ -168,6 +172,40 @@ describe('pipeline jobs', () => {
     expect(f.cues()).toHaveLength(2)
     expect(f.raw.descriptionCue.deleteMany).toHaveBeenCalledWith({ where: { titleId: 't1' } })
   })
+  it('persist(\'finish\') replaces Rendition and TextTrack rows from package.json + validate.json', async () => {
+    const f = fakes()
+    const work = await mkdtemp(join(tmpdir(), 'finish-'))
+    await finishFiles(work)
+    await persist('finish', 't1', work, f.db)
+    await finishFiles(work, { captions: true, sdh: false, descriptions: true }) // a re-run whose SDH degraded
+    await writeFile(`${work}/package.json`, JSON.stringify({ language: 'de', tracks: { captions: true, sdh: false, descriptions: true } }))
+    await persist('finish', 't1', work, f.db)
+    expect(f.raw.rendition.deleteMany).toHaveBeenCalledWith({ where: { titleId: 't1' } })
+    expect(f.raw.textTrack.deleteMany).toHaveBeenCalledWith({ where: { titleId: 't1' } })
+    expect(f.renditions()).toEqual([
+      { titleId: 't1', kind: 'audio_main', language: 'de', s3Key: 'published/sintel/audio_main.m3u8' },
+      { titleId: 't1', kind: 'audio_ad', language: 'de', s3Key: 'published/sintel/audio_ad.m3u8' },
+    ])
+    expect(f.textTracks()).toEqual([
+      { titleId: 't1', kind: 'captions', language: 'de', s3Key: 'published/sintel/captions.vtt', cueCount: 12 },
+      { titleId: 't1', kind: 'descriptions', language: 'de', s3Key: 'published/sintel/descriptions.vtt', cueCount: 2 },
+    ])
+  })
+  it('persist(\'finish\') sets posterKey/heroKey from work/art when the columns are null, never overwrites', async () => {
+    const f = fakes()
+    const work = await mkdtemp(join(tmpdir(), 'finish-'))
+    await finishFiles(work)
+    await persist('finish', 't1', work, f.db) // no work/art: nothing to set
+    expect(f.title).toMatchObject({ posterKey: null, heroKey: null })
+    await mkdir(`${work}/art`)
+    await writeFile(`${work}/art/poster.jpg`, 'jpg'); await writeFile(`${work}/art/hero.jpg`, 'jpg')
+    f.title.heroKey = 'published/sintel/art/hero-by-hand.jpg' // set by the admin
+    await persist('finish', 't1', work, f.db)
+    expect(f.title).toMatchObject({ posterKey: 'published/sintel/art/poster.jpg', heroKey: 'published/sintel/art/hero-by-hand.jpg' })
+    f.title.posterKey = 'published/sintel/art/poster-by-hand.jpg'
+    await persist('finish', 't1', work, f.db)
+    expect(f.title.posterKey).toBe('published/sintel/art/poster-by-hand.jpg')
+  })
   it('finish that runs out of time writes no DescriptionCue rows and does not publish, even if steps 6–10 finish later', async () => {
     const f = fakes()
     let done!: () => void
@@ -178,6 +216,7 @@ describe('pipeline jobs', () => {
     })
     expect(f.jobs.get('fin')).toMatchObject({ status: 'retrying', error: expect.stringMatching(/^timed out after/) })
     expect(f.raw.descriptionCue.createMany).not.toHaveBeenCalled()
+    expect(f.raw.rendition.createMany).not.toHaveBeenCalled()
     expect(f.title.status).not.toBe('published')
   })
   it('lets pg-boss retry: a failed attempt keeps the title processing, the last one marks it failed; cost adds up across attempts', async () => {
