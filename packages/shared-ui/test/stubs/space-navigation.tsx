@@ -8,8 +8,8 @@ export const stub: { focused?: string; locks: number; moves: string[] } = { lock
 const render = (c: React.ReactNode | ((s: State) => React.ReactNode), isFocused = false) => (typeof c === 'function' ? c({ isFocused, isActive: false, isRootActive: true }) : c)
 export const SpatialNavigationFocusableView = ({ children, viewProps, onSelect, onFocus, onBlur }: { children: React.ReactNode | ((s: State) => React.ReactNode); viewProps?: { 'aria-label'?: string }; onSelect?: Fn; onFocus?: Fn; onBlur?: Fn }) =>
   React.createElement('FocusableView', { ...viewProps, onSelect, onFocus, onBlur }, render(children, !!stub.focused && viewProps?.['aria-label'] === stub.focused))
-export const SpatialNavigationNode = ({ children, orientation, onActive }: { children: React.ReactNode | ((s: State) => React.ReactNode); orientation?: string; onActive?: Fn }) =>
-  React.createElement('Node', { orientation, onActive }, render(children))
+export const SpatialNavigationNode = ({ children, orientation, onActive, alignInGrid }: { children: React.ReactNode | ((s: State) => React.ReactNode); orientation?: string; onActive?: Fn; alignInGrid?: boolean }) =>
+  React.createElement('Node', { orientation, onActive, alignInGrid }, render(children))
 export const SpatialNavigationScrollView = ({ children }: { children: React.ReactNode }) => React.createElement('ScrollView', null, children)
 /** Subscribes to the configured remote while mounted, like the real root (useRemoteControl); moves go to stub.moves. */
 export const SpatialNavigationRoot = ({ children }: { children: React.ReactNode }) => {

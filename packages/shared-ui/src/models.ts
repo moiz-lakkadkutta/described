@@ -1,6 +1,7 @@
 import type { Catalog, CatalogItem, Prefs, TitleDetail } from '@described/contracts'
 import { rowSlots, type Slot } from './layout'
 import { strings } from './strings'
+import { tokens } from './theme/tokens'
 
 /** View-models for Home and Title: everything a focusable needs (id, visible text, spoken label) without React. */
 export interface Action { id: string; text: string; label: string; hint?: string; primary?: boolean; selected?: boolean }
@@ -54,6 +55,25 @@ export function homeModel(catalog: Catalog | null, myList: ReadonlySet<string>, 
   const ids = [...actions.map((a) => a.id), ...rows.flatMap((r) => r.cards.filter((c) => !c.skeleton).map((c) => c.id))]
   const primary = actions.find((a) => a.primary)?.id ?? 'hero:playAd'
   return { hero, actions, rows, ids, primary }
+}
+
+export interface GridModel { rows: CardModel[][]; ids: string[]; first: string | null }
+/**
+ * Described and My list: cards in rows of `cardsVisible` (3), ids `<group>:<slug>`, each labelled exactly like its Home
+ * card. `null` items (catalog loading) → one row of skeletons with the card's box.
+ */
+export function gridModel(group: string, items: readonly CatalogItem[] | null): GridModel {
+  const per = tokens.layout.cardsVisible
+  const bySlug = new Map((items ?? []).map((i) => [i.slug, i]))
+  const cards: CardModel[] = (items === null ? rowSlots(group, null).slice(0, per) : rowSlots(group, items.map((i) => i.slug))).map((s) => {
+    const item = bySlug.get(s.id.slice(group.length + 1))
+    return item && !s.skeleton
+      ? { ...s, item, title: item.name, meta: meta(item), label: strings.a11y.open(item.name, facts(item, false)), ad: item.badges.includes('ad') }
+      : { ...s, title: '', meta: '', label: '', ad: false }
+  })
+  const rows = Array.from({ length: Math.ceil(cards.length / per) }, (_, i) => cards.slice(i * per, (i + 1) * per))
+  const ids = cards.filter((c) => !c.skeleton).map((c) => c.id)
+  return { rows, ids, first: ids[0] ?? null }
 }
 
 export type SampleState = 'idle' | 'playing'

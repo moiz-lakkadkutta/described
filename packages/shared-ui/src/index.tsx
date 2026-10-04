@@ -2,12 +2,14 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { AccessibilityInfo, BackHandler, View } from 'react-native'
 import { SpatialNavigationRoot, useLockSpatialNavigation } from 'react-tv-space-navigation'
 import { useDpad } from '@moizp/vega-media-kit/focus'
-import type { About as AboutData, Catalog, Prefs, PromptKey, TitleDetail } from '@described/contracts'
+import type { About as AboutData, Catalog, MyList as MyListData, Prefs, PromptKey, TitleDetail } from '@described/contracts'
 import { screenReaderOn } from './a11y'
 import { Focusable, FontsLoadedContext, Rail, Screen, T } from './components'
 import { setDpadGate } from './focus/remote'
 import { captionName, nextCaptionKind, type SampleState } from './models'
 import { About } from './screens/About'
+import { Described } from './screens/Described'
+import { MyList, myListItems } from './screens/MyList'
 import { FirstRun } from './screens/FirstRun'
 import { Home } from './screens/Home'
 import { usePlatformNowPlaying, useLaunchRoute, type LaunchRoute, type LaunchSource } from './platform'
@@ -27,7 +29,9 @@ export * from './platform'
 export { parseDeepLink } from '@described/contracts'
 export type { LaunchTarget } from '@described/contracts'
 
-type Route = { name: 'home' } | { name: 'title'; slug: string } | { name: 'reading'; slug: string } | { name: 'player'; slug: string; withAd: boolean; startAtS?: number } | { name: 'settings' } | { name: 'about' } | { name: 'firstRun'; from?: 'settings' }
+type Route = { name: 'home' } | { name: 'described' } | { name: 'list' } | { name: 'title'; slug: string } | { name: 'reading'; slug: string } | { name: 'player'; slug: string; withAd: boolean; startAtS?: number } | { name: 'settings' } | { name: 'about' } | { name: 'firstRun'; from?: 'settings' }
+/** Rail destinations that list titles; Title remembers which one opened it. */
+const screenRoute = (k: string): Route => (k === 'described' ? { name: 'described' } : k === 'list' ? { name: 'list' } : { name: 'home' })
 const noSpeech = async () => {}
 const noStop = () => {}
 const noop = () => {}
@@ -77,7 +81,14 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   const [prefs, setPrefs] = useState<Prefs>(defaultPrefs)
   const [offline, setOffline] = useState(false)
   const [attempt, setAttempt] = useState(0)
-  const [myList, setMyList] = useState<ReadonlySet<string>>(new Set()) // TODO: no My list API yet; kept for the session
+  /** My list slugs, newest first (Set keeps insertion order). From GET /me/list; changed optimistically by toggleList. */
+  const [myList, setMyList] = useState<ReadonlySet<string>>(new Set())
+  /**
+   * Where Title was opened from, so its Back returns there (Home, Described or My list) and the rail marks it. Follows the
+   * last listing screen shown (an effect below), so any way into Title or Player — a card, the hero, a deep link — Backs
+   * to the screen you were on.
+   */
+  const titleFrom = useRef<'home' | 'described' | 'list'>('home')
   const [sample, setSample] = useState<SampleState>('idle')
   const [about, setAbout] = useState<AboutData | null | 'offline'>(null)
   const shouldHandle = useDpad()
@@ -104,10 +115,12 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   }, [apiBaseUrl, deviceId])
 
   useEffect(() => {
-    Promise.all([api<Catalog>('/catalog'), api<Prefs>('/me/prefs')])
-      .then(([c, p]) => {
+    // My list loads with the catalog; any failure (a refusal, a 500 before the migration ran, the network) starts with an
+    // empty list rather than the offline screen — the catalog and prefs decide that.
+    Promise.all([api<Catalog>('/catalog'), api<Prefs>('/me/prefs'), api<MyListData>('/me/list').catch((): MyListData => ({ slugs: [] }))])
+      .then(([c, p, l]) => {
         const merged = { ...defaultPrefs, ...p, ...unsaved.current } // unsaved local changes win over the server's copy
-        setCatalog(c); setPrefs(merged); setOffline(false)
+        setCatalog(c); setPrefs(merged); setMyList(new Set(l?.slugs ?? [])); setOffline(false)
         // First run until the profile says it is done (a Retry while on Title must not jump there).
         if (!merged.firstRunDone) setRoute((r) => (r.name === 'home' ? { name: 'firstRun' } : r))
       })
@@ -130,6 +143,10 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   const stopSample = useCallback(() => { if (sampleOn.current) { sampleOn.current = false; stopSpeaking(); setSample('idle') } }, [stopSpeaking])
   // Leaving a screen stops any clip it started (Title's sample; Player's description audio from DESC-007).
   const key = routeKey(route)
+  useEffect(() => {
+    if (route.name === 'title' || route.name === 'reading' || route.name === 'player') return
+    titleFrom.current = route.name === 'described' || route.name === 'list' ? route.name : 'home'
+  }, [route])
   useEffect(() => () => { stopSpeaking(); sampleOn.current = false; setSample('idle') }, [key, stopSpeaking])
   const toggleSample = () => {
     if (sampleOn.current) return stopSample()
@@ -143,7 +160,8 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
       switch (route.name) {
         case 'reading': setRoute({ name: 'title', slug: route.slug }); return true
-        case 'title': case 'settings': setRoute({ name: 'home' }); return true
+        case 'title': setRoute(screenRoute(titleFrom.current)); return true
+        case 'settings': case 'described': case 'list': setRoute({ name: 'home' }); return true
         case 'about': setRoute({ name: 'settings' }); return true
         case 'firstRun': return false // FirstRun's own listener: previous panel, or Back-Back to skip; never exits
         // A mounted Player owns Back (it closes the track sheet or saves the position first). Without one — the title
@@ -231,6 +249,7 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
     const s = playerSession.current
     if (route.name === 'player' && !offline && current && s?.slug === current.slug) exitPlayer(current, s.state === 'ended' ? 0 : s.controls.getPosition(), r)
     else setRoute(r)
+    titleFrom.current = 'home' // a deep link starts a new path: its Title Backs to Home
   }
   useLaunchRoute(launches, { catalog, holding: offline || route.name === 'firstRun', adDefault: prefs.adDefault, navigate: launchTo })
   // App-voice prompts: clips at /prompts/<voice>/<key>.mp3 (API → CloudFront; TODO(DESC-010) generate them with Polly in
@@ -243,19 +262,42 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   const hearVoice = (v: Prefs['voice']) => { speak(promptUrl(v, 'voicePreview')).catch(() => {}) }
   const finishFirstRun = (p: Partial<Prefs>) => { savePrefs({ ...p, firstRunDone: true }); setRoute(route.name === 'firstRun' && route.from === 'settings' ? { name: 'settings' } : { name: 'home' }) }
   useEffect(() => { if (route.name === 'about') api<AboutData>('/about').then(setAbout).catch(() => setAbout('offline')) }, [route.name, api])
+  // My list: the change shows at once; PUT/DELETE /me/list/:slug go through `requests`, in order after any save before
+  // them. A failed change is undone and announced — unless a newer press on the same title already decided it. Each
+  // answer is the server's whole list; once no change is pending the app settles on it (another session's changes too).
+  const listPresses = useRef(new Map<string, number>())
+  const listPending = useRef(0)
   const toggleList = (s: string) => {
     const name = catalog?.all.find((i) => i.slug === s)?.name ?? (current?.slug === s ? current.name : s)
-    AccessibilityInfo.announceForAccessibility(myList.has(s) ? strings.a11y.listRemoved(name) : strings.a11y.listAdded(name))
-    setMyList((l) => { const n = new Set(l); if (n.has(s)) n.delete(s); else n.add(s); return n })
+    const adding = !myList.has(s)
+    AccessibilityInfo.announceForAccessibility(adding ? strings.a11y.listAdded(name) : strings.a11y.listRemoved(name))
+    const apply = (add: boolean) => setMyList((l) => { const n = new Set(l); n.delete(s); return add ? new Set([s, ...n]) : n }) // newest first
+    apply(adding)
+    const press = (listPresses.current.get(s) ?? 0) + 1
+    listPresses.current.set(s, press)
+    listPending.current++
+    requests(() => api<MyListData>(`/me/list/${encodeURIComponent(s)}`, { method: adding ? 'PUT' : 'DELETE' })).then(
+      (l) => { if (--listPending.current === 0 && l?.slugs) setMyList(new Set(l.slugs)) },
+      () => {
+        listPending.current--
+        if (listPresses.current.get(s) !== press) return
+        apply(!adding)
+        AccessibilityInfo.announceForAccessibility(strings.a11y.listNotSaved)
+      })
   }
   const cycleCaptions = () => {
     const next = nextCaptionKind(prefs.captionKind)
     savePrefs({ captionKind: next })
     AccessibilityInfo.announceForAccessibility(strings.a11y.captions(captionName(next)))
   }
-  const rail = <Rail current={route.name === 'settings' || route.name === 'about' ? 'settings' : 'home'} items={[{ key: 'home', label: strings.rail.home }, { key: 'described', label: strings.rail.described }, { key: 'list', label: strings.rail.list }, { key: 'settings', label: strings.rail.settings }]} onSelect={(k) => setRoute(k === 'settings' ? { name: 'settings' } : { name: 'home' })} /> // TODO(DESC-011): Described and My list screens; both open Home until then
+  const railCurrent = route.name === 'settings' || route.name === 'about' ? 'settings' : route.name === 'described' || route.name === 'list' ? route.name : route.name === 'title' ? titleFrom.current : 'home'
+  // An empty My list has nothing to focus but the rail: its My list item takes focus.
+  const listEmpty = route.name === 'list' && !!catalog && myListItems(catalog, myList).length === 0
+  const rail = <Rail current={railCurrent} focusCurrent={listEmpty} items={[{ key: 'home', label: strings.rail.home }, { key: 'described', label: strings.rail.described }, { key: 'list', label: strings.rail.list }, { key: 'settings', label: strings.rail.settings }]}
+    onSelect={(k) => setRoute(k === 'settings' ? { name: 'settings' } : screenRoute(k))} />
+  const openTitle = (s: string) => setRoute({ name: 'title', slug: s })
 
-  const loading = !offline && ((route.name === 'home' && !catalog) || ((route.name === 'title' || route.name === 'reading') && !current) || (route.name === 'about' && about === null))
+  const loading = !offline && (((route.name === 'home' || route.name === 'described' || route.name === 'list') && !catalog) || ((route.name === 'title' || route.name === 'reading') && !current) || (route.name === 'about' && about === null))
   // Loading beyond 2 s is spoken (PLAN §8); the skeletons say it to everyone else.
   useEffect(() => { if (!loading) return; const t = setTimeout(() => AccessibilityInfo.announceForAccessibility(strings.a11y.loading), 2000); return () => clearTimeout(t) }, [loading, key])
   const screen = (() => {
@@ -274,6 +316,8 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
       case 'firstRun': return <Screen><FirstRun speakPrompt={speakPrompt} onDone={(ext) => finishFirstRun({ extendedMode: ext })} onSkip={() => finishFirstRun({})} /></Screen>
       case 'settings': return <Screen rail={rail}><Settings prefs={prefs} onChange={savePrefs} onHearVoice={hearVoice} onResetFirstRun={() => { savePrefs({ firstRunDone: false }); setRoute({ name: 'firstRun', from: 'settings' }) }} onAbout={() => { setAbout(null); setRoute({ name: 'about' }) }} /></Screen>
       case 'about': return <Screen rail={rail}><About about={about} onClose={() => setRoute({ name: 'settings' })} /></Screen>
+      case 'described': return <Screen rail={rail}><Described catalog={catalog} onOpen={openTitle} /></Screen>
+      case 'list': return <Screen rail={rail}><MyList catalog={catalog} myList={myList} onOpen={openTitle} /></Screen>
       case 'reading': return <Screen><Reading title={current} onClose={() => setRoute({ name: 'title', slug: route.slug })} /></Screen>
       case 'title': return (
         <Screen rail={rail}>
@@ -290,7 +334,7 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
           onProgress={(s) => { if (savedAt.current === null) savedAt.current = s; else if (Math.abs(s - savedAt.current) >= PROGRESS_SAVE_S) saveProgress(current.slug, s) }}
           onBack={(s) => exitPlayer(current, s)} />
       ) : <Screen><T variant="body">{strings.player.loading}</T></Screen>
-      default: return <Screen rail={rail}><Home catalog={catalog} myList={myList} adDefault={prefs.adDefault} onOpen={(s) => setRoute({ name: 'title', slug: s })} onPlay={(s, withAd) => setRoute({ name: 'player', slug: s, withAd })} onToggleList={toggleList} /></Screen>
+      default: return <Screen rail={rail}><Home catalog={catalog} myList={myList} adDefault={prefs.adDefault} onOpen={openTitle} onPlay={(s, withAd) => setRoute({ name: 'player', slug: s, withAd })} onToggleList={toggleList} /></Screen>
     }
   })()
   return (

@@ -22,6 +22,8 @@ export const strings = {
     processing: (min: number) => `We're still describing this film — about ${min} minutes left.`, more: 'More', close: 'Close',
     captions: (kind: string) => `Captions: ${kind} ▾`,
   },
+  described: { heading: 'Described' },
+  list: { heading: 'My list', empty: 'Nothing in My list yet. Press Select on a title\u2019s My list button to add it.' },
   badge: { ad: 'AD', sdh: 'Rich captions', extended: (n: number) => `Extended: ${n} ${n === 1 ? 'pause' : 'pauses'}` },
   minutes: (n: number) => `${n} min`,
   /** Spoken labels (aria-label): the purpose of each focusable, not its role. */
@@ -47,6 +49,7 @@ export const strings = {
     extended: (n: number) => `Pauses ${n} ${n === 1 ? 'time' : 'times'} for longer descriptions`,
     listAdded: (name: string) => `${name} added to My list`,
     listRemoved: (name: string) => `${name} removed from My list`,
+    listNotSaved: 'That change to My list wasn\u2019t saved, so it\u2019s back to what it was.',
     loading: 'Loading…',
     notSaved: 'That setting wasn\u2019t saved. It will be saved when the connection is back.',
     notSavedRefused: 'That setting couldn\u2019t be saved, so it\u2019s back to what it was.',
