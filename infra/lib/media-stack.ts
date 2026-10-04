@@ -71,10 +71,13 @@ export class MediaStack extends Stack {
       },
       priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
     })
-    // Pipeline / API role: S3 read-write on media, Transcribe, Polly, Translate here; Bedrock in us-east-1 (BEDROCK_REGION).
-    const pipelineRole = new iam.Role(this, 'PipelineRole', { assumedBy: new iam.AccountRootPrincipal(), description: 'described pipeline: media bucket + speech/translate services' })
+    // Pipeline / API role: S3 read-write on media, Transcribe and Polly here; Bedrock in us-east-1 (BEDROCK_REGION).
+    const pipelineRole = new iam.Role(this, 'PipelineRole', { assumedBy: new iam.AccountRootPrincipal(), description: 'described pipeline: media bucket, Transcribe, Polly, Bedrock, CDN invalidation' })
     media.grantReadWrite(pipelineRole)
-    pipelineRole.addToPolicy(new iam.PolicyStatement({ actions: ['transcribe:StartTranscriptionJob', 'transcribe:GetTranscriptionJob', 'polly:SynthesizeSpeech', 'translate:TranslateText'], resources: ['*'] }))
+    pipelineRole.addToPolicy(new iam.PolicyStatement({ actions: ['transcribe:StartTranscriptionJob', 'transcribe:GetTranscriptionJob', 'polly:SynthesizeSpeech'], resources: ['*'] }))
+    // Publish invalidates `/published/<slug>/*` when PUBLISH_INVALIDATE=1 (re-runs rewrite VTTs under the same key); scoped to this distribution —
+    // https://docs.aws.amazon.com/cloudfront/latest/APIReference/API_CreateInvalidation.html
+    dist.grantCreateInvalidation(pipelineRole)
     // Converse is authorised by bedrock:InvokeModel; no call streams, so no InvokeModelWithResponseStream —
     // https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html
     // Two models only: Nova Lite shortens / writes SDH (prompts.ts, NOVA_LITE_MODEL_ID); Qwen3-VL 235B describes shots (DESCRIBE_MODEL_ID),
@@ -82,6 +85,7 @@ export class MediaStack extends Stack {
     // The inference-profile ARN stays because NOVA_LITE_MODEL_ID may be set to the `us.` cross-Region profile (cost.ts strips the prefix).
     // That path also needs the model ARN in every destination Region, not granted here: with a `us.` id, widen the Nova Lite ARN to
     // `arn:aws:bedrock:*::foundation-model/amazon.nova-lite-v1:0` — https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-prereq.html
+    // Any other DESCRIBE_MODEL_ID (e.g. a Gate C bake-off model) is deliberately denied: widen this statement if the model changes.
     pipelineRole.addToPolicy(new iam.PolicyStatement({
       actions: ['bedrock:InvokeModel'],
       resources: [
