@@ -238,8 +238,8 @@ importers:
         specifier: link:../../../vega-media-kit
         version: link:../../../vega-media-kit
       react-tv-space-navigation:
-        specifier: ^5.2.0
-        version: 5.2.0
+        specifier: 6.0.0-beta1
+        version: 6.0.0-beta1
     devDependencies:
       '@types/react':
         specifier: ^19.0.0
@@ -4049,8 +4049,8 @@ packages:
     peerDependencies:
       react: 19.1.0
 
-  react-tv-space-navigation@5.2.0:
-    resolution: {integrity: sha512-MckFAQMmPIfb7mdO0c3h/IDAshaEOKS29xXY0RQTcESre5bvtFTURBCV1zK3BnJsc9DWn3fNeeJvUkIDmUioRA==}
+  react-tv-space-navigation@6.0.0-beta1:
+    resolution: {integrity: sha512-OGy0tlyEg0roKVp2o9Bi9gWKz5ThZ+k4it5cOmBUPT0MieM1KFb3GH7DdYmNrDVlNXt/1+y+2mVDyO6spjExiA==}
 
   react@19.1.0:
     resolution: {integrity: sha512-FS+XFBNvn3GTAWq26joslQgWNoFu08F4kl0J4CgdNKADkdSGXQyTCnKteIAJy96Br6YbpEU1LSzV5dYtjMkMDg==}
@@ -9459,7 +9459,7 @@ snapshots:
       react-is: 19.3.0
       scheduler: 0.26.0
 
-  react-tv-space-navigation@5.2.0:
+  react-tv-space-navigation@6.0.0-beta1:
     dependencies:
       '@bam.tech/lrud': 8.0.2
       lodash.uniqueid: 4.0.1
