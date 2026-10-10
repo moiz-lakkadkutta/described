@@ -1,0 +1,83 @@
+[
+  {
+    "startMs": 0,
+    "endMs": 4608,
+    "text": "Snowy mountains. A lone figure walks left, carrying a spear.",
+    "extended": false,
+    "wordCount": 10,
+    "shotIndex": 0,
+    "limitMs": 16720
+  },
+  {
+    "startMs": 5604,
+    "endMs": 10668,
+    "text": "Snowy mountains. A figure walks, falls. Logo fades.",
+    "extended": false,
+    "wordCount": 8,
+    "shotIndex": 1,
+    "limitMs": 16720
+  },
+  {
+    "startMs": 11208,
+    "endMs": 14712,
+    "text": "Darkness. A faint fire glows in a stone pit.",
+    "extended": false,
+    "wordCount": 9,
+    "shotIndex": 2,
+    "limitMs": 16720
+  },
+  {
+    "startMs": 15271,
+    "endMs": 16447,
+    "text": "Fire burns.",
+    "extended": false,
+    "wordCount": 2,
+    "shotIndex": 3,
+    "limitMs": 16720
+  },
+  {
+    "startMs": 19509,
+    "endMs": 21309,
+    "text": "Bearded man holds staff.",
+    "extended": false,
+    "wordCount": 4,
+    "shotIndex": 4,
+    "limitMs": 21209
+  },
+  {
+    "startMs": 33170,
+    "endMs": 34826,
+    "text": "Old man pours broth.",
+    "extended": false,
+    "wordCount": 4,
+    "shotIndex": 7,
+    "limitMs": 34820
+  },
+  {
+    "startMs": 41630,
+    "endMs": 42782,
+    "text": "Tent glows.",
+    "extended": false,
+    "wordCount": 2,
+    "shotIndex": 9,
+    "limitMs": 42950
+  },
+  {
+    "startMs": 50869,
+    "endMs": 52429,
+    "text": "Bearded man speaks.",
+    "extended": false,
+    "wordCount": 3,
+    "shotIndex": 12,
+    "limitMs": 52950
+  },
+  {
+    "startMs": 56554,
+    "endMs": 57610,
+    "text": "Darkness.",
+    "extended": false,
+    "wordCount": 1,
+    "shotIndex": 14,
+    "limitMs": 58559
+  }
+]

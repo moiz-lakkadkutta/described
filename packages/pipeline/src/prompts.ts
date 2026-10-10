@@ -171,3 +171,78 @@ export function mergeSdh(captions: Cue[], reply: Array<Pick<ReplyCue, 'id' | 'st
 }
 /** Strips a ```json fence, any prose before it, and anything after its closing fence (also a lone trailing fence). */
 export const stripFence = (t: string) => t.trim().replace(/^[\s\S]*?```(?:json)?\s*(?=[{[])/i, '').replace(/\s*```[\s\S]*$/, '')
+
+// ─── DESC-018: scene-level edit pass (steps/05b-edit.ts; docs/decisions/0006-scene-edit-pass.md) ─────────────────────────────
+
+/** EDIT_MODEL_ID overrides; default Nova Lite (the probe winner: forced tool, no invented facts, ≈ $0.0002 per window). */
+export const editModelId = () => process.env.EDIT_MODEL_ID ?? LITE()
+/** The Converse call the edit pass makes; injectable so tests replay recorded replies. */
+export type EditConverse = (input: ConverseCommandInput) => Promise<Pick<ConverseCommandOutput, 'output' | 'usage'>>
+export const bedrockEditSend: EditConverse = (i) => client().send(new ConverseCommand(i), { abortSignal: meter()?.signal })
+
+/**
+ * Shortens an over-budget edit to maxWords while keeping every fact of `keep` (the cue's original text): fit's shortener keeps "the
+ * most plot-relevant fact" and dropped the cue's own action from a fold (probe round 6). The edit step re-runs its guards on the reply
+ * and adds the usage to edit.json.
+ */
+export async function shortenEditWithNovaLite(text: string, maxWords: number, keep: string, language: 'en' | 'de'): Promise<{ text: string; usage?: { inputTokens?: number; outputTokens?: number } }> {
+  const r = await client().send(new ConverseCommand({ modelId: editModelId(), system: [{ text: `Shorten an audio description line to at most ${maxWords} words (count them). It must still state everything in this line: "${keep}" — you may reword it, never drop a fact from it. Compress or drop the other part first. Present tense, no new facts. ${language === 'de' ? 'German.' : 'English.'} Reply with the line only.` }], messages: [{ role: 'user', content: [{ text }] }], inferenceConfig: { maxTokens: 80, temperature: 0 } }), { abortSignal: meter()?.signal })
+  meter()?.bedrock(editModelId(), r.usage)
+  return { text: (r.output?.message?.content?.[0]?.text ?? text).trim(), usage: r.usage }
+}
+
+/** JSON Schema for the forced emit_edits tool's input (Nova: top level object with type, properties, required only). */
+export const EDIT_TOOL_SCHEMA = {
+  type: 'object', required: ['edits'],
+  properties: { edits: { type: 'array', description: 'Revised voiced cues only; omit every cue you leave unchanged.', items: { type: 'object', required: ['cue', 'text'], properties: { cue: { type: 'integer', description: 'The cue number from the input' }, text: { type: 'string', description: 'The whole revised cue text, one line' } } } } },
+}
+
+/** One cue as the edit step hands it to the request: its index in cues.json, budget, whether it is a frozen on-screen text cue, and the dropped descriptions just before it. */
+export interface EditCueInput { i: number; startMs: number; text: string; wordCount: number; budget: number; extended: boolean; onScreenText: boolean; missed: string[] }
+export interface EditInput {
+  language: 'en' | 'de'
+  cues: readonly EditCueInput[]
+  dialogue: readonly { start: number; end: number; speaker?: string; text: string }[]
+  /** The last cue of the previous window, already revised: what the viewer heard just before this window. */
+  heard?: string
+}
+
+/**
+ * One window's request: the system prompt states the rules; the data goes first in the user turn and the task last (as sdhRequest
+ * found Nova Lite needs). `tool` forces emit_edits (toolChoice); `json` asks for the same object as plain text — the edit step's retry
+ * when Nova's forced tool call fails.
+ * The cues are listed as heard, each with its word count, how many words may be added, and — under missedJustBefore — the descriptions
+ * of the shots dropped between the previous cue and this one. Dropped shots are shown only under the cue that may absorb them, so "fold
+ * into the next cue" has one reading (round 4: a flat timeline had Nova fold the shot after a cue into it); a voiced shot's full
+ * description is left out, because shown next to its shortened cue both models "restored" it (round 2). An on-screen text cue
+ * (DESC-017) is listed as fixed, with no room and no dropped shots: the viewer hears it, the model may not touch it.
+ * https://docs.aws.amazon.com/nova/latest/userguide/tool-use-definition.html · https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ToolChoice.html
+ */
+export function editRequest({ language, cues, dialogue, heard }: EditInput, mode: 'tool' | 'json' = 'tool'): ConverseCommandInput {
+  const s = (ms: number) => Math.round(ms / 100) / 10
+  const items = cues.map((c) => c.onScreenText
+    ? { cue: c.i, start: s(c.startMs), text: c.text, onScreenText: true, fixed: true }
+    : { cue: c.i, start: s(c.startMs), ...(c.extended ? { extended: true } : {}), ...(c.missed.length ? { missedJustBefore: c.missed } : {}), text: c.text, words: c.wordCount, wordsYouMayAdd: c.budget - c.wordCount })
+  const input = JSON.stringify({ language, ...(heard ? { heardJustBefore: heard } : {}), cues: items, dialogue })
+  return {
+    modelId: editModelId(),
+    system: [{ text: [
+      `You edit an audio description script for blind and low-vision viewers, in ${language === 'de' ? 'German' : 'English'}. Each shot was described on its own, then the cues were shortened and placed in the pauses of the dialogue. The viewer hears only the cues, in order. Your job is continuity between cues.`,
+      'The input lists the cues in order: the text as the viewer hears it, its word count, how many words you may add (the pause allows no more), and under missedJustBefore the descriptions of shots that were dropped between the previous cue and this one (never heard: there was no pause), plus the dialogue. A cue marked fixed is on-screen text read out as written: never return it.',
+      mode === 'tool'
+        ? 'Return, through the emit_edits tool, the revised text of voiced cues only, and only the cues you change. Returning no edits is a valid answer.'
+        : 'Reply with one JSON object only, exactly {"edits":[{"cue":<number>,"text":"<revised cue>"}]} — no prose, no code fence — holding the revised text of voiced cues only, and only the cues you change. {"edits":[]} is a valid answer.',
+      'Rules, in order of importance:',
+      '1. Facts come only from the cues and their missedJustBefore descriptions. Never add a person, object, action, colour, place or on-screen text that is not stated there. No interpretation, no emotion or motivation.',
+      '2. wordsYouMayAdd is exact: count the words of your text (whitespace-separated); a cue with wordsYouMayAdd 0 may only be reworded or shortened. If a change does not fit, leave the cue unchanged.',
+      '3. When a cue\'s missedJustBefore states something the viewer needs (a new person, an object, an action), fold it into THAT cue, before the cue\'s own action, when the words fit: e.g. missedJustBefore ["Man stirs pot over fire."] and text "Old man pours broth." (wordsYouMayAdd 7) → "The man stirs a pot over the fire, then pours broth." Never fold anything into another cue.',
+      '4. Remove only what the previous cue already told the viewer (a repeated place, a repeated descriptor); keep every other fact of the cue word for word — dropping a fact is never allowed. Say "the" for a person or thing an earlier cue introduced and "a" the first time; use "the same …" only when it helps the viewer follow.',
+      '5. Keep the house style: present tense, active voice, third person, short sentences, no film language ("the camera"), no "we see". One line per cue.',
+      '6. Keep any "Words appear: …" clause exactly as written, and never add one.',
+      '7. Do not add, remove, merge, split or reorder cues, and do not mention timing; it is fixed.',
+    ].join('\n') }],
+    messages: [{ role: 'user', content: [{ text: `Input:\n${input}\n\n${mode === 'tool' ? 'Use the emit_edits tool to return the revised cues.' : 'Reply with the JSON object {"edits":[…]} only.'}` }] }],
+    ...(mode === 'tool' ? { toolConfig: { tools: [{ toolSpec: { name: 'emit_edits', description: 'Return the revised text of the voiced cues you change', inputSchema: { json: EDIT_TOOL_SCHEMA } } }], toolChoice: { tool: { name: 'emit_edits' } } } } : {}),
+    inferenceConfig: { maxTokens: 2000, temperature: 0 },
+  }
+}

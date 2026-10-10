@@ -13,7 +13,7 @@ const input = { slug: 'sintel-90-150', source: 's3://bucket/sintel.mp4', languag
 describe('runDescribe', () => {
   it('throws on an unknown --from step and lists the valid steps', async () => {
     await expect(runDescribe({ ...input, fromStep: 'transcribe' })).rejects.toThrow(`unknown step "transcribe"; valid steps: ${STEPS.join(', ')}`)
-    expect(STEPS).toEqual(['probe', 'shots', 'speech', 'describe', 'fit', 'voice', 'mix', 'text', 'package', 'validate', 'publish'])
+    expect(STEPS).toEqual(['probe', 'shots', 'speech', 'describe', 'fit', 'edit', 'voice', 'mix', 'text', 'package', 'validate', 'publish'])
   })
   it('runDescribe runs validate between package and publish', async () => {
     calls.length = 0
@@ -25,12 +25,13 @@ describe('runDescribe', () => {
     expect(calls).toEqual(['validate', 'publish'])
     vi.restoreAllMocks()
   })
-  it('the finish job runs validate too (steps 6–10 end with package, validate, publish)', async () => {
+  it('the finish job runs edit first and validate too (edit … package, validate, publish)', async () => {
     calls.length = 0
     const runStep = await import('../src/steps')
     const spy = vi.spyOn(runStep, 'runStep')
     spy.mockImplementation(async (s) => { calls.push(s) })
     await runJobStep('finish', { ...input, work: 'work/x' })
+    expect(calls[0]).toBe('edit') // the scene edit pass (DESC-018) runs in the finish job, before voice
     expect(calls.slice(-3)).toEqual(['package', 'validate', 'publish'])
     spy.mockRestore()
   })

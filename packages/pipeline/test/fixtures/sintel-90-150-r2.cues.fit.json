@@ -1,0 +1,92 @@
+[
+  {
+    "startMs": 0,
+    "endMs": 5175,
+    "text": "Snowy mountains. A lone figure walks left, carrying a spear. Words appear: SINTEL.",
+    "extended": false,
+    "wordCount": 13,
+    "shotIndex": 0,
+    "limitMs": 16720
+  },
+  {
+    "startMs": 5604,
+    "endMs": 10029,
+    "text": "Snowy mountains. A figure walks, falls. Logo fades. Words appear: SINTEL.",
+    "extended": false,
+    "wordCount": 11,
+    "shotIndex": 1,
+    "limitMs": 16720
+  },
+  {
+    "startMs": 11208,
+    "endMs": 14883,
+    "text": "Darkness. A faint fire glows in a stone pit.",
+    "extended": false,
+    "wordCount": 9,
+    "shotIndex": 2,
+    "limitMs": 16720
+  },
+  {
+    "startMs": 15271,
+    "endMs": 16321,
+    "text": "Dark room.",
+    "extended": false,
+    "wordCount": 2,
+    "shotIndex": 3,
+    "limitMs": 16720
+  },
+  {
+    "startMs": 19509,
+    "endMs": 21209,
+    "text": "Bearded man holds staff.",
+    "extended": false,
+    "wordCount": 4,
+    "shotIndex": 4,
+    "limitMs": 21209
+  },
+  {
+    "startMs": 33170,
+    "endMs": 34820,
+    "text": "Old man pours broth.",
+    "extended": false,
+    "wordCount": 4,
+    "shotIndex": 7,
+    "limitMs": 34820
+  },
+  {
+    "startMs": 37240,
+    "endMs": 38989,
+    "text": "Red-haired girl accepts bowl.",
+    "extended": false,
+    "wordCount": 4,
+    "shotIndex": 8,
+    "limitMs": 38989
+  },
+  {
+    "startMs": 41630,
+    "endMs": 42680,
+    "text": "Tent interior.",
+    "extended": false,
+    "wordCount": 2,
+    "shotIndex": 9,
+    "limitMs": 42950
+  },
+  {
+    "startMs": 51000,
+    "endMs": 52950,
+    "text": "Red-haired woman stares intently forward.",
+    "extended": false,
+    "wordCount": 5,
+    "shotIndex": 13,
+    "limitMs": 52950
+  },
+  {
+    "startMs": 55500,
+    "endMs": 58050,
+    "text": "Darkness. Faint red sparks drift downward.",
+    "extended": false,
+    "wordCount": 6,
+    "shotIndex": 14,
+    "limitMs": 58559
+  }
+]

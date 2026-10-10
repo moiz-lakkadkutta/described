@@ -249,5 +249,7 @@ export async function fitDescriptions(ctx: Ctx) {
   const gaps = JSON.parse(await readFile(`${ctx.work}/gaps.json`, 'utf8')) as Gap[]
   const { shortenWithNovaLite } = await import('../prompts')
   const cues = await fit(shots, gaps, (t, n) => safeShorten(t, n, (t, n) => shortenWithNovaLite(t, n, ctx.language)))
-  await writeFile(`${ctx.work}/cues.json`, JSON.stringify(cues, null, 2))
+  const json = JSON.stringify(cues, null, 2)
+  await writeFile(`${ctx.work}/cues.json`, json)
+  await writeFile(`${ctx.work}/cues.fit.json`, json) // the edit step (05b) always starts from this copy, so re-running it is idempotent (DESC-018)
 }
