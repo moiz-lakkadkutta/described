@@ -157,9 +157,18 @@ uses the framework `android.media.session` API, API 21+):
   active session (MainActivity's `onKeyDown` does not consume media keys). If §4 of the device check shows 126/127
   doing nothing, set `MEDIA_SESSION_OWNS_KEYS = false` in apps/expo/src/platform/mediaSession.ts (one value; keys go
   back to the key path).
-- **Background.** The session goes inactive when the activity leaves the foreground (`OnActivityEntersBackground`) and
-  active again on return (`OnActivityEntersForeground`) if the Player still holds it, so Alexa never controls a hidden
-  app. A `destroyed` flag stops queued work and late callbacks after the module is torn down.
+- **Fire TV's mapping.** Per the Fire TV doc's table, "Alexa, fast forward / rewind [N seconds]" and "restart" arrive
+  as `onSeekTo(pos)` (ACTION_SEEK_TO; pos computed from the position the session reports, 10 s by default), not as
+  `onFastForward / onRewind`; "pause" / "play" / "resume" come as media keys (126 / 127) or `onPause / onPlay`.
+- **Visibility, not foreground.** The session goes inactive when the activity is no longer visible (`onActivityStopped`
+  via `Application.ActivityLifecycleCallbacks`: Home, another app) and active again when it is started, if the Player
+  still holds it — so Alexa never controls a hidden app. It stays active while the activity is merely **paused**: during
+  a voice interaction Fire TV pauses the activity under the Alexa UI, and Fire TV's publisher (`whad`) unpublishes an
+  inactive session at once, so a SeekTo directive arriving then finds no session and is dropped (device run check 14:
+  fast forward / rewind / go to did nothing; pause / play, sent as media keys, still reached the last media-button
+  session; every re-activation showed as a "New Session" in `whad`'s log — 13 in one playback). `OnActivityEntersBackground`
+  (= onPause) only logs now; it is the fallback signal if no `Application` is reachable. A `destroyed` flag stops queued
+  work and late callbacks after the module is torn down. Fire OS user builds drop `Log.d`: the module logs at `Log.i`.
 - If the module is missing from a build, `requireOptionalNativeModule` returns null and the binding is a no-op.
 
 **Risk and fallback.** The Kotlin was **not compiled** here (no Android SDK in this environment). If the release build

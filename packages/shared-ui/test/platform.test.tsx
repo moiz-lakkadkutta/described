@@ -93,6 +93,16 @@ describe('now-playing sink (bindings side of onNowPlaying)', () => {
     expect(s.now.at(-1)).toMatchObject({ positionS: 300, playing: true })
     expect(s.now).toHaveLength(2)
   })
+  it('creates one media session per playback and only updates its state', () => {
+    const s = setup()
+    s.sink(s.session('loading')); s.sink(s.session('playing'))
+    for (const state of ['buffering', 'playing', 'paused', 'playing']) s.sink(s.session(state))
+    for (let i = 0; i < 3; i++) { s.controls.pos += 10; s.seek(); s.sink(s.session('playing')) }
+    expect(s.subs).toHaveBeenCalledTimes(1) // one transport subscription for the whole playback
+    expect(s.off).not.toHaveBeenCalled(); expect(s.now).not.toContain(null) // never released mid-playback
+    expect(s.now).toHaveLength(1 + 4 + 3) // first publish, four state changes, three seeks: updates, not sessions
+    s.sink(null); expect(s.now.at(-1)).toBeNull(); expect(s.off).toHaveBeenCalledTimes(1)
+  })
   it('transport acts through controls; buffering counts as playing', () => {
     const s = setup()
     s.sink(s.session('buffering'))
@@ -163,6 +173,37 @@ describe('Root → Player → media session', () => {
     expect(onNowPlaying).toHaveBeenLastCalledWith(expect.objectContaining({ slug: 'sintel-90-210', seeks: 2 }))
     act(() => r!.unmount()); r = undefined
     expect(now.at(-1)).toBeNull(); expect(onNowPlaying).toHaveBeenLastCalledWith(null)
+  })
+  it('fastForward / rewind / seekTo transport events move the player once each; the session survives seeks, pauses and the track sheet', async () => {
+    const now: (NowPlayingInfo | null)[] = []; let send!: (t: Transport) => void; const subs = vi.fn()
+    configurePlatform({ mediaSession: { setNowPlaying: (i) => now.push(i), onTransport: (cb) => { subs(); send = cb; return () => {} } } })
+    let open!: (t: LaunchTarget) => void
+    const launches: LaunchSource = (on) => { open = on; return () => {} }
+    act(() => { r = TestRenderer.create(<Root apiBaseUrl="http://api" scale={0.5} launches={launches} />) })
+    const flush = () => act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve() })
+    await flush(); act(() => open({ kind: 'play', slug: 'sintel-90-210' })); await flush()
+    const kp = () => r!.root.find((n) => (n.type as unknown) === 'KitPlayer').props
+    act(() => { kp().onState('playing') }); act(() => { kp().onPosition(100) })
+    const seeks = kit.ref.seek.mock.calls.length
+    // Fire TV says "fast forward" / "rewind" as seekTo(position ± 10 s) and "go to 30 seconds" as seekTo(30); other
+    // controllers send the relative controls. Each request is one seek on the player: no second handler.
+    act(() => send({ kind: 'seekTo', s: 110 })); expect(kit.ref.seek).toHaveBeenLastCalledWith(110)
+    act(() => { kp().onPosition(110) })
+    act(() => send({ kind: 'seekBy', dir: 1 })); expect(kit.ref.seek).toHaveBeenLastCalledWith(110 + SEEK_STEP_S)
+    act(() => { kp().onPosition(110 + SEEK_STEP_S) })
+    act(() => send({ kind: 'seekBy', dir: -1 })); expect(kit.ref.seek).toHaveBeenLastCalledWith(110)
+    act(() => send({ kind: 'seekTo', s: 30 })); expect(kit.ref.seek).toHaveBeenLastCalledWith(30)
+    expect(kit.ref.seek.mock.calls.length - seeks).toBe(4)
+    act(() => send({ kind: 'pause' })); act(() => { kp().onState('paused') })
+    expect(now.at(-1)).toMatchObject({ playing: false })
+    act(() => send({ kind: 'play' })); act(() => { kp().onState('playing') })
+    press('up'); expect(r!.root.findAllByProps({ testID: 'track-sheet' })).toHaveLength(1)
+    press('menu'); expect(r!.root.findAllByProps({ testID: 'track-sheet' })).toHaveLength(0)
+    // One session for the whole playback: one subscription, no release, the one Player; only its state was updated.
+    expect(subs).toHaveBeenCalledTimes(1); expect(now).not.toContain(null); expect(kit.mounts).toBe(1)
+    expect(now.at(-1)).toMatchObject({ title: 'Sintel', playing: true })
+    act(() => r!.unmount()); r = undefined
+    expect(now.filter((i) => i === null)).toHaveLength(1)
   })
   it('a deep link during playback saves the Player\'s position first, like Back', async () => {
     let open!: (t: LaunchTarget) => void

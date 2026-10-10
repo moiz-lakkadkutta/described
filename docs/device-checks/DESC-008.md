@@ -60,16 +60,24 @@ Start Sintel from the app and let it play. Watch logcat (`DescribedMediaSession`
       by `transport control=pause`. Either is a pass.
 - [ ] **"Alexa, resume"** (and separately **"Alexa, play"**) → plays again (`control=play`, or `media button 126 … → default mapping` then `control=play`).
 - [ ] Repeat pause / resume three times in a row: the video ends in the state you last asked for every time (no double toggle).
-- [ ] **"Alexa, fast forward"** / **"Alexa, rewind"** → jumps ±10 s once (`control=fastForward` / `rewind`).
+- [ ] **"Alexa, fast forward"** / **"Alexa, rewind"** → jumps ±10 s once. Fire TV sends these as a seek to the computed
+      position (`control=seekTo positionS=<current ± 10>`, per the Fire TV doc's table); `control=fastForward` / `rewind`
+      would come from another controller and is also a pass.
 - [ ] **"Alexa, go to 5 minutes"** → `control=seekTo positionS=300.0`, video at 5:00.
+- [ ] **One session per playback (run check 14 regression):** across all the voice commands above, logcat shows
+      `session created` **once**, and `adb logcat -d | grep -c 'New Session: tag=DescribedMediaSession'` stays at 1 for
+      this playback (Fire TV's publisher `whad` logs one per *activation*). During each voice interaction logcat shows
+      `activity paused, still visible: session stays active` and `dumpsys media_session` keeps `active=true` — the
+      Alexa UI pauses the activity, and an inactive session would be unpublished before the SeekTo directive lands.
 - [ ] If any voice command logs **only** `transport control=button keyCode=…` (85, 89 or 90) and the video does not react,
       Alexa sends relative media buttons: set `createMediaSession(nativeMediaSession, { acceptButtons: true })` in
       apps/expo/App.tsx, rebuild, re-run §3 and §4 (check §4 for double toggles), and file a friction log.
 - [ ] **Echo (far-field)**, if one is paired: "Alexa, pause" / "Alexa, resume" behave the same.
 - [ ] While Alexa listens (blue bar), playback pauses or ducks; after the command it continues correctly. Note what happens.
-- [ ] **Background:** while playing, press the remote's Home → logcat `session inactive (background)`; `dumpsys media_session`
-      shows `active=false`; "Alexa, pause" does not reach Described. Reopen Described → `session active (foreground)`, and
-      "Alexa, pause" works again.
+- [ ] **Background:** while playing, press the remote's Home → logcat `session inactive (activity stopped)`; `dumpsys
+      media_session` shows `active=false`; "Alexa, pause" does not reach Described. Reopen Described → `session active
+      (activity started)`, and "Alexa, pause" works again. (Fire OS drops `Log.d`: the module logs at `Log.i`, so
+      `adb logcat -s DescribedMediaSession` shows everything.)
 - [ ] Back to Title → logcat `session released`; "Alexa, pause" on the Title screen does nothing to Described.
 - [ ] Extended description: during a pause–speak–resume (DESC-007), say "resume" → the description stops at once and
       the film plays (video never plays over the narration). Say "pause" during the description instead → the description
