@@ -107,3 +107,16 @@ Found on the Fire TV Stick in `sintel-90-150-r2`: shots 0 and 1, the two halves 
    together. In 05-fit the action start is its gap slot, and "fits" means the action's words still fit the rest of the gap. In
    06-voice (an overrunning clip split after Polly) the action start is the cue's fit start, the shot start comes from
    shots.json (the cue's own start when missing), and "fits" means the measured clip still ends within its limit.
+
+## DESC-017 result (2026-10-10, `sintel-90-210` run A2, from `shots`)
+
+The DESC-017 pipeline (split camera shots described once, on-screen text never shortened away, PR #25) on the same 29 shots:
+**22 / 29 = 75.9 % usable, both raters** (Opus, independent, 5 frames per shot plus crops), up from 72.4 %. Both marked the same 7
+misses — shots 0, 6, 10, 11, 16, 21, 28 — every one a model faithfulness detail (0 "walks left", 6 "expression unreadable", 10 "opens
+eyes", 11 "veiled face rises", 16 "grabs a dark sleeve", 21 "pink-haired … stands", 28 "holds book"); timing, dialogue overlap, style
+and clean had zero failures. The rubric now rates a sameAsPrev or stripped continuation against the frames, like any other shot, and a
+shot the pipeline did not voice by the text it would have voiced (rater 1's own total, 58.6 %, had counted every unplaced shot as
+unusable; read against the frames both raters agree on the 7). 20 voiced (1 extended), 9 unplaced (5, 6, 8, 10, 11, 23, 24, 27, 28);
+the raters flagged two of those as plot events lost — 8 "accepts bowl", 24 "kneels beside the dragon" — which is DESC-020
+(docs/decisions/0007-dropped-events.md).
+Reports: the session scratchpad `eval-1010b/rater1.md`, `rater2.md`.

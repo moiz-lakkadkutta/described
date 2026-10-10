@@ -1,0 +1,181 @@
+[
+  {
+    "startMs": 0,
+    "endMs": 4776,
+    "text": "Words appear: SINTEL. A lone figure walks left across snow.",
+    "extended": false,
+    "wordCount": 10,
+    "shotIndex": 0,
+    "limitMs": 16720
+  },
+  {
+    "startMs": 5604,
+    "endMs": 9276,
+    "text": "The figure falls prone in the snow. The logo fades.",
+    "extended": false,
+    "wordCount": 10,
+    "shotIndex": 1,
+    "limitMs": 16720
+  },
+  {
+    "startMs": 11208,
+    "endMs": 15144,
+    "text": "Darkness. A fire pit glows faintly in a dim room.",
+    "extended": false,
+    "wordCount": 10,
+    "shotIndex": 2,
+    "limitMs": 16720
+  },
+  {
+    "startMs": 19509,
+    "endMs": 21213,
+    "text": "A figure leans forward.",
+    "extended": false,
+    "wordCount": 4,
+    "shotIndex": 3,
+    "limitMs": 21209
+  },
+  {
+    "startMs": 24310,
+    "endMs": 26110,
+    "text": "Bearded man holds staff.",
+    "extended": false,
+    "wordCount": 4,
+    "shotIndex": 4,
+    "limitMs": 27470
+  },
+  {
+    "startMs": 33170,
+    "endMs": 34826,
+    "text": "Old man pours broth.",
+    "extended": false,
+    "wordCount": 4,
+    "shotIndex": 7,
+    "limitMs": 34820
+  },
+  {
+    "startMs": 41630,
+    "endMs": 42782,
+    "text": "Tent glows.",
+    "extended": false,
+    "wordCount": 2,
+    "shotIndex": 9,
+    "limitMs": 42950
+  },
+  {
+    "startMs": 50869,
+    "endMs": 52429,
+    "text": "Bearded man speaks.",
+    "extended": false,
+    "wordCount": 3,
+    "shotIndex": 12,
+    "limitMs": 52950
+  },
+  {
+    "startMs": 54229,
+    "endMs": 57925,
+    "text": "Red-haired woman looks down, then darkness swallows scene.",
+    "extended": false,
+    "wordCount": 8,
+    "shotIndex": 13,
+    "limitMs": 58669
+  },
+  {
+    "startMs": 61119,
+    "endMs": 62751,
+    "text": "Dawn breaks over city.",
+    "extended": false,
+    "wordCount": 4,
+    "shotIndex": 14,
+    "limitMs": 62829
+  },
+  {
+    "startMs": 65833,
+    "endMs": 70969,
+    "text": "Red-haired woman in brown clothes lifts wooden plank in ruined alley between stone buildings.",
+    "extended": false,
+    "wordCount": 14,
+    "shotIndex": 15,
+    "limitMs": 83079
+  },
+  {
+    "startMs": 72083,
+    "endMs": 78179,
+    "text": "The woman with red hair grabs a dark sleeve, then holds up a red apple, standing in a sunlit courtyard.",
+    "extended": false,
+    "wordCount": 20,
+    "shotIndex": 16,
+    "limitMs": 83079
+  },
+  {
+    "startMs": 80033,
+    "endMs": 82913,
+    "text": "She turns, holding a spiky green fruit.",
+    "extended": false,
+    "wordCount": 7,
+    "shotIndex": 17,
+    "limitMs": 83079
+  },
+  {
+    "startMs": 87542,
+    "endMs": 90038,
+    "text": "Red-haired woman climbs stone steps.",
+    "extended": false,
+    "wordCount": 5,
+    "shotIndex": 18,
+    "limitMs": 116139
+  },
+  {
+    "startMs": 90617,
+    "endMs": 93185,
+    "text": "Red-haired woman climbs brick rooftop.",
+    "extended": true,
+    "wordCount": 5,
+    "shotIndex": 19
+  },
+  {
+    "startMs": 92942,
+    "endMs": 95774,
+    "text": "Small dragon bleeds on stone roof tiles.",
+    "extended": false,
+    "wordCount": 7,
+    "shotIndex": 20,
+    "limitMs": 116139
+  },
+  {
+    "startMs": 96017,
+    "endMs": 99617,
+    "text": "Pink-haired woman in gray tank top stands near stone wall.",
+    "extended": false,
+    "wordCount": 10,
+    "shotIndex": 21,
+    "limitMs": 116139
+  },
+  {
+    "startMs": 100217,
+    "endMs": 103265,
+    "text": "Small dragon clutches bleeding wing on stone roof.",
+    "extended": false,
+    "wordCount": 8,
+    "shotIndex": 22,
+    "limitMs": 116139
+  },
+  {
+    "startMs": 107117,
+    "endMs": 110069,
+    "text": "Hand reaches toward small dragon on stone roof.",
+    "extended": false,
+    "wordCount": 8,
+    "shotIndex": 25,
+    "limitMs": 116139
+  },
+  {
+    "startMs": 110567,
+    "endMs": 113639,
+    "text": "A scaled creature with horns and bloodied wing looks up.",
+    "extended": false,
+    "wordCount": 10,
+    "shotIndex": 26,
+    "limitMs": 116139
+  }
+]

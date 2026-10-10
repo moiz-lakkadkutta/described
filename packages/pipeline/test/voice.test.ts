@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execa } from 'execa'
-import { OVERRUN_TOLERANCE_MS, clipDurationArgs, cueSidecarFile, cueSsml, parseClipDurationMs, voice, type CueSidecar, type VoiceDeps } from '../src/steps/06-voice'
+import { OVERRUN_TOLERANCE_MS, clipDurationArgs, cueSidecarFile, cueSsml, parseClipDurationMs, voice, withoutSaidText, type CueSidecar, type VoiceDeps } from '../src/steps/06-voice'
 import type { FitCue } from '../src/steps/05-fit'
 import type { Ctx } from '../src/steps/index'
 import { metered, pollyUsd } from '../src/cost'
@@ -218,5 +218,50 @@ describe('clip duration', () => {
     await voice(ctx(), { synthesize: async (t) => new TextEncoder().encode(t), measureMs: async (f) => (await readFile(f, 'utf8')).split(/\s+/).length * 560 })
     expect((await readCues()).map((c) => [c.startMs, c.extended, c.text])).toEqual([[600, true, 'Words appear: SINTEL.'], [1000, false, 'Snowy mountains.']])
     expect((await readdir(work)).filter((f) => f.startsWith('moving_'))).toEqual([])
+  })
+})
+
+describe('voice: on-screen text and pauses after measured clips (DESC-020 follow-ups)', () => {
+  const perWord = { synthesize: async (t: string) => new TextEncoder().encode(t), measureMs: async (f: string) => (await readFile(f, 'utf8')).split(/\s+/).length * 560 }
+  const text = (startMs: number, t: string, shotIndex: number): FitCue => ({ startMs, endMs: startMs + 100, text: t, extended: true, wordCount: t.split(/\s+/).length, shotIndex })
+  const run = async (cues: FitCue[], deps: VoiceDeps = perWord) => { await writeCues(cues); await voice(ctx(), deps); return readCues() }
+  // (a) fit put the text cue 400 ms before its action from estimated ends; the measured clip before it runs later
+  it('a text-only extended cue never starts while a placed clip still speaks: it moves to the measured end', async () => {
+    // 'Smoke rises.' measures 1200 ms (DURATIONS): the text cue at 1800 moves to 2200; 'Snow falls.' at 2400 keeps its slot
+    const out = await run([{ ...cue(1000, 'Smoke rises.', 5000), shotIndex: 0 }, text(1800, 'Words appear: North.', 1), { ...cue(2400, 'Snow falls.', 5000), shotIndex: 1 }], fakes())
+    expect(out.map((c) => [c.startMs, c.endMs, c.extended, c.text])).toEqual([[1000, 2200, false, 'Smoke rises.'], [2200, 3900, true, 'Words appear: North.'], [2400, 3500, false, 'Snow falls.']])
+    for (const [i, c] of out.entries()) expect(await readFile(`${work}/cue_${i}.mp3`, 'utf8')).toBe(c.text)
+    // a text cue that lands after its action is re-slotted behind it, clips with it
+    const late = await run([{ ...cue(1000, 'Smoke rises.', 5000), shotIndex: 0 }, text(2100, 'Words appear: North.', 1), { ...cue(2150, 'Snow falls.', 5000), shotIndex: 1 }], fakes())
+    expect(late.map((c) => [c.startMs, c.text])).toEqual([[1000, 'Smoke rises.'], [2150, 'Snow falls.'], [2200, 'Words appear: North.']])
+    for (const [i, c] of late.entries()) expect(await readFile(`${work}/cue_${i}.mp3`, 'utf8')).toBe(c.text)
+  })
+  it('a text cue split in voice is placed after every kept clip\'s measured end, including one that overlaps this cue\'s start', async () => {
+    // 'Smoke rises.' from 0 measures 1200 ms: within tolerance of its 1000 ms limit, so it is kept and runs 50 ms past the next cue's start at 1150
+    const SHOT0 = 'Snowy mountains. A lone figure walks left, carrying a spear. Words appear: SINTEL.'
+    const out = await run([{ ...cue(0, 'Smoke rises.', 1000), shotIndex: 0 }, { ...cue(1150, SHOT0, 5000), shotIndex: 1 }], { synthesize: perWord.synthesize, measureMs: async (f) => { const t = await readFile(f, 'utf8'); return t === 'Smoke rises.' ? 1200 : t.split(/\s+/).length * 560 } })
+    expect(out.map((c) => [c.startMs, c.extended, c.text])).toEqual([[0, false, 'Smoke rises.'], [1200, true, 'Words appear: SINTEL.'], [1550, false, 'Snowy mountains.']])
+  })
+  // (d) sintel-90-150-r2: shots 0 and 1, the halves of one camera shot, both ended in "Words appear: SINTEL."
+  it('does not voice on-screen text the previous voiced cue already said: the clause is dropped, the rest voiced', async () => {
+    expect(withoutSaidText('Snowy mountains. A figure walks, falls. Words appear: SINTEL.', ['sintel'])).toBe('Snowy mountains. A figure walks, falls.')
+    expect(withoutSaidText('Words appear: SINTEL. A figure walks.', ['sintel'])).toBe('A figure walks.')
+    expect(withoutSaidText('Words appear: SINTEL.', ['sintel'])).toBe('')
+    expect(withoutSaidText('Words appear: SINTEL. A figure walks.', ['north'])).toBe('Words appear: SINTEL. A figure walks.')
+    expect(withoutSaidText('Words appear: "The End." A man waves.', ['the end'])).toBe('A man waves.')
+    const out = await run([{ ...cue(0, 'Words appear: North. Snow falls.', 5000), shotIndex: 0 }, { ...cue(3000, 'Words appear: North. She waits.', 8000), shotIndex: 1 }, { ...cue(6000, 'Words appear: North.', 9000), shotIndex: 2 }])
+    expect(out.map((c) => [c.startMs, c.text])).toEqual([[0, 'Words appear: North. Snow falls.'], [3000, 'She waits.'], [6000, 'Words appear: North.']]) // the third: the previous voiced cue did not say it
+    for (const [i, c] of out.entries()) expect(await readFile(`${work}/cue_${i}.mp3`, 'utf8')).toBe(c.text)
+  })
+  it('a cue that is only on-screen text the previous cue said is not voiced; fit\'s split text cue counts as said with its action', async () => {
+    // fit split shot 0 into its text cue and action; shot 1 (the second half of the camera shot) repeats the text
+    const out = await run([text(0, 'Words appear: SINTEL.', 0), { ...cue(400, 'Snowy mountains.', 5000), shotIndex: 0 }, text(5604, 'Words appear: SINTEL.', 1), { ...cue(6004, 'A figure falls.', 9000), shotIndex: 1 }])
+    expect(out.map((c) => [c.startMs, c.extended, c.text])).toEqual([[0, true, 'Words appear: SINTEL.'], [400, false, 'Snowy mountains.'], [6004, false, 'A figure falls.']])
+    expect(await files()).toEqual(['cue_0.json', 'cue_0.mp3', 'cue_1.json', 'cue_1.mp3', 'cue_2.json', 'cue_2.mp3'])
+    expect(await readFile(`${work}/cue_2.mp3`, 'utf8')).toBe('A figure falls.')
+    // a text cue split in voice from the previous cue counts too
+    const SHOT0 = 'Snowy mountains. A lone figure walks left, carrying a spear. Words appear: SINTEL.'
+    const two = await run([{ ...cue(0, SHOT0, 3000), shotIndex: 0 }, { ...cue(5604, 'Snowy mountains. A figure walks, falls. Words appear: SINTEL.', 16720), shotIndex: 1 }])
+    expect(two.map((c) => [c.startMs, c.extended, c.text])).toEqual([[0, true, 'Words appear: SINTEL.'], [400, false, 'Snowy mountains.'], [5604, false, 'Snowy mountains. A figure walks, falls.']])
   })
 })
