@@ -50,7 +50,9 @@ export function fromNative(e: NativeTransportEvent, o: MediaSessionOptions = {})
     case 'stop': return { kind: 'stop' }
     case 'fastForward': return { kind: 'seekBy', dir: 1 }
     case 'rewind': return { kind: 'seekBy', dir: -1 }
-    case 'seekTo': return typeof e.positionS === 'number' && e.positionS >= 0 ? { kind: 'seekTo', s: e.positionS } : null
+    // Fire TV sends "fast forward" / "rewind" as seekTo(reported position ± 10 s) and "restart" as seekTo(0); a rewind
+    // near the start can go below 0, which is a seek to the start (Player's seekTo clamps the far end).
+    case 'seekTo': return typeof e.positionS === 'number' && Number.isFinite(e.positionS) ? { kind: 'seekTo', s: Math.max(0, e.positionS) } : null
     case 'button': {
       if (!o.acceptButtons || e.keyCode === undefined) return null
       const key = mapKey(e.keyCode)

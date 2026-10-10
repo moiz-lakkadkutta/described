@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { DEEP_LINK_SCHEME } from '@described/contracts'
+import type { Transport } from '@described/shared-ui'
 
 import { appState, emitter, linking } from './stubs/react-native'
 const { launchSource, _resetLaunch } = await import('../src/platform/launch')
@@ -66,6 +67,8 @@ describe('media session: native events → Transport', () => {
     [{ control: 'fastForward' }, { kind: 'seekBy', dir: 1 }],
     [{ control: 'rewind' }, { kind: 'seekBy', dir: -1 }],
     [{ control: 'seekTo', positionS: 300 }, { kind: 'seekTo', s: 300 }],
+    [{ control: 'seekTo', positionS: 0 }, { kind: 'seekTo', s: 0 }], // "Alexa, restart"
+    [{ control: 'seekTo', positionS: -4 }, { kind: 'seekTo', s: 0 }], // "rewind" 4 s in: Fire TV sends position − 10
     [{ control: 'seekTo' }, null],
     [{ control: 'skipToNext' }, null],
   ])('%j → %j', (e, want) => expect(fromNative(e)).toEqual(want))
@@ -106,6 +109,23 @@ describe('media session binding', () => {
     n.emit('onTransport', { control: 'pause' }); n.emit('onTransport', { control: 'button' })
     expect(cb.mock.calls).toEqual([[{ kind: 'pause' }]])
     off(); expect(n.removed).toBe(true)
+  })
+  it('fastForward / rewind / seekTo transport events reach the Player once each; updates never recreate the session', () => {
+    const n = fakeNative(); const b = createMediaSession(n)!
+    b.setNowPlaying(PLAYING)
+    const got: Transport[] = []; b.onTransport((t) => got.push(t))
+    // Fire TV says "fast forward" / "rewind" as onSeekTo(position ± 10 s) (ACTION_SEEK_TO; absolute "go to N" is not in
+    // its mapping) and "restart" as onSeekTo(0); other controllers send the relative controls or any onSeekTo position.
+    // The remote's ►► key (90) stays with the key path.
+    n.emit('onTransport', { control: 'seekTo', positionS: 52.5 })
+    n.emit('onTransport', { control: 'seekTo', positionS: 30 }) // another controller's absolute seek
+    n.emit('onTransport', { control: 'fastForward' }); n.emit('onTransport', { control: 'rewind' })
+    n.emit('onTransport', { control: 'button', keyCode: 90 })
+    expect(got).toEqual([{ kind: 'seekTo', s: 52.5 }, { kind: 'seekTo', s: 30 }, { kind: 'seekBy', dir: 1 }, { kind: 'seekBy', dir: -1 }])
+    // A pause, a seek and a resume are state updates on the one native session, never a release and a new one.
+    b.setNowPlaying({ ...PLAYING, playing: false }); b.setNowPlaying({ ...PLAYING, positionS: 30 }); b.setNowPlaying(PLAYING)
+    expect(n.setNowPlaying).toHaveBeenCalledTimes(4); expect(n.release).not.toHaveBeenCalled()
+    expect(b.ownsKey(127)).toBe(true) // still the session's key
   })
 })
 
