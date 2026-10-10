@@ -317,7 +317,8 @@ describe('SAME replies', () => {
   // PR #25 review H2
   it('recognises SAME in any case and plain "nothing new" replies, in English and German', () => {
     for (const raw of ['SAME', 'Same.', 'same', 'SAME. Woman holds bowl.', 'Nothing new.', 'nothing new', 'Nothing is new.', 'No new information.', 'Nichts Neues.', 'Gleich.']) expect(parseDescription(raw, p)).toEqual({ description: '', sameAsPrev: true })
-    for (const raw of ['Same woman walks left.', 'Gleich darauf fällt sie.', 'No one moves.']) expect(parseDescription(raw, '').sameAsPrev).toBe(false)
+    for (const raw of ['No change.', 'No changes.', 'Unchanged.', 'Nothing changed.', 'Nothing has changed.', 'Nothing new happens.', 'Unverändert.', 'Keine Veränderung.', 'Keine Änderung.']) expect(parseDescription(raw, p)).toEqual({ description: '', sameAsPrev: true })
+    for (const raw of ['Same woman walks left.', 'Gleich darauf fällt sie.', 'No one moves.', 'The unchanged room darkens.']) expect(parseDescription(raw, '').sameAsPrev).toBe(false)
   })
   it('drops a German on-screen text longer than 8 words and keeps a short one, in any quotes', () => {
     expect(parseDescription('Schnee. Text erscheint: „Ein sehr langer Satz, der nie auf einem Bild zu lesen war“.', '').description).toBe('Schnee.')

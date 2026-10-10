@@ -28,6 +28,7 @@ afterEach(async () => { await rm(work, { recursive: true, force: true }) })
 
 /** fit (the model shortener fails, so the deterministic one runs), then voice with fake Polly / ffprobe; returns the voiced cues. */
 async function fitAndVoice(described: Described[]): Promise<FitCue[]> {
+  await writeFile(`${work}/shots.json`, JSON.stringify(recordedShots))
   const cues = await fit(described, gaps, (t, n) => safeShorten(t, n, (x) => x))
   await writeFile(`${work}/cues.json`, JSON.stringify(cues))
   const ctx: Ctx = { slug: 'r2', source: 's.mp4', language: 'en', voice: 'Joanna', work }
@@ -58,9 +59,12 @@ describe('sintel-90-150-r2 golden replay', () => {
     expect(described[1]).toMatchObject({ description: 'A figure walks, falls. Logo fades.', sameAsPrev: false })
     expect(described.filter((d) => d.sameAsPrev)).toEqual([])
     const voiced = await fitAndVoice(described)
-    expect(voiced.filter((c) => c.shotIndex <= 1).map((c) => [c.shotIndex, c.text])).toEqual([
-      [0, 'Snowy mountains. Words appear: SINTEL.'], // shortened by 06-voice to end before shot 1's cue; the text survives
-      [1, 'A figure walks, falls. Logo fades.'],
+    // shot 0's clip runs past shot 1's cue: SINTEL beside the action would keep 2 of its 10 words, so 06-voice splits — the text
+    // becomes its own extended cue and the character's introduction stays on the AD track, 400 ms after the pause
+    expect(voiced.filter((c) => c.shotIndex <= 1).map((c) => [c.startMs, c.extended, c.text])).toEqual([
+      [0, true, 'Words appear: SINTEL.'],
+      [400, false, 'Snowy mountains. A lone figure walks left.'],
+      [5604, false, 'A figure walks, falls. Logo fades.'],
     ])
     expect(voiced.filter((c) => c.text.includes('SINTEL'))).toHaveLength(1) // said once
   })
@@ -68,8 +72,10 @@ describe('sintel-90-150-r2 golden replay', () => {
   it('the recorded r2 path (both halves placed, both clips over their limit) keeps SINTEL in each shortened cue', async () => {
     const voiced = await fitAndVoice(recorded)
     const head = voiced.filter((c) => c.shotIndex <= 1)
-    expect(head).toHaveLength(2)
-    for (const c of head) expect(c.text).toMatch(/Words appear: SINTEL\.$/)
-    expect(head.map((c) => c.text)).toEqual(['Snowy mountains. Words appear: SINTEL.', 'Snowy mountains. A figure walks, falls. Words appear: SINTEL.'])
+    expect(head.map((c) => [c.startMs, c.extended, c.text])).toEqual([
+      [0, true, 'Words appear: SINTEL.'],
+      [400, false, 'Snowy mountains. A lone figure walks left.'],
+      [5604, false, 'Snowy mountains. A figure walks, falls. Words appear: SINTEL.'], // 6 of 8 action words kept beside the text
+    ])
   })
 })

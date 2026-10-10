@@ -20,8 +20,10 @@ const MIN_WORDS = 3
  * that call lives in ../prompts.shortenWithNovaLite and is injected so tests run without AWS.
  * Each shot scans the gaps in order for the first with ≥ MIN_WORDS of room starting in [shot start, shot end + LATE_MS];
  * describe *as* action occurs, never before. No room → an extended cue (≤ EXTENDED_WORDS) if introducesNew, else dropped.
- * On-screen text that does not fit beside the rest (human, 2026-10-10): the rest — the action — is placed as usual, shortened, and
- * the text clause becomes its own extended cue at the shot start (splitText). Neither is dropped.
+ * On-screen text (human, 2026-10-10; PR #25 round 2): when no gap in the window fits the whole text — the shorteners keep the text
+ * clause only beside at least half of the action's words — the rest (the action) is placed in the first gap it fits, and the text
+ * clause becomes its own extended cue (splitText): TEXT_LEAD_MS before the action, never before the shot start or the end of the
+ * previous placed cue; with no room for that lead, the action moves TEXT_LEAD_MS after the text cue when it still fits its gap.
  * fitDescriptions passes safeShorten, so a model shortening that changes a fact falls back to shortenDeterministic.
  */
 export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, maxWords: number) => Promise<string> | string): Promise<FitCue[]> | FitCue[] {
@@ -30,35 +32,65 @@ export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, max
   const work = async () => {
     for (const s of shots) {
       if (s.sameAsPrev || !s.description) continue
-      let placed = false
-      for (const g of free) {
-        const start = Math.max(g.cursor, s.startMs)
-        if (start >= g.endMs) continue // gap used up, or entirely before the shot
-        if (start > s.endMs + LATE_MS) break // gaps are sorted; nothing later is on time (exactly LATE_MS late is allowed)
-        const maxWords = Math.floor(((g.endMs - start) / 1000) * WPS)
-        if (maxWords < MIN_WORDS) continue
-        let text = s.description
-        if (words(text) > maxWords) text = await shorten(text, maxWords)
-        if (words(text) > maxWords) {
-          const c = textClauses(s.description)
-          if (!c?.rest) continue
-          text = c.rest
-          if (words(text) > maxWords) text = await shorten(text, maxWords)
-          if (words(text) > maxWords) continue
-          out.push({ ...extended(s), ...await capExtended(c.clause, shorten) })
+      /** The gaps in the shot's window with ≥ MIN_WORDS of room, in order, with where a cue would start in each. */
+      const slots = () => {
+        const r: Array<{ g: (typeof free)[number]; start: number; maxWords: number }> = []
+        for (const g of free) {
+          const start = Math.max(g.cursor, s.startMs)
+          if (start >= g.endMs) continue // gap used up, or entirely before the shot
+          if (start > s.endMs + LATE_MS) break // gaps are sorted; nothing later is on time (exactly LATE_MS late is allowed)
+          const maxWords = Math.floor(((g.endMs - start) / 1000) * WPS)
+          if (maxWords >= MIN_WORDS) r.push({ g, start, maxWords })
         }
+        return r
+      }
+      const fitted = async (text: string, maxWords: number) => { const t = words(text) > maxWords ? await shorten(text, maxWords) : text; return words(t) <= maxWords ? t : undefined }
+      const place = (g: (typeof free)[number], start: number, text: string) => {
         const end = Math.min(g.endMs, start + Math.round((words(text) / WPS) * 1000) + 300)
         out.push({ startMs: start, endMs: end, text, extended: false, wordCount: words(text), shotIndex: s.index, limitMs: g.endMs })
         g.cursor = end + 150
+      }
+      let placed = false
+      for (const { g, start, maxWords } of slots()) {
+        const text = await fitted(s.description, maxWords)
+        if (text === undefined) continue
+        place(g, start, text)
+        placed = true
+        break
+      }
+      const c = placed ? undefined : textClauses(s.description)
+      if (c?.rest) for (const { g, start, maxWords } of slots()) {
+        const text = await fitted(c.rest, maxWords)
+        if (text === undefined) continue
+        const prevEnd = Math.max(s.startMs, ...out.filter((x) => !x.extended && x.endMs <= start).map((x) => x.endMs))
+        const { textStart, actionStart } = leadText(start, prevEnd, (later) => words(text) <= Math.floor(((g.endMs - later) / 1000) * WPS))
+        out.push({ ...extended(s), ...await capExtended(c.clause, shorten), startMs: textStart, endMs: textStart + 100 })
+        place(g, actionStart, text)
         placed = true
         break
       }
       if (!placed && introducesNew(s.description)) out.push({ ...extended(s), ...await capExtended(s.description, shorten) })
     }
-    return out.sort((a, b) => a.startMs - b.startMs) // stable: a split shot's text cue stays before its action cue
+    return out.sort(byStart)
   }
   return work()
 }
+
+/** A pause (extended cue) is checked against playback position 4 times a second; on the action's own ms it cut the action's first syllable. */
+export const TEXT_LEAD_MS = 400
+/**
+ * Where a split text cue and its action start: the text TEXT_LEAD_MS before the action when that is not before `earliest` (the shot
+ * start / the end of the previous cue); else the text at `earliest` (at most the action start) and the action TEXT_LEAD_MS after it,
+ * when `fits(later)`; else both where they are.
+ */
+export function leadText(actionStart: number, earliest: number, fits: (laterStart: number) => boolean): { textStart: number; actionStart: number } {
+  if (actionStart - TEXT_LEAD_MS >= earliest) return { textStart: actionStart - TEXT_LEAD_MS, actionStart }
+  const textStart = Math.min(earliest, actionStart), later = textStart + TEXT_LEAD_MS
+  return { textStart, actionStart: later > actionStart && fits(later) ? later : actionStart }
+}
+/** Cue order: by start; on one start, an on-screen text cue first, then other extended cues, then placed ones. */
+export const byStart = (a: FitCue, b: FitCue) => a.startMs - b.startMs || rank(a) - rank(b)
+const rank = (c: FitCue) => (!c.extended ? 2 : textClauses(c.text)?.rest === '' ? 0 : 1)
 const words = (t: string) => t.trim().split(/\s+/).filter(Boolean).length
 const extended = (s: Described): FitCue => ({ startMs: s.startMs, endMs: s.startMs + 100, text: s.description, extended: true, wordCount: words(s.description), shotIndex: s.index })
 /** Extended cues pause the film, so they keep the 25-word budget (PLAN §4.2); longer text is shortened like any other. */
@@ -108,6 +140,11 @@ export function textClauses(text: string): TextClauses | undefined {
   rest = (rest + text.slice(at)).replace(/\s+/g, ' ').trim()
   return { lead, tail: (lead ? m.slice(1) : m).join(' '), clause: m.join(' '), rest, words: words(m.join(' ')) }
 }
+/**
+ * Keeping the text beside the action may not cost more than half of the action's words (PR #25 round 2): r2 shot 0 kept
+ * "Snowy mountains." of "Snowy mountains. A lone figure walks left, carrying a spear." and lost the character's introduction.
+ */
+const keepsAction = (rest: string, short: string) => words(short) * 2 >= words(rest)
 /** The shortened rest put back beside the text clauses; a sentence end is added before a clause that follows it. */
 function join(c: TextClauses, short: string) {
   let r = short.trim()
@@ -160,16 +197,17 @@ const verbOrEnd = (next: string) => JOINERS.has(next.toLowerCase().replace(/[^a-
  * Deterministic shortening (PLAN §4.3): drop listed adjectives and adverbs that modify a following word, then drop clauses from
  * the end (sentence by sentence) until the text fits. Never drops a capitalised word mid-sentence (a name), nor an adjective used
  * as a noun ("the old walks": after an article, before a verb or the clause end). Only removes words. May still not fit; fit() decides.
- * Never touches an on-screen text clause (textClauses): the rest is shortened beside it. When the clause and some of the rest do not
- * fit together the text comes back unchanged, and fit / 06-voice split it: the action placed, the text its own extended cue.
+ * Never touches an on-screen text clause (textClauses): the rest is shortened beside it. When the clause and at least half of the
+ * rest's words (keepsAction) do not fit together, the text comes back unchanged, and fit / 06-voice split it: the action placed,
+ * the text its own extended cue.
  */
 export function shortenDeterministic(text: string, maxWords: number): string {
   if (words(text) <= maxWords) return text
   const c = textClauses(text)
   if (!c) return shortenPlain(text, maxWords)
   if (!c.rest || c.words >= maxWords) return text
-  const all = join(c, shortenPlain(c.rest, maxWords - c.words))
-  return words(all) <= maxWords ? all : text
+  const short = shortenPlain(c.rest, maxWords - c.words), all = join(c, short)
+  return words(all) <= maxWords && keepsAction(c.rest, short) ? all : text
 }
 function shortenPlain(text: string, maxWords: number): string {
   if (words(text) <= maxWords) return text
@@ -196,8 +234,8 @@ export async function safeShorten(text: string, maxWords: number, model: (text: 
   const c = words(text) > maxWords ? textClauses(text) : undefined
   if (!c) return safeShortenPlain(text, maxWords, model)
   if (!c.rest || c.words >= maxWords) return text // no room beside the text: no model call; fit splits it
-  const all = join(c, await safeShortenPlain(c.rest, maxWords - c.words, model))
-  return words(all) <= maxWords ? all : text
+  const short = await safeShortenPlain(c.rest, maxWords - c.words, model), all = join(c, short)
+  return words(all) <= maxWords && keepsAction(c.rest, short) ? all : text
 }
 async function safeShortenPlain(text: string, maxWords: number, model: (text: string, maxWords: number) => Promise<string> | string): Promise<string> {
   const m = (await model(text, maxWords)).trim()

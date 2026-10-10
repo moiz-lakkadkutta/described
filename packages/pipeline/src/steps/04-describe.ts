@@ -304,10 +304,12 @@ const normalize = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}\s']/gu, '
 const jaccard = (a: string, b: string) => { const A = new Set(a.split(' ')), B = new Set(b.split(' ')); const both = [...A].filter((w) => B.has(w)).length; return both / (A.size + B.size - both) }
 
 /**
- * "Nothing new" replies (PR #25 review H2): the whole reply is one of these, in any case — "Same.", "Nothing new.", "Nothing is new.",
- * "No new information.", German "Nichts Neues." / "Gleich." A description that opens with "Same" ("Same woman walks.") is not one.
+ * "Nothing new" replies (PR #25 review H2, round 2): the whole reply (≤ 5 words) is one of these, in any case — "Same.", "Nothing new.",
+ * "Nothing is new.", "No new information.", "Nothing new happens.", "No change(s).", "Unchanged.", "Nothing (has) changed.", German
+ * "Nichts Neues." / "Gleich." / "Unverändert." / "Keine Veränderung." / "Keine Änderung.". A description that only opens with one
+ * ("Same woman walks.") is not one.
  */
-const NOTHING_NEW = /^(?:same|nothing (?:is )?new|no new information|nichts neues|gleich)[.!]?$/i
+const NOTHING_NEW = /^(?:same|nothing (?:is )?new|no new information|nothing new happens|no changes?|unchanged|nothing (?:has )?changed|nichts neues|gleich|unverändert|keine (?:veränderung|änderung))[.!]?$/iu
 /** A leading upper-case SAME followed by more text ("SAME. Woman holds bowl.") is "nothing new" too. */
 const SAME_PREFIX = /^SAME\b/
 

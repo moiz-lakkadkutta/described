@@ -8,6 +8,8 @@ export const TEXT_LABEL = /(?:Words appear|Text erscheint|Wörter erscheinen|Sch
 const CLOSE: Record<string, string> = { '"': '"', '“': '”“', '„': '“”', '«': '»', '»': '«' }
 /** A period after one of these (case-insensitive) does not end bare on-screen text: "Mr. Smith", "Dr. Who". */
 const ABBR = new Set(['mr', 'mrs', 'ms', 'dr', 'st', 'jr', 'sr', 'prof', 'mt', 'vs', 'nr', 'hr', 'fr'])
+/** After a single-letter initial ("J. Smith") a capitalised word continues the text — unless it is an article opening the next sentence ("I. A forest."). */
+const ARTICLES = new Set(['a', 'an', 'the', 'der', 'die', 'das', 'ein', 'eine'])
 
 /** One clause: [start, end) in the description, and the on-screen text itself (without label, quotes or the closing period). */
 export interface TextSpan { start: number; end: number; body: string }
@@ -38,8 +40,8 @@ export function textSpans(text: string): TextSpan[] {
 
 /**
  * End (exclusive) of bare on-screen text starting at `from`: after the first . ! ? that ends a sentence. Not a sentence end: punctuation
- * followed by a non-space ("3.14", "U.S.A"), a period after an abbreviation or a single letter ("Mr. Smith", "J. Smith"), or a
- * period between two all-caps words ("DR. NO.").
+ * followed by a non-space ("3.14", "U.S.A"), a period after an abbreviation ("Mr. Smith"), a period after a single letter before
+ * a capitalised word that is not an article ("J. Smith", but "I. A forest." ends at "I."), or a period between two all-caps words ("DR. NO.").
  */
 function bareEnd(text: string, from: number): number {
   for (let j = from; j < text.length; j++) {
@@ -49,7 +51,8 @@ function bareEnd(text: string, from: number): number {
     if (!next.trim() || text[j] !== '.') return j + 1
     const prev = /(\S+)$/.exec(text.slice(from, j))?.[1] ?? ''
     const nextWord = /^\s*(\S+)/.exec(next)?.[1] ?? ''
-    if (ABBR.has(prev.toLowerCase()) || /^\p{L}$/u.test(prev)) continue
+    if (ABBR.has(prev.toLowerCase())) continue
+    if (/^\p{L}$/u.test(prev) && /^\p{Lu}/u.test(nextWord) && !ARTICLES.has(nextWord.replace(/[^\p{L}]/gu, '').toLowerCase())) continue
     if (/^\p{Lu}{2,}$/u.test(prev) && /^\p{Lu}{2,}[.!?]?$/u.test(nextWord)) continue
     return j + 1
   }
