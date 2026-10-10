@@ -1,7 +1,11 @@
 import { execa } from 'execa'
 import { readFile, writeFile } from 'node:fs/promises'
 import type { Ctx } from './index'
-export interface Shot { index: number; startMs: number; endMs: number }
+/**
+ * part: set only on the equal parts of a camera shot that shotsFromCuts split (> maxMs) — part i of `of`, consecutive in shots.json.
+ * 04-describe asks a later part only for what is new since the earlier ones (DESC-017).
+ */
+export interface Shot { index: number; startMs: number; endMs: number; part?: { of: number; i: number } }
 
 /** ffmpeg scene score above which a frame starts a new shot. 0.3 found 3 of 11 real cuts in Sintel's dark firelit scene; 0.1 finds all 11 (Gate C plan D4). */
 export const SCENE_THRESHOLD = 0.1
@@ -26,8 +30,8 @@ export function shotsFromCuts(cutsMs: number[], durationMs: number, minMs = 1500
   // merge short shots into the previous
   const merged: Array<[number, number]> = []
   for (const [s, e] of raw) { const prev = merged.at(-1); if (prev && e - s < minMs) prev[1] = e; else merged.push([s, e]) }
-  // split long shots into n equal parts (fixed maxMs pieces left sub-minMs tails)
+  // split long shots into n equal parts (fixed maxMs pieces left sub-minMs tails), each marked as part k of n of one camera shot
   const out: Shot[] = []
-  for (const [s, e] of merged) { const n = Math.ceil((e - s) / maxMs); const len = (e - s) / n; for (let k = 0; k < n; k++) out.push({ index: out.length, startMs: Math.round(s + k * len), endMs: Math.round(s + (k + 1) * len) }) }
+  for (const [s, e] of merged) { const n = Math.ceil((e - s) / maxMs); const len = (e - s) / n; for (let k = 0; k < n; k++) out.push({ index: out.length, startMs: Math.round(s + k * len), endMs: Math.round(s + (k + 1) * len), ...(n > 1 ? { part: { of: n, i: k } } : {}) }) }
   return out
 }

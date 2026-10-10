@@ -2,10 +2,11 @@ import { mkdir, mkdtemp, readdir, writeFile } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildDescribeRequest, cachedDescribe, clampKeyframeTimes, dedupe, describeCacheKey, describeConcurrency, KEYFRAME_END_GUARD_MS, keyframeArgs, keyframeTimes, knownNames, mapLimit, parseDescription, parseVideoDurationMs, replyText, type Converse, type RawReply } from '../src/steps/04-describe'
+import { alreadySaid, buildDescribeRequest, cachedDescribe, clampKeyframeTimes, dedupe, describeCacheKey, describeConcurrency, describeInParts, KEYFRAME_END_GUARD_MS, keyframeArgs, keyframeTimes, knownNames, mapLimit, parseDescription, parseVideoDurationMs, replyText, type Converse, type RawReply } from '../src/steps/04-describe'
 import { wordsFromTranscribe, type Word } from '../src/steps/03-speech'
 import { metered } from '../src/cost'
 import { describeSystemPrompt } from '../src/prompts'
+import { shotsFromCuts, type Shot } from '../src/steps/02-shots'
 
 const p = 'Man holds large weapon.'
 
@@ -244,5 +245,84 @@ describe('known names', () => {
     expect(knownNames(said('Ich bin Soldat. Ich bin Soldat.'), 99000, 'de')).toEqual([]) // nor "bin"
     expect(knownNames(said('Sintel, warte. Sintel, komm.'), 99000, 'de')).toEqual(['Sintel'])
     expect(knownNames(said('Mein Name ist Sintel. Er ruft Sintel.'), 99000, 'de')).toEqual(['Sintel'])
+  })
+})
+
+// DESC-017, sintel-90-150-r2 shots 0 and 1: two halves of one 11.2 s camera shot, each described from scratch and both voiced.
+describe('split camera shots', () => {
+  const r = (text: string): RawReply => ({ text, usage: { inputTokens: 100, outputTokens: 5 } })
+  const SHOT0 = 'Snowy mountains. A lone figure walks left, carrying a spear. Words appear: SINTEL.'
+  const SHOT1 = 'Snowy mountains. A figure walks, falls. Logo fades. Words appear: SINTEL.'
+  it('marks the equal parts of a split camera shot; a shot that is not split has no part', () => {
+    const s = shotsFromCuts([11208, 15271], 20000)
+    expect(s.map((x) => [x.startMs, x.endMs, x.part])).toEqual([[0, 5604, { of: 2, i: 0 }], [5604, 11208, { of: 2, i: 1 }], [11208, 15271, undefined], [15271, 20000, undefined]])
+    expect(s[2]).not.toHaveProperty('part')
+  })
+  it('the second part of a split camera shot is asked only for what is new', async () => {
+    const shots: Shot[] = shotsFromCuts([], 20000) // 3 parts of one camera shot
+    const asked: Array<[number, string | undefined]> = []
+    const replies = await describeInParts(shots, 4, async (s, said) => { asked.push([s.index, said]); return r([SHOT0, 'SAME', 'Logo fades.'][s.index]!) })
+    expect(replies.map((x) => x.text)).toEqual([SHOT0, 'SAME', 'Logo fades.'])
+    expect(asked).toEqual([[0, undefined], [1, SHOT0], [2, SHOT0]]) // part 2 waits for parts 0 and 1; a SAME adds nothing to what was said
+    // The request: the approved text unchanged, then what was already said (inner quotes escaped) and one instruction.
+    const f = [new Uint8Array([1])]
+    const plain = buildDescribeRequest('SYS', f, 'm')
+    const cont = buildDescribeRequest('SYS', f, 'm', 'Snow. Words appear: "EXIT".')
+    expect(cont.system).toEqual(plain.system)
+    expect(cont.inferenceConfig).toEqual(plain.inferenceConfig)
+    expect(plain.messages![0]!.content!.at(-1)).toEqual({ text: 'These are frames from one shot, in time order. Describe this shot.' })
+    expect(cont.messages![0]!.content!.at(-1)).toEqual({ text: 'These are frames from one shot, in time order. Describe this shot. Already said for the earlier part(s) of this shot: "Snow. Words appear: \\"EXIT\\"." Say only what is new since then, or reply exactly SAME if nothing is new.' })
+    // what was already said is part of the cache key, and a first part's key is unchanged
+    expect(describeCacheKey('m', 'SYS', f, SHOT0)).not.toBe(describeCacheKey('m', 'SYS', f))
+    expect(describeCacheKey('m', 'SYS', f, undefined)).toBe(describeCacheKey('m', 'SYS', f))
+  })
+  it('runs each camera shot as one sequential chain, longest chains first', async () => {
+    const shots = shotsFromCuts([5000], 25000) // a whole shot, then a camera shot in 3 parts
+    expect(shots.map((s) => s.part?.i)).toEqual([undefined, 0, 1, 2])
+    const order: number[] = []
+    await describeInParts(shots, 1, async (s) => { order.push(s.index); return r('Snow.') })
+    expect(order).toEqual([1, 2, 3, 0])
+    // two chains at once: a later part never starts before its earlier part has replied
+    const started: number[] = [], done: number[] = []
+    await describeInParts(shotsFromCuts([16000], 32000), 2, async (s) => { started.push(s.index); if (s.part!.i) expect(done).toContain(s.index - 1); await new Promise((ok) => setTimeout(ok, 5)); done.push(s.index); return r('Snow.') })
+    expect(started.sort()).toEqual([0, 1, 2, 3])
+  })
+  it('tells a later part what the first and the previous part said', () => {
+    const shots = shotsFromCuts([], 32000) // 4 parts
+    const texts = ['A.', 'B.', 'C.', 'D.']
+    expect([0, 1, 2, 3].map((i) => alreadySaid(shots, texts, i))).toEqual([undefined, 'A.', 'A. B.', 'A. C.'])
+    expect(alreadySaid(shots, ['A.', 'SAME', 'C.', 'D.'], 2)).toBe('A.')
+  })
+  // PR #25 review H1: the stable descriptor the prompt requires made one-new-action continuations look "mostly said".
+  it('a continuation keeps only its new sentences and is not voiced when nothing is new', () => {
+    const [a, b, c] = shotsFromCuts([11208], 13000)
+    const cont = (said: string, text: string) => dedupe([a!, b!], [r(said), r(text)])[1]!
+    // r2 shot 1: only "Snowy mountains." and the repeated "Words appear: SINTEL." were already said
+    expect(cont(SHOT0, SHOT1)).toMatchObject({ description: 'A figure walks, falls. Logo fades.', sameAsPrev: false })
+    for (const [said, text] of [
+      ['The woman in the red coat stands by the door.', 'The woman in the red coat draws a gun.'],
+      ['Red-haired woman sits by the fire.', 'Red-haired woman stands up.'],
+      ['Bearded man holds ornate staff.', 'Bearded man raises the staff.'],
+      [SHOT0, 'The lone figure falls.'],
+    ] as const) expect(cont(said, text)).toMatchObject({ description: text, sameAsPrev: false })
+    // pure restatements are not voiced
+    for (const text of ['A figure walks in the snowy mountains.', 'Words appear: SINTEL.', 'Snowy mountains. The lone figure walks left.']) expect(cont(SHOT0, text).sameAsPrev).toBe(true)
+    expect(cont('Bearded man holds ornate staff.', 'Bearded man holds the staff. Words appear: SINTEL.')).toMatchObject({ description: 'Words appear: SINTEL.', sameAsPrev: false })
+    // a new camera shot is never stripped: only the 0.8 near-repeat rule applies
+    expect(dedupe([a!, b!, c!], [r(SHOT0), r('SAME'), r(SHOT1)])[2]).toMatchObject({ description: SHOT1, sameAsPrev: false })
+  })
+})
+
+describe('SAME replies', () => {
+  // PR #25 review H2
+  it('recognises SAME in any case and plain "nothing new" replies, in English and German', () => {
+    for (const raw of ['SAME', 'Same.', 'same', 'SAME. Woman holds bowl.', 'Nothing new.', 'nothing new', 'Nothing is new.', 'No new information.', 'Nichts Neues.', 'Gleich.']) expect(parseDescription(raw, p)).toEqual({ description: '', sameAsPrev: true })
+    for (const raw of ['No change.', 'No changes.', 'Unchanged.', 'Nothing changed.', 'Nothing has changed.', 'Nothing new happens.', 'Unverändert.', 'Keine Veränderung.', 'Keine Änderung.']) expect(parseDescription(raw, p)).toEqual({ description: '', sameAsPrev: true })
+    for (const raw of ['Same woman walks left.', 'Gleich darauf fällt sie.', 'No one moves.', 'The unchanged room darkens.']) expect(parseDescription(raw, '').sameAsPrev).toBe(false)
+  })
+  it('drops a German on-screen text longer than 8 words and keeps a short one, in any quotes', () => {
+    expect(parseDescription('Schnee. Text erscheint: „Ein sehr langer Satz, der nie auf einem Bild zu lesen war“.', '').description).toBe('Schnee.')
+    expect(parseDescription('Schrift erscheint: «SINTEL». Schnee.', '').description).toBe('Schrift erscheint: «SINTEL». Schnee.')
+    expect(parseDescription('Wörter erscheinen: „DAS ENDE“.', '').description).toBe('Wörter erscheinen: „DAS ENDE“.')
   })
 })

@@ -81,3 +81,29 @@ direction (0 "walks left"), eyes (10), an invented "veiled face" (11), shot 14 v
 "grabs a sleeve" for lifting a cloth (16), "stands"/"pink-haired" (21), "reads book" for tending the dragon (28), and
 26 "bloodied wings" — Qwen wrote "wing"; the Nova Lite shortening step introduced the plural.
 The margin is thin (2.4 points): follow-ups are a shortener that may not change facts, and per-title spot checks.
+
+## Split camera shots and on-screen text (DESC-017, approved 2026-10-10)
+
+Found on the Fire TV Stick in `sintel-90-150-r2`: shots 0 and 1, the two halves of one 11.2 s camera shot (`shotsFromCuts` splits
+> 8 s), were described from scratch and both voiced; and 06-voice's overrun shortening cut "Words appear: SINTEL." from both cues.
+1. Split parts carry `part: { of, i }`. Each camera shot is described as one sequential chain. A later part's request — and only
+   that request — appends what the first and the previous part said and one instruction: say only what is new, or reply exactly
+   SAME (the system prompt is unchanged). In `dedupe`, a later part keeps only its sentences with a content word not already said;
+   with none left it is not voiced (r2 shot 1 → "A figure walks, falls. Logo fades."). A share-of-words rule was rejected in review:
+   the stable descriptor the prompt requires made "The woman in the red coat draws a gun." look like a repeat. SAME is recognised in
+   any case, as are "Nothing new." / "No new information." / "Nichts Neues." / "Gleich.".
+2. Shortening (deterministic, model, `capExtended`) never shortens or removes on-screen text ("Words appear:", or German
+   "Text erscheint:" / "Wörter erscheinen:" / "Schrift erscheint:"); the model shortener never sees it. A clause after other text is
+   put back at the end when the text is shortened.
+3. **Decision (human, 2026-10-10): split.** When the on-screen text does not fit the gap budget together with the action, the action
+   is placed as a normal cue (shortened, text removed) and the text clause becomes its own extended cue. Neither is dropped.
+   Review round 2: the text stays beside the action only when that keeps at least half of the action's words (r2 shot 0 had kept
+   "Snowy mountains." and lost "A lone figure walks left"); 05-fit first looks for any gap in the shot window that fits the whole
+   text, and splits only when none does. Cues stay sorted by start, an on-screen text cue first on a shared start; extended cues
+   never count toward overlap.
+   **Where the text cue starts.** The player checks position 4 times a second, so a pause on the action's own ms cut its first
+   syllable: the text cue starts `TEXT_LEAD_MS` = 400 ms before the action (`leadText`), never before the shot start or the end of
+   the previous placed cue; with no room for that, the action moves 400 ms after the text cue when it still fits, else both start
+   together. In 05-fit the action start is its gap slot, and "fits" means the action's words still fit the rest of the gap. In
+   06-voice (an overrunning clip split after Polly) the action start is the cue's fit start, the shot start comes from
+   shots.json (the cue's own start when missing), and "fits" means the measured clip still ends within its limit.
