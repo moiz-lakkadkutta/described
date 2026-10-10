@@ -4,6 +4,7 @@ import { Home } from '../src/screens/Home'
 import { Reading, Title } from '../src/screens/Title'
 import { Described } from '../src/screens/Described'
 import { MyList } from '../src/screens/MyList'
+import { Rail } from '../src/components/Rail'
 import { strings } from '../src/strings'
 import { rowPadY, skeletonCount } from '../src/layout'
 import { ANNOUNCE_DEBOUNCE_MS, _setScreenReader } from '../src/a11y'
@@ -86,6 +87,52 @@ describe('focus visuals', () => {
     expect(styles(list).some((s) => s.borderColor === tokens.color.interactive)).toBe(true)
     expect(JSON.stringify(list.findAll((x) => (x.type as unknown) === 'Text').map((t) => t.props.children))).toContain('✓')
     expect(list.props.accessibilityState).toEqual({ selected: true })
+  })
+  // DESC-019: on the stick the absolutely placed ✓ covered narrow labels ("My lis✓t"). The ✓ now has its own slot after the label.
+  const own = (n: ReactTestInstance) => [n.props.style].flat(3).filter(Boolean).reduce((a, s) => Object.assign(a, s), {} as Record<string, unknown>)
+  const hasCheck = (n: ReactTestInstance) => n.findAll((x) => (x.type as unknown) === 'Text').some((t) => [t.props.children].flat().includes('✓'))
+  const listButton = (inList: boolean) => {
+    const r = render(<Title title={title} captionKind="sdh" inList={inList} sample="idle" onPlay={noop} onSample={noop} onCaptions={noop} onToggleList={noop} onMore={noop} />)
+    return focusables(r).find((n) => label(n) === (inList ? strings.a11y.listRemove(title.name) : strings.a11y.listAdd(title.name)))!
+  }
+  it('the selected check never overlaps the label: the label area excludes the check', () => {
+    const list = listButton(true)
+    const row = list.findByProps({ testID: 'focusable-content' })
+    expect(own(row)).toMatchObject({ flexDirection: 'row', alignItems: 'center' })
+    const [labelArea, slot] = row.children as ReactTestInstance[]
+    expect(labelArea!.findAll((x) => (x.type as unknown) === 'Text').map((t) => t.props.children)).toContain(strings.home.myList)
+    expect(hasCheck(labelArea!)).toBe(false)
+    expect(slot!.props.testID).toBe('focusable-check')
+    expect(hasCheck(slot!)).toBe(true)
+    expect(own(slot!)).toMatchObject({ width: tokens.focus.checkW, marginLeft: tokens.focus.checkGap }) // scale 1 in tests
+    // In flow: nothing between the ✓ and the button is absolutely positioned, so it cannot be drawn over the text.
+    const glyph = slot!.findAll((x) => (x.type as unknown) === 'Text').find((t) => [t.props.children].flat().includes('✓'))!
+    for (let p: ReactTestInstance | null = glyph; p && p !== list; p = p.parent) expect(own(p).position).not.toBe('absolute')
+    // The ring stays an overlay but carries no ✓ of its own.
+    const ring = list.findAll((x) => (x.type as unknown) === 'View' && own(x).borderColor === tokens.color.interactive)
+    expect(ring).toHaveLength(1)
+    expect(hasCheck(ring[0]!)).toBe(false)
+  })
+  it('toggling selected does not change the control width', () => {
+    const off = listButton(false), on = listButton(true)
+    const box = (n: ReactTestInstance) => ({ row: own(n.findByProps({ testID: 'focusable-content' })), slot: own(n.findByProps({ testID: 'focusable-check' })) })
+    expect(box(off)).toEqual(box(on)) // the slot is reserved while unselected, so selecting only fills it
+    expect(hasCheck(off)).toBe(false)
+    expect(hasCheck(on)).toBe(true)
+  })
+  it('only toggles reserve the slot: Play has none', () => {
+    const r = render(titleEl())
+    const play = focusables(r).find((n) => label(n) === 'Play Sintel with audio description')!
+    expect(play.findAll((x) => x.props.testID === 'focusable-check')).toHaveLength(0)
+  })
+  it('collapsed rail: no room, so no ✓ and no slot; open rail: ✓ in its slot', () => {
+    const r = render(<Rail items={[{ key: 'home', label: 'Home' }, { key: 'list', label: 'My list' }]} current="list" onSelect={noop} />)
+    const current = () => focusables(r).find((n) => n.props.accessibilityState.selected)!
+    expect(hasCheck(current())).toBe(false)
+    expect(current().findAll((x) => x.props.testID === 'focusable-check')).toHaveLength(0)
+    act(() => r.root.findAll((n) => (n.type as unknown) === 'Node')[0]!.props.onActive())
+    expect(hasCheck(current())).toBe(true)
+    expect(current().findAll((x) => x.props.testID === 'focusable-check')).toHaveLength(1)
   })
 })
 
