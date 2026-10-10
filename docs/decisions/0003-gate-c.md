@@ -81,3 +81,13 @@ direction (0 "walks left"), eyes (10), an invented "veiled face" (11), shot 14 v
 "grabs a sleeve" for lifting a cloth (16), "stands"/"pink-haired" (21), "reads book" for tending the dragon (28), and
 26 "bloodied wings" — Qwen wrote "wing"; the Nova Lite shortening step introduced the plural.
 The margin is thin (2.4 points): follow-ups are a shortener that may not change facts, and per-title spot checks.
+
+## Split camera shots and on-screen text (DESC-017, approved 2026-10-10)
+
+Found on the Fire TV Stick in `sintel-90-150-r2`: shots 0 and 1, the two halves of one 11.2 s camera shot (`shotsFromCuts` splits
+> 8 s), were described from scratch and both voiced; and 06-voice's overrun shortening cut "Words appear: SINTEL." from both cues.
+1. Split parts carry `part: { of, i }`. A later part's request — and only that request — appends what the earlier parts said and one
+   instruction: say only what is new, or reply exactly SAME (the system prompt is unchanged). In `dedupe`, a later part whose content
+   words are ≥ 60 % already said by its earlier parts is not voiced (`CONTINUATION_REPEAT`, tuned on r2: shot 1 = 0.625).
+2. Shortening (deterministic, model, `capExtended`) never shortens or removes a "Words appear: …" clause; the model shortener never
+   sees it. When only the clause fits, only the clause is voiced; when it alone does not fit, the cue becomes extended.

@@ -24,6 +24,8 @@ export const DEFAULT_DESCRIBE_MODEL_ID = 'qwen.qwen3-vl-235b-a22b'
  * (conversation-inference-supported-models-features.html now redirects to the "Models at a glance" index, which links that card.)
  * Called directly per shot, no agent layer (docs/decisions/0005-describe-direct-bedrock.md); shots run DESCRIBE_CONCURRENCY at a time,
  * replies are cached per shot (cachedDescribe), and the "nothing new" dedupe runs afterwards in time order (dedupe).
+ * The exception to "no previous description" (DESC-017): a later part of a split camera shot is sent what its earlier parts said and
+ * asked only for what is new (describeInParts, buildDescribeRequest) — it is the same picture, so describing it from scratch repeats.
  */
 export async function describeShots(ctx: Ctx, send: Converse = bedrockConverse(ctx.signal)) {
   const shots = JSON.parse(await readFile(`${ctx.work}/shots.json`, 'utf8')) as Shot[]
@@ -31,9 +33,9 @@ export async function describeShots(ctx: Ctx, send: Converse = bedrockConverse(c
   const words = JSON.parse(await readFile(`${ctx.work}/words.json`, 'utf8').catch(() => '[]')) as Word[]
   const modelId = process.env.DESCRIBE_MODEL_ID ?? DEFAULT_DESCRIBE_MODEL_ID
   const videoMs = await videoDurationMs(`${ctx.work}/mezz.mp4`)
-  const replies = await mapLimit(shots, describeConcurrency(), async (s) => {
+  const replies = await describeInParts(shots, describeConcurrency(), async (s, said) => {
     const system = describeSystemPrompt({ maxWords: wordBudget(s, gaps), knownNames: knownNames(words, s.startMs, ctx.language), language: ctx.language })
-    return cachedDescribe(ctx.work, modelId, system, await keyframes(ctx.work, s, videoMs), send)
+    return cachedDescribe(ctx.work, modelId, system, await keyframes(ctx.work, s, videoMs), send, said)
   }, ctx.signal)
   console.log(`describe: ${shots.length} shots, ${replies.filter((r) => r.cached).length} from cache`)
   await writeFile(`${ctx.work}/described.json`, JSON.stringify(dedupe(shots, replies), null, 2))
@@ -66,15 +68,47 @@ export async function mapLimit<T, R>(items: T[], n: number, fn: (t: T) => Promis
   return out
 }
 
+/**
+ * Describes every shot, at most n at once, in rounds by part: first every whole shot and every first part, then every second part,
+ * and so on, so part k is asked once parts 0…k−1 have replied. `said` is what those earlier parts said (alreadySaid); undefined
+ * for a whole shot or a first part. Replies keep the input order.
+ */
+export async function describeInParts(shots: Shot[], n: number, one: (s: Shot, said: string | undefined) => Promise<RawReply>, signal?: AbortSignal): Promise<RawReply[]> {
+  const out = new Array<RawReply>(shots.length)
+  const rounds = Math.max(0, ...shots.map((s) => (s.part?.i ?? 0) + 1))
+  for (let k = 0; k < rounds; k++) {
+    const at = shots.flatMap((s, i) => ((s.part?.i ?? 0) === k ? [i] : []))
+    const texts = out.map((r) => r?.text ?? '')
+    const rs = await mapLimit(at, n, (i) => one(shots[i]!, alreadySaid(shots, texts, i)), signal)
+    at.forEach((i, j) => { out[i] = rs[j]! })
+  }
+  return out
+}
+
+/**
+ * What the earlier parts of shot i's camera shot said: their cleaned replies (parseDescription), SAME and empty ones skipped,
+ * joined in time order. undefined when shot i is not a later part, or nothing was said. texts[j] is shot j's raw reply.
+ */
+export function alreadySaid(shots: Shot[], texts: string[], i: number): string | undefined {
+  const k = shots[i]?.part?.i ?? 0
+  const said = []
+  for (let j = i - k; j < i; j++) { const d = parseDescription(texts[j] ?? '', ''); if (!d.sameAsPrev && d.description) said.push(d.description) }
+  return said.join(' ') || undefined
+}
+
 /** One shot's raw reply as read from Bedrock or the cache. */
 export interface RawReply { text: string; usage: { inputTokens: number; outputTokens: number }; stopReason?: string; cached?: boolean }
 
 /** Bump when buildDescribeRequest's fixed parts (user text, inferenceConfig) or replyText change, so old replies stop matching. */
 export const DESCRIBE_CACHE_VERSION = 1
-/** sha256(cache version + model id + system prompt + key-frame bytes): the request's only variable inputs. */
-export function describeCacheKey(modelId: string, system: string, frames: Uint8Array[]): string {
+/**
+ * sha256(cache version + model id + system prompt + key-frame bytes [+ what earlier parts said]): the request's only variable inputs.
+ * `said` is hashed only when set, so a whole shot's or first part's key is what it was before DESC-017.
+ */
+export function describeCacheKey(modelId: string, system: string, frames: Uint8Array[], said?: string): string {
   const h = createHash('sha256').update(`v${DESCRIBE_CACHE_VERSION}\0`).update(modelId).update('\0').update(system)
   for (const f of frames) h.update('\0').update(f)
+  if (said) h.update('\0said\0').update(said)
   return h.digest('hex')
 }
 
@@ -84,11 +118,11 @@ export function describeCacheKey(modelId: string, system: string, frames: Uint8A
  * the job's meter. A reply cut off at max_tokens is not cached. An unreadable or truncated file is a miss; writes are atomic
  * (temp file + rename), so a crash mid-write never leaves one.
  */
-export async function cachedDescribe(work: string, modelId: string, system: string, frames: Uint8Array[], send: Converse): Promise<RawReply> {
-  const file = `${work}/cache/describe/${describeCacheKey(modelId, system, frames)}.json`
+export async function cachedDescribe(work: string, modelId: string, system: string, frames: Uint8Array[], send: Converse, said?: string): Promise<RawReply> {
+  const file = `${work}/cache/describe/${describeCacheKey(modelId, system, frames, said)}.json`
   const hit = await readFile(file, 'utf8').then((t) => { try { return JSON.parse(t) as RawReply } catch { return undefined } }, () => undefined)
   if (hit && typeof hit.text === 'string' && hit.usage) return { ...hit, usage: { inputTokens: 0, outputTokens: 0 }, cached: true }
-  const r = await send(buildDescribeRequest(system, frames, modelId))
+  const r = await send(buildDescribeRequest(system, frames, modelId, said))
   // usage.inputTokens / outputTokens — https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html
   const reply: RawReply = { text: replyText(r.output), usage: { inputTokens: r.usage?.inputTokens ?? 0, outputTokens: r.usage?.outputTokens ?? 0 }, stopReason: r.stopReason }
   meter()?.bedrock(modelId, reply.usage)
@@ -100,12 +134,32 @@ export async function cachedDescribe(work: string, modelId: string, system: stri
   return reply
 }
 
-/** Second, sequential pass: parseDescription compares each reply with the previous voiced description in time order. */
+/**
+ * A later part of a camera shot whose content words are at least this share already said by its earlier parts is not voiced.
+ * Tuned on sintel-90-150-r2 (DESC-017): shot 1 repeats 5 of its 8 content words (0.625: "snowy mountains", "figure walks", SINTEL)
+ * and the human heard it as a repeat; "Figure falls." (1 of 2, 0.5) is new action and is kept, and so is a reply that adds a fall
+ * and a fading logo to a figure that walks (2 of 5). Containment, not Jaccard: a short continuation of a long first part would
+ * otherwise never reach the bar (word-set Jaccard of shots 0 and 1 is 0.42).
+ */
+export const CONTINUATION_REPEAT = 0.6
+/** Words that carry no fact: articles, prepositions, pronouns, copulas, and the "Words appear" label. */
+const FILLER = new Set(['a', 'an', 'the', 'and', 'of', 'in', 'on', 'at', 'to', 'with', 'by', 'from', 'into', 'its', 'his', 'her', 'their', 'is', 'are', 'words', 'appear'])
+const contentWords = (t: string) => new Set(normalize(t).split(' ').filter((w) => w && !FILLER.has(w)))
+/** Share of text's content words that also occur in said (0 when text has none). */
+const saidShare = (text: string, said: string) => { const t = contentWords(text), s = contentWords(said); return t.size ? [...t].filter((w) => s.has(w)).length / t.size : 0 }
+
+/**
+ * Second, sequential pass: parseDescription compares each reply with the previous voiced description in time order. A later part
+ * of a split camera shot is also "nothing new" when ≥ CONTINUATION_REPEAT of its content words were said by its earlier parts.
+ */
 export function dedupe(shots: Shot[], replies: RawReply[]): Described[] {
   let prev = ''
+  const texts = replies.map((r) => r.text)
   return shots.map((s, i) => {
     const r = replies[i]!
-    const { description, sameAsPrev } = parseDescription(r.text, prev)
+    const parsed = parseDescription(r.text, prev), said = alreadySaid(shots, texts, i)
+    const { description } = parsed
+    const sameAsPrev = parsed.sameAsPrev || (!!description && !!said && saidShare(description, said) >= CONTINUATION_REPEAT)
     if (!sameAsPrev && description) prev = description
     return { ...s, description, sameAsPrev, tokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens, stopReason: r.stopReason }
   })
@@ -215,15 +269,18 @@ export const keyframeArgs = (mezz: string, tSec: number, out: string) =>
 
 /**
  * The Converse request, as sent in the Gate C bake-off: image blocks (JPEG bytes) in time order, then the task; temperature 0, 120 tokens.
+ * A later part of a split camera shot (said = what its earlier parts said) gets that text and one instruction after the task
+ * (DESC-017, approved 2026-10-10); a leading SAME in the reply becomes sameAsPrev in parseDescription.
  * ImageBlock — https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ImageBlock.html
  */
-export function buildDescribeRequest(system: string, frames: Uint8Array[], modelId: string): ConverseCommandInput {
+export function buildDescribeRequest(system: string, frames: Uint8Array[], modelId: string, said?: string): ConverseCommandInput {
+  const task = 'These are frames from one shot, in time order. Describe this shot.'
   return {
     modelId,
     system: [{ text: system }],
     messages: [{ role: 'user', content: [
       ...frames.map((bytes) => ({ image: { format: 'jpeg' as const, source: { bytes } } })),
-      { text: 'These are frames from one shot, in time order. Describe this shot.' },
+      { text: said ? `${task} Already said for the earlier part of this shot: "${said}" Say only what is new since then, or reply exactly SAME if nothing is new.` : task },
     ] }],
     inferenceConfig: { maxTokens: 120, temperature: 0 },
   }

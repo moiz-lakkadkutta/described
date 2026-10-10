@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { EXTENDED_WORDS, fit, introducesNew, LATE_MS, preservesFacts, safeShorten, shortenDeterministic, WPS } from '../src/steps/05-fit'
+import { capExtended, EXTENDED_WORDS, fit, introducesNew, LATE_MS, preservesFacts, safeShorten, shortenDeterministic, WPS } from '../src/steps/05-fit'
 import type { Described } from '../src/steps/04-describe'
 import { mezzanineArgs } from '../src/steps/01-probe'
 import { shotsFromCuts, sceneFilter } from '../src/steps/02-shots'
@@ -211,6 +211,39 @@ describe('shortening', () => {
     for (const t of ['She sits.', 'Snow falls on the hills.']) expect(introducesNew(t)).toBe(false)
   })
 })
+// DESC-017, sintel-90-150-r2 cues 0 and 1: "… Words appear: SINTEL." was voiced without "Words appear: SINTEL." (06-voice's overrun shortening).
+describe('on-screen text clause', () => {
+  const SHOT0 = 'Snowy mountains. A lone figure walks left, carrying a spear. Words appear: SINTEL.'
+  it('shortening never removes the on-screen text clause', async () => {
+    expect(shortenDeterministic(SHOT0, 11)).toBe('Snowy mountains. A lone figure walks left. Words appear: SINTEL.')
+    expect(shortenDeterministic(SHOT0, 6)).toBe('Snowy mountains. Words appear: SINTEL.')
+    expect(shortenDeterministic('Words appear: "Berlin, 1989." A tall man slowly crosses the old bridge.', 9)).toBe('Words appear: "Berlin, 1989." A man crosses the bridge.')
+    // the model shortener never sees the clause; its reply is checked against the rest, then the clause is put back
+    const model = vi.fn(() => 'Snowy mountains. Lone figure walks left.') // r2's recorded shortening, minus the text it dropped
+    expect(await safeShorten(SHOT0, 10, model)).toBe('Snowy mountains. Lone figure walks left. Words appear: SINTEL.')
+    expect(model).toHaveBeenCalledWith('Snowy mountains. A lone figure walks left, carrying a spear.', 7)
+    // a model reply that drops or rewrites the text is impossible: it only shortens the rest
+    expect(await safeShorten(SHOT0, 10, () => 'Snowy mountains.')).toBe('Snowy mountains. Words appear: SINTEL.')
+    // a too-small budget for anything else keeps only the text clause
+    expect(shortenDeterministic(SHOT0, 3)).toBe('Words appear: SINTEL.')
+    expect(await safeShorten(SHOT0, 4, () => 'Mountains.')).toBe('Mountains. Words appear: SINTEL.')
+    // capExtended's word cut (a failing shortener) keeps the clause too
+    const long = `${'Snow falls on the hills, '.repeat(6).trim()} Words appear: SINTEL.`
+    expect((await capExtended(long, (t) => t)).text).toMatch(/Words appear: SINTEL\.$/)
+    expect((await capExtended(long, (t) => t)).wordCount).toBeLessThanOrEqual(EXTENDED_WORDS)
+  })
+  it('on-screen text that does not fit makes the cue extended instead of being dropped', async () => {
+    const shot = (description: string): Described => ({ index: 0, startMs: 0, endMs: 2000, description, sameAsPrev: false, tokens: 0, outputTokens: 0 })
+    const TEXT = 'A girl runs. Words appear: "The Hunt for the Dragon".' // a 7-word text clause, 3 words of room
+    expect(shortenDeterministic(TEXT, 3)).toBe(TEXT) // nothing to remove: fit() decides
+    const cues = await fit([shot(TEXT)], [{ startMs: 0, endMs: 1300 }], (t, n) => safeShorten(t, n, () => 'Girl runs.'))
+    expect(cues).toEqual([expect.objectContaining({ extended: true, startMs: 0, text: TEXT })])
+    // and when only the text clause fits, it is what is voiced
+    const [c] = await fit([shot(SHOT0)], [{ startMs: 0, endMs: 1500 }], (t, n) => safeShorten(t, n, () => 'Mountains walk.'))
+    expect(c).toMatchObject({ extended: false, text: 'Words appear: SINTEL.' })
+  })
+})
+
 describe('word budget', () => {
   it('8 words for a 3 s gap, min 4, extended 25', () => {
     expect(wordBudget({ index: 0, startMs: 0, endMs: 3000 }, [{ startMs: 0, endMs: 3000 }])).toBe(8)

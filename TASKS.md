@@ -62,3 +62,6 @@ It is the demo, it unblocks DESC-006–009, and it needs no pipeline work: Sinte
 - [ ] DESC-014 · follow-up · SDH for full-length titles: additions-only reply or chunked Nova Lite calls (4000-token limit)
 - [ ] DESC-015 · follow-up · Shortener may not change facts (wing→wings); remove dead Nova video path, nova-ingest stack, unused IAM (nova GetObject, InvokeModelWithResponseStream, Nova Pro)
 - [ ] DESC-016 · follow-up · Publish hygiene: clear stale hls/ and cue_*.mp3 on --from reruns; mutable VTT/cue cache-control; per-shot describe cache
+- [ ] DESC-017 · follow-up · Split camera shots described once (continuations asked only for what is new); shortening never removes on-screen text (device run 2026-10-10)
+- [ ] DESC-018 · follow-up · Scene-level edit pass: fold dropped facts into the next voiced cue, remove repetition, no new facts (decision 0006, gated on the Gate C rerun)
+- [ ] DESC-019 · follow-up · Focusable ✓ overlaps the label on narrow buttons ("My list") — reserve room for the check (device run 2026-10-10)

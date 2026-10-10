@@ -2,10 +2,11 @@ import { mkdir, mkdtemp, readdir, writeFile } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildDescribeRequest, cachedDescribe, clampKeyframeTimes, dedupe, describeCacheKey, describeConcurrency, KEYFRAME_END_GUARD_MS, keyframeArgs, keyframeTimes, knownNames, mapLimit, parseDescription, parseVideoDurationMs, replyText, type Converse, type RawReply } from '../src/steps/04-describe'
+import { alreadySaid, buildDescribeRequest, cachedDescribe, clampKeyframeTimes, CONTINUATION_REPEAT, dedupe, describeCacheKey, describeConcurrency, describeInParts, KEYFRAME_END_GUARD_MS, keyframeArgs, keyframeTimes, knownNames, mapLimit, parseDescription, parseVideoDurationMs, replyText, type Converse, type RawReply } from '../src/steps/04-describe'
 import { wordsFromTranscribe, type Word } from '../src/steps/03-speech'
 import { metered } from '../src/cost'
 import { describeSystemPrompt } from '../src/prompts'
+import { shotsFromCuts, type Shot } from '../src/steps/02-shots'
 
 const p = 'Man holds large weapon.'
 
@@ -244,5 +245,47 @@ describe('known names', () => {
     expect(knownNames(said('Ich bin Soldat. Ich bin Soldat.'), 99000, 'de')).toEqual([]) // nor "bin"
     expect(knownNames(said('Sintel, warte. Sintel, komm.'), 99000, 'de')).toEqual(['Sintel'])
     expect(knownNames(said('Mein Name ist Sintel. Er ruft Sintel.'), 99000, 'de')).toEqual(['Sintel'])
+  })
+})
+
+// DESC-017, sintel-90-150-r2 shots 0 and 1: two halves of one 11.2 s camera shot, each described from scratch and both voiced.
+describe('split camera shots', () => {
+  const r = (text: string): RawReply => ({ text, usage: { inputTokens: 100, outputTokens: 5 } })
+  const SHOT0 = 'Snowy mountains. A lone figure walks left, carrying a spear. Words appear: SINTEL.'
+  const SHOT1 = 'Snowy mountains. A figure walks, falls. Logo fades. Words appear: SINTEL.'
+  it('marks the equal parts of a split camera shot; a shot that is not split has no part', () => {
+    const s = shotsFromCuts([11208, 15271], 20000)
+    expect(s.map((x) => [x.startMs, x.endMs, x.part])).toEqual([[0, 5604, { of: 2, i: 0 }], [5604, 11208, { of: 2, i: 1 }], [11208, 15271, undefined], [15271, 20000, undefined]])
+    expect(s[2]).not.toHaveProperty('part')
+  })
+  it('the second part of a split camera shot is asked only for what is new', async () => {
+    const shots: Shot[] = shotsFromCuts([], 20000) // 3 parts of one camera shot
+    const asked: Array<[number, string | undefined]> = []
+    const replies = await describeInParts(shots, 4, async (s, said) => { asked.push([s.index, said]); return r([SHOT0, 'SAME', 'Logo fades.'][s.index]!) })
+    expect(replies.map((x) => x.text)).toEqual([SHOT0, 'SAME', 'Logo fades.'])
+    expect(asked).toEqual([[0, undefined], [1, SHOT0], [2, SHOT0]]) // part 2 waits for parts 0 and 1; a SAME adds nothing to what was said
+    // The request: the approved text unchanged, then what was already said and one instruction; the first part's request is untouched.
+    const f = [new Uint8Array([1])]
+    const plain = buildDescribeRequest('SYS', f, 'm')
+    const cont = buildDescribeRequest('SYS', f, 'm', SHOT0)
+    expect(cont.system).toEqual(plain.system)
+    expect(cont.inferenceConfig).toEqual(plain.inferenceConfig)
+    expect(cont.messages![0]!.content!.at(-1)).toEqual({ text: `These are frames from one shot, in time order. Describe this shot. Already said for the earlier part of this shot: "${SHOT0}" Say only what is new since then, or reply exactly SAME if nothing is new.` })
+    // what was already said is part of the cache key, and a first part's key is unchanged
+    expect(describeCacheKey('m', 'SYS', f, SHOT0)).not.toBe(describeCacheKey('m', 'SYS', f))
+    expect(describeCacheKey('m', 'SYS', f, undefined)).toBe(describeCacheKey('m', 'SYS', f))
+    expect(alreadySaid(shots, replies.map((x) => x.text), 2)).toBe(SHOT0)
+    expect(alreadySaid(shots, ['A.', 'B.', 'C.'], 2)).toBe('A. B.')
+    expect(alreadySaid(shots, ['A.', 'B.', 'C.'], 0)).toBeUndefined()
+  })
+  it('a continuation that repeats the first part is not voiced', () => {
+    const [a, b, c] = shotsFromCuts([11208], 13000)
+    // r2 shot 1: content-word overlap with shot 0 is 5 of 8 (Jaccard 0.42, under the 0.8 near-repeat rule)
+    const d = dedupe([a!, b!, c!], [r(SHOT0), r(SHOT1), r(SHOT1)])
+    expect(d.map((x) => x.sameAsPrev)).toEqual([false, true, false]) // shot 2 is a new camera shot: only the 0.8 rule applies
+    expect(CONTINUATION_REPEAT).toBe(0.6)
+    // new information in a continuation is kept: "Figure falls." is half said, "A figure walks, falls. Logo fades." 2 of 5
+    for (const t of ['Figure falls.', 'A figure walks, falls. Logo fades.']) expect(dedupe([a!, b!], [r(SHOT0), r(t)])[1]!.sameAsPrev).toBe(false)
+    expect(dedupe([a!, b!], [r(SHOT0), r('A figure walks in the snowy mountains.')])[1]!.sameAsPrev).toBe(true)
   })
 })

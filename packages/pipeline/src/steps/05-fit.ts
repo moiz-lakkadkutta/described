@@ -58,20 +58,46 @@ export const MIN_CLAUSE_CUT_WORDS = 8
 /**
  * Caps an extended cue at EXTENDED_WORDS. The shortener's text is used when it fits; otherwise the text is cut after the last word
  * ending a clause ([,;:.]) within the first EXTENDED_WORDS, when that keeps ≥ MIN_CLAUSE_CUT_WORDS words (a trailing , ; : becomes .),
- * else at EXTENDED_WORDS words. Also used by 06-voice when an overrun cue becomes extended.
+ * else at EXTENDED_WORDS words. The cut never touches an on-screen text clause (DESC-017): the rest is cut to the words left beside it.
+ * Also used by 06-voice when an overrun cue becomes extended.
  */
 export async function capExtended(text: string, shorten: (text: string, maxWords: number) => Promise<string> | string) {
   if (words(text) > EXTENDED_WORDS) {
     const t = await shorten(text, EXTENDED_WORDS)
     if (words(t) <= EXTENDED_WORDS) text = t
     else {
-      const head = text.trim().split(/\s+/).slice(0, EXTENDED_WORDS)
-      let last = head.length - 1
-      while (last >= 0 && !/[,;:.]$/.test(head[last]!)) last--
-      text = last + 1 >= MIN_CLAUSE_CUT_WORDS ? head.slice(0, last + 1).join(' ').replace(/[,;:]$/, '.') : head.join(' ')
+      const c = textClauses(text)
+      text = c && c.words <= EXTENDED_WORDS ? rejoin(c, c.rest && c.words < EXTENDED_WORDS ? cutAt(c.rest, EXTENDED_WORDS - c.words) : '', EXTENDED_WORDS) : cutAt(text, EXTENDED_WORDS)
     }
   }
   return { text, wordCount: words(text) }
+}
+/** capExtended's cut: after the last clause end within the first n words when that keeps ≥ MIN_CLAUSE_CUT_WORDS, else at n words. */
+function cutAt(text: string, n: number) {
+  const head = text.trim().split(/\s+/).slice(0, n)
+  let last = head.length - 1
+  while (last >= 0 && !/[,;:.]$/.test(head[last]!)) last--
+  return last + 1 >= MIN_CLAUSE_CUT_WORDS ? head.slice(0, last + 1).join(' ').replace(/[,;:]$/, '.') : head.join(' ')
+}
+
+/**
+ * On-screen text (DESC-017): "Words appear:" up to its sentence end, a quoted text kept whole. The most important fact of its shot —
+ * shortening (deterministic, model, capExtended) never shortens or removes it; it shortens the rest to the words left beside it.
+ */
+const TEXT_CLAUSE = /Words appear:\s*(?:"[^"]*"|“[^”]*”|[^.!?"“]*)[.!?]?/gi
+interface TextClauses { lead: string; tail: string; rest: string; words: number }
+/** text split into its text clauses (lead: one that opens the text; tail: the others) and the rest; undefined when it has none. */
+export function textClauses(text: string): TextClauses | undefined {
+  const m = text.match(TEXT_CLAUSE)?.map((x) => x.trim())
+  if (!m?.length) return undefined
+  const lead = text.trim().startsWith(m[0]!) ? m[0]! : ''
+  const rest = text.replace(TEXT_CLAUSE, ' ').replace(/\s+/g, ' ').trim()
+  return { lead, tail: (lead ? m.slice(1) : m).join(' '), rest, words: words(m.join(' ')) }
+}
+/** The shortened rest put back beside the text clauses (a clause that opened the text still opens it; others follow); only the clauses when that does not fit. */
+function rejoin(c: TextClauses, short: string, maxWords: number) {
+  const all = [c.lead, short.trim(), c.tail].filter(Boolean).join(' ')
+  return words(all) <= maxWords ? all : [c.lead, c.tail].filter(Boolean).join(' ')
 }
 
 /**
@@ -119,8 +145,17 @@ const verbOrEnd = (next: string) => JOINERS.has(next.toLowerCase().replace(/[^a-
  * Deterministic shortening (PLAN §4.3): drop listed adjectives and adverbs that modify a following word, then drop clauses from
  * the end (sentence by sentence) until the text fits. Never drops a capitalised word mid-sentence (a name), nor an adjective used
  * as a noun ("the old walks": after an article, before a verb or the clause end). Only removes words. May still not fit; fit() decides.
+ * Never touches an on-screen text clause (textClauses): the rest is shortened beside it, or dropped when only the clause fits, and a
+ * clause that alone is over maxWords leaves the text unchanged so the cue becomes extended.
  */
 export function shortenDeterministic(text: string, maxWords: number): string {
+  if (words(text) <= maxWords) return text
+  const c = textClauses(text)
+  if (!c) return shortenPlain(text, maxWords)
+  if (c.words > maxWords) return text // the text alone does not fit: nothing is removed, the cue becomes extended (fit, 06-voice)
+  return rejoin(c, c.rest && c.words < maxWords ? shortenPlain(c.rest, maxWords - c.words) : '', maxWords)
+}
+function shortenPlain(text: string, maxWords: number): string {
   if (words(text) <= maxWords) return text
   const w = text.trim().split(/\s+/)
   const lean = w.filter((x, i) => {
@@ -137,8 +172,17 @@ export function shortenDeterministic(text: string, maxWords: number): string {
   return clauses.join(' ').replace(/[,;]$/, '').replace(/([^.!?])$/, '$1.')
 }
 
-/** The model's shortening is used only when it fits and adds no content word; otherwise the deterministic one. */
+/**
+ * The model's shortening is used only when it fits and adds no content word; otherwise the deterministic one. The model never sees an
+ * on-screen text clause: it shortens the rest to the words left beside the clause, which is then put back (DESC-017).
+ */
 export async function safeShorten(text: string, maxWords: number, model: (text: string, maxWords: number) => Promise<string> | string): Promise<string> {
+  const c = words(text) > maxWords ? textClauses(text) : undefined
+  if (!c) return safeShortenPlain(text, maxWords, model)
+  if (c.words >= maxWords || !c.rest) return shortenDeterministic(text, maxWords) // no room beside the text: no model call
+  return rejoin(c, await safeShortenPlain(c.rest, maxWords - c.words, model), maxWords)
+}
+async function safeShortenPlain(text: string, maxWords: number, model: (text: string, maxWords: number) => Promise<string> | string): Promise<string> {
   const m = (await model(text, maxWords)).trim()
   if (m && words(m) <= maxWords && preservesFacts(text, m)) return m
   if (m && !preservesFacts(text, m)) console.warn('fit: shortener changed a fact, using deterministic shortening:', JSON.stringify(text), '→', JSON.stringify(m))
