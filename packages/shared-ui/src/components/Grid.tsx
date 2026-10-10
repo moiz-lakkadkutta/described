@@ -35,28 +35,33 @@ export function Grid({ memoryKey, heading, items, empty, emptyFocusLabel, onOpen
     if (emptyFocusLabel) announceFocus(emptyFocusLabel, undefined, () => true)
   }, [isEmpty, empty, heading, emptyFocusLabel])
   return (
-    <SpatialNavigationScrollView useNativeScroll offsetFromStart={px(L.safeY)}>
-      <T variant="title" style={{ marginBottom: px(24), marginLeft: px(rowPad) }}>{heading}</T>
+    <View style={{ flex: 1 }}>
+      {/* The heading sits above the scroll view: a focus scroll puts the focused row offsetFromStart below the scroll
+          view's top, which used to push a heading inside it half out of view (device run 2026-10-10). */}
+      <T variant="title" style={{ marginBottom: px(Math.max(0, 24 - rowPadY)), marginLeft: px(rowPad) }}>{heading}</T>
       {isEmpty && empty ? (
-        <View accessibilityLiveRegion="polite"><T variant="body" color={tokens.color.textSecondary} style={{ marginLeft: px(rowPad), maxWidth: px(L.readingW) }}>{empty}</T></View>
+        <View accessibilityLiveRegion="polite"><T variant="body" color={tokens.color.textSecondary} style={{ marginTop: px(rowPadY), marginLeft: px(rowPad), maxWidth: px(L.readingW) }}>{empty}</T></View>
       ) : null}
-      <SpatialNavigationNode orientation="vertical" alignInGrid onActive={() => setFocusContext(heading)}>
-        {/* Room below the last row for the focus outline and growth (the scroll view clips), like Row's rowPadY. */}
-        <View style={{ paddingHorizontal: px(rowPad), paddingBottom: px(rowPadY) }}>
-          {m.rows.map((row, i) => (
-            <SpatialNavigationNode key={`${memoryKey}:${i}:${items ? 'live' : 'skeleton'}`} orientation="horizontal">
-              <View>
-                <FocusRow gutter={px(L.gutter)}>
-                  {row.map((c) => c.skeleton || !c.item
-                    ? <SkeletonCard key={c.id} />
-                    : <Card key={c.id} title={c.title} meta={c.meta} ad={c.ad} imageUrl={c.item.posterUrl ?? undefined} label={c.label} testID={c.id}
-                        defaultFocus={c.id === initial} onFocus={() => remember(c.id)} onPress={() => onOpen(c.item!.slug)} />)}
-                </FocusRow>
-              </View>
-            </SpatialNavigationNode>
-          ))}
-        </View>
-      </SpatialNavigationNode>
-    </SpatialNavigationScrollView>
+      {/* offsetFromStart = rowPadY: a focused row lands with room above it for the outline and growth (the scroll view clips). */}
+      <SpatialNavigationScrollView useNativeScroll offsetFromStart={px(rowPadY)}>
+        <SpatialNavigationNode orientation="vertical" alignInGrid onActive={() => setFocusContext(heading)}>
+          {/* Room above the first row and below the last for the focus outline and growth (the scroll view clips), like Row's rowPadY. */}
+          <View style={{ paddingHorizontal: px(rowPad), paddingTop: px(rowPadY), paddingBottom: px(rowPadY) }}>
+            {m.rows.map((row, i) => (
+              <SpatialNavigationNode key={`${memoryKey}:${i}:${items ? 'live' : 'skeleton'}`} orientation="horizontal">
+                <View>
+                  <FocusRow gutter={px(L.gutter)}>
+                    {row.map((c) => c.skeleton || !c.item
+                      ? <SkeletonCard key={c.id} />
+                      : <Card key={c.id} title={c.title} meta={c.meta} ad={c.ad} imageUrl={c.item.posterUrl ?? undefined} label={c.label} testID={c.id}
+                          defaultFocus={c.id === initial} onFocus={() => remember(c.id)} onPress={() => onOpen(c.item!.slug)} />)}
+                  </FocusRow>
+                </View>
+              </SpatialNavigationNode>
+            ))}
+          </View>
+        </SpatialNavigationNode>
+      </SpatialNavigationScrollView>
+    </View>
   )
 }

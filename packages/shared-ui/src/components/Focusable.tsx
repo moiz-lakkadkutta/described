@@ -58,8 +58,9 @@ export function Focusable({ children, onPress, onFocus, onBlur, label, hint, rol
             {slot ? (
               <View testID="focusable-content" style={styles.row}>
                 <View style={styles.labelArea}>{content}</View>
-                <View testID="focusable-check" pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: px(tokens.focus.checkW), marginLeft: px(tokens.focus.checkGap), alignItems: 'center' }}>
-                  {selected ? <T variant="label" color={tokens.color.interactive}>✓</T> : null}
+                <View testID="focusable-check" pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ minWidth: px(tokens.focus.checkW), marginLeft: px(tokens.focus.checkGap), alignItems: 'center' }}>
+                  {/* minWidth + one line: at a large Android font scale the slot grows rather than clipping or wrapping the ✓. */}
+                  {selected ? <T variant="label" numberOfLines={1} color={tokens.color.interactive}>✓</T> : null}
                 </View>
               </View>
             ) : content}

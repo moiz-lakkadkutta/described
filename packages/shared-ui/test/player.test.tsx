@@ -38,8 +38,8 @@ function mount(over: Partial<PlayerProps> = {}) {
   return props
 }
 const flush = () => act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve() })
-/** Runs an audio switch's fade to the end (selectAudio happens at its midpoint). */
-const fade = () => act(async () => { await vi.advanceTimersByTimeAsync(tokens.motion.crossfadeMs) })
+/** Runs an audio switch's fade to the end (selectAudio after the fade-down, then a hold at 0, then the fade-up). */
+const fade = () => act(async () => { await vi.advanceTimersByTimeAsync(tokens.motion.crossfadeMs + tokens.motion.audioSwitchHoldMs) })
 const player = () => r.root.find((n) => (n.type as unknown) === 'KitPlayer')
 const kitProps = () => player().props as Record<string, (...a: unknown[]) => void> & { startAt: number }
 const report = (name: string, ...a: unknown[]) => act(() => { kitProps()[name]!(...a) })
@@ -239,7 +239,7 @@ describe('tracks from the master playlist', () => {
     expect(kit.ref.selectAudio).toHaveBeenLastCalledWith(idOf('Audio description'))
     expect(a11yCalls).toContain('Description on')
   })
-  it('switching audio fades out, switches at the midpoint, fades back in', async () => {
+  it('switching audio fades out, switches, holds at 0, fades back in', async () => {
     mount(); report('onTracks', tracks); report('onState', 'playing')
     press('menu')
     const order: string[] = []
@@ -252,7 +252,9 @@ describe('tracks from the master playlist', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1) })
     expect(kit.ref.selectAudio).toHaveBeenCalledTimes(1)
     expect(kit.ref.selectAudio).toHaveBeenCalledWith(idOf('Original'))
-    await act(async () => { await vi.advanceTimersByTimeAsync(half) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(tokens.motion.audioSwitchHoldMs - 1) })
+    expect(order.at(-1)).toBe(`select:${idOf('Original')}`) // still silent through the decoder reset
+    await act(async () => { await vi.advanceTimersByTimeAsync(half + 1) })
     const at = order.indexOf(`select:${idOf('Original')}`)
     const vols = (xs: string[]) => xs.map((x) => Number(x.slice(2)))
     const down = vols(order.slice(0, at)), up = vols(order.slice(at + 1))

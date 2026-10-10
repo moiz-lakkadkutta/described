@@ -103,7 +103,46 @@ describe('audio crossfade', () => {
     let waited = 0
     await crossfadeAudio({ selectAudio: (id) => calls.push(`select:${id}`), setVolume: (v) => calls.push(`v:${v}`) }, '1', async (ms) => { waited += ms })
     expect(calls).toEqual(['v:0.8', 'v:0.6', 'v:0.4', 'v:0.2', 'v:0', 'select:1', 'v:0.2', 'v:0.4', 'v:0.6', 'v:0.8', 'v:1'])
-    expect(waited).toBeCloseTo(tokens.motion.crossfadeMs)
+    expect(waited).toBeCloseTo(tokens.motion.crossfadeMs + tokens.motion.audioSwitchHoldMs)
+  })
+  it('holds silence across the decoder reset before fading up', async () => {
+    // Fire OS: ExoPlayer flushes the audio decoder and AudioTrack 70–110 ms after a switch. The volume stays at 0 from
+    // selectAudio until audioSwitchHoldMs has passed, so that gap falls in silence, never mid-fade.
+    vi.useFakeTimers()
+    try {
+      const vols: { t: number; v: number }[] = []
+      let selectedAt = -1
+      const p = { selectAudio: () => { selectedAt = Date.now() }, setVolume: (v: number) => { vols.push({ t: Date.now(), v }) } }
+      const t0 = Date.now()
+      const done = crossfadeAudio(p, 'a')
+      await vi.advanceTimersByTimeAsync(tokens.motion.crossfadeMs + tokens.motion.audioSwitchHoldMs + 50)
+      await done
+      expect(selectedAt - t0).toBe(tokens.motion.crossfadeMs / 2)
+      const before = vols.filter((x) => x.t <= selectedAt)
+      expect(before.at(-1)!.v).toBe(0) // fully silent when the track changes
+      const firstUp = vols.find((x) => x.t > selectedAt && x.v > 0)!
+      expect(firstUp.t - selectedAt).toBeGreaterThanOrEqual(tokens.motion.audioSwitchHoldMs)
+      expect(vols.filter((x) => x.t > selectedAt && x.t < selectedAt + tokens.motion.audioSwitchHoldMs).every((x) => x.v === 0)).toBe(true)
+      expect(vols.at(-1)!.v).toBe(1)
+      expect(tokens.motion.audioSwitchHoldMs).toBeGreaterThanOrEqual(110) // the slowest reset seen in logcat (DESC-006 device run)
+    } finally { vi.useRealTimers() }
+  })
+  it('a newer switch during the hold takes over: the volume stays at 0 until it has switched too', async () => {
+    vi.useFakeTimers()
+    try {
+      const calls: string[] = []
+      const p = { selectAudio: (id: string) => calls.push(`select:${id}`), setVolume: (v: number) => calls.push(`v:${v}`) }
+      const first = crossfadeAudio(p, 'a')
+      await vi.advanceTimersByTimeAsync(tokens.motion.crossfadeMs / 2 + 20) // 'a' selected, holding at 0
+      expect(calls.at(-1)).toBe('select:a')
+      const at = calls.length
+      const second = crossfadeAudio(p, 'b')
+      await vi.advanceTimersByTimeAsync((tokens.motion.crossfadeMs + tokens.motion.audioSwitchHoldMs) * 2)
+      await Promise.all([first, second])
+      const sel = calls.indexOf('select:b')
+      expect(calls.slice(at, sel).every((c) => c === 'v:0')).toBe(true) // nothing rose between the two switches
+      expect(calls.at(-1)).toBe('v:1')
+    } finally { vi.useRealTimers() }
   })
   it('a selectAudio that throws still ends at volume 1', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -120,14 +159,14 @@ describe('audio crossfade', () => {
       const calls: string[] = []
       const p = { selectAudio: (id: string) => calls.push(`select:${id}`), setVolume: (v: number) => calls.push(`v:${v}`) }
       const first = crossfadeAudio(p, 'a')
-      await vi.advanceTimersByTimeAsync(200) // past the midpoint (150 ms): 'a' selected, fading up
+      await vi.advanceTimersByTimeAsync(tokens.motion.crossfadeMs / 2 + tokens.motion.audioSwitchHoldMs + 50) // 'a' selected, held, now fading up
       expect(calls).toContain('select:a')
       const vols = (xs: string[]) => xs.filter((c) => c.startsWith('v:')).map((c) => Number(c.slice(2)))
       const at = calls.length, level = vols(calls).at(-1)!
       expect(level).toBeGreaterThan(0)
       expect(level).toBeLessThan(1)
       const second = crossfadeAudio(p, 'b')
-      await vi.advanceTimersByTimeAsync(tokens.motion.crossfadeMs * 2)
+      await vi.advanceTimersByTimeAsync((tokens.motion.crossfadeMs + tokens.motion.audioSwitchHoldMs) * 2)
       await Promise.all([first, second])
       const sel = calls.indexOf('select:b')
       const between = vols(calls.slice(at, sel))
