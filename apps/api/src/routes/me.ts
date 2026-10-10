@@ -1,11 +1,22 @@
 import { Router } from 'express'
+import { Prisma } from '@prisma/client'
 import { Prefs, ProgressPut, type MyList } from '@described/contracts'
 import { db } from '../lib/db'
 import { notFound, ok, validate } from '../lib/http'
 
 export const me: Router = Router()
 const device = (h: unknown) => String(h ?? 'anon')
-async function profile(deviceId: string) { return db.profile.upsert({ where: { deviceId }, create: { deviceId }, update: {} }) }
+// The one place a Profile is created. A new device's app fires GET /me/prefs and GET /me/list together, so two upserts
+// can both miss and both insert; the loser fails the unique constraint on deviceId (P2002). The row now exists, so read
+// it. Prisma documents this race: https://www.prisma.io/docs/orm/reference/prisma-client-reference#upsert
+async function profile(deviceId: string) {
+  try {
+    return await db.profile.upsert({ where: { deviceId }, create: { deviceId }, update: {} })
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') return db.profile.findUniqueOrThrow({ where: { deviceId } })
+    throw e
+  }
+}
 
 me.get('/prefs', async (req, res, next) => { try { ok(res, await profile(device(req.header('x-device-id')))) } catch (e) { next(e) } })
 me.put('/prefs', validate(Prefs.partial(), (r) => r.body), async (req, res, next) => {
