@@ -8,7 +8,7 @@ import type { Shot } from './02-shots'
 import { cueAudioFile } from '../cues'
 import { meter, pollyUsd } from '../cost'
 import { textSpans } from '../textClause'
-import { eventSpaced, plotEvent } from '../plotEvent'
+import { EVENT_SPACING_MS, eventSpaced, plotEvent } from '../plotEvent'
 
 /** A clip may run this far past its limit (its gap's end, or the next placed cue's start − NEXT_CUE_SPACING_MS) before it counts as an overrun. */
 export const OVERRUN_TOLERANCE_MS = 200
@@ -71,13 +71,15 @@ const words = (t: string) => t.trim().split(/\s+/).filter(Boolean).length
  *    when the text introduces something new (capped like fit's extended cues); else, when the cue's text carries a new plot event the
  *    previous voiced cue did not say (../plotEvent; DESC-020, human 2026-10-10) and no event cue — fit's, or one added here — starts
  *    within EVENT_SPACING_MS of it, it becomes an extended cue with `event: true` and the cue's full text (the slot shortening was for
- *    the slot; a pause has none; capped like any extended cue); else it is dropped. The plain AD track is unchanged by an event cue.
+ *    the slot; a pause has none; the on-screen text split off above stays in its own pause; capped like any extended cue), starting
+ *    where the action would have (after the text cue's lead); else it is dropped. The plain AD track is unchanged by an event cue.
+ *    The original clip is set aside before the slot shortening overwrites its slot, so a pause that voices it again costs no third call.
  * 3. cues.json is written back with endMs = startMs + durationMs for every kept cue; 07-mix and 08-text read those ends.
  * On-screen text already heard: a text clause ("Words appear: SINTEL.") that the previous voiced cue — its action cue and the text cue
  * split from it — said (same text, case and spacing aside) is not voiced again: the clause is cut from this cue's text and the rest
  * voiced; a cue that was only that clause is not voiced (sintel-90-150-r2: shots 0 and 1, the halves of one camera shot, both ended in
- * SINTEL). A text-only extended cue never starts while a placed clip still speaks: fit's starts were estimates, so after the clips are
- * measured every such cue moves to at least the measured end of every placed cue before it (afterClips).
+ * SINTEL). An extended cue never starts while a placed clip still speaks: fit's starts were estimates, so after the clips are
+ * measured every extended cue moves to at least the measured end of every placed cue before it (afterClips; the event cap re-checked).
  * (The time taken from the action by a clause fit kept beside it and voice then removes — r2 shot 1 lost "Logo fades." that way — is
  * fit's: it does not know yet which cue will be voiced before.)
  * Clips keep following cues.json indices: a kept cue after a dropped one moves down (cue_{i} → cue_{j}), and every
@@ -105,6 +107,11 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
     await writeFile(`${ctx.work}/${cueSidecarFile(i)}`, JSON.stringify({ text, voice: ctx.voice, language, ssml: cueSsml(text), durationMs } satisfies CueSidecar))
     return durationMs
   }
+  const files = [cueAudioFile, cueSidecarFile]
+  /** The original clip of a cue, set aside (ORIG_ + its names) before the slot shortening overwrites its slot: an event pause may voice it again without a third Polly call. */
+  const setAside = async (i: number) => { for (const f of files) await rename(`${ctx.work}/${f(i)}`, `${ctx.work}/${ORIG}${f(i)}`) }
+  const restore = async (i: number) => { for (const f of files) await rename(`${ctx.work}/${ORIG}${f(i)}`, `${ctx.work}/${f(i)}`) }
+  const discard = async (i: number) => { for (const f of files) await rm(`${ctx.work}/${ORIG}${f(i)}`, { force: true }) }
   let kept: FitCue[] = []
   const texts: FitCue[] = [] // extended on-screen text cues split off overrunning cues; voiced after the loop
   const eventStarts = cues.filter((c) => c.event).map((c) => c.startMs) // fit's event cues, then the ones added here: the cap counts both
@@ -124,12 +131,13 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
     let durationMs = (await reusable(ctx.work, i, { text, voice: ctx.voice, language, ssml: cueSsml(text) })) ?? await synth(i, text)
     let cue: FitCue | null = { ...c }
     let startMs = c.startMs
+    let aside: { text: string; durationMs: number } | undefined
     const next = cues.slice(i + 1).find((x) => !x.extended)
     const limit = c.limitMs === undefined ? undefined : Math.min(c.limitMs, next ? next.startMs - NEXT_CUE_SPACING_MS : Infinity)
     if (limit !== undefined && c.startMs + durationMs > limit + OVERRUN_TOLERANCE_MS) {
       const maxWords = Math.max(3, Math.floor((words(text) * (limit - c.startMs)) / durationMs))
       const shorter = shortenDeterministic(text, maxWords)
-      if (shorter !== text) { text = shorter; durationMs = await synth(i, text) }
+      if (shorter !== text) { await setAside(i); aside = { text, durationMs }; text = shorter; durationMs = await synth(i, text) }
       const tc = c.startMs + durationMs > limit + OVERRUN_TOLERANCE_MS ? textClauses(text) : undefined
       if (tc?.rest) {
         const fitWords = Math.max(3, Math.floor((words(text) * (limit - c.startMs)) / durationMs))
@@ -152,19 +160,22 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
           const { limitMs: _, ...rest } = c
           cue = { ...rest, extended: true }
           console.log(`voice: cue ${i} at ${c.startMs} ms runs ${c.startMs + durationMs - limit} ms past its limit; now extended: ${JSON.stringify(text)}`)
-        } else if (plotEvent(base, kept.at(-1)?.text ?? '') && eventSpaced(eventStarts, c.startMs)) {
-          const full = (await capExtended(base, shortenDeterministic)).text
-          if (full !== text) { text = full; durationMs = await synth(i, text) }
+        } else if (plotEvent(base, previousPlaced(kept)) && eventSpaced(eventStarts, startMs)) {
+          // the full text (the rest, when the on-screen text was split off above — said once, in its own pause), not the slot shortening
+          const full = (await capExtended(tc?.rest ? textClauses(base)!.rest : base, shortenDeterministic)).text
+          if (full === aside?.text) { await restore(i); text = full; durationMs = aside.durationMs; aside = undefined }
+          else if (full !== text) { text = full; durationMs = await synth(i, text) }
           const { limitMs: _, ...rest } = c
           cue = { ...rest, extended: true, event: true }
-          eventStarts.push(c.startMs)
-          console.log(`voice: cue ${i} at ${c.startMs} ms runs ${c.startMs + durationMs - limit} ms past its limit; a new plot event, now extended: ${JSON.stringify(text)}`)
+          eventStarts.push(startMs)
+          console.log(`voice: cue ${i} at ${startMs} ms runs ${c.startMs + durationMs - limit} ms past its limit; a new plot event, now extended: ${JSON.stringify(text)}`)
         } else {
           cue = null
           console.log(`voice: cue ${i} at ${c.startMs} ms runs ${c.startMs + durationMs - limit} ms past its limit; dropped: ${JSON.stringify(text)}`)
         }
       }
     }
+    if (aside) await discard(i)
     if (!cue) continue
     const j = kept.length
     if (j !== i) for (const f of [cueAudioFile, cueSidecarFile]) await rename(`${ctx.work}/${f(i)}`, `${ctx.work}/${f(j)}`)
@@ -194,6 +205,8 @@ async function withTextCues(work: string, kept: FitCue[], texts: FitCue[], synth
 
 /** Prefix of withTextCues' temporary clip names; any left over are deleted when voice starts. */
 const MOVING = 'moving_'
+/** Prefix of a clip set aside during the overrun shortening (deleted with the MOVING ones when voice starts). */
+const ORIG = `${MOVING}orig_`
 
 /** An extended cue that is only on-screen text (fit's split, or withTextCues'). */
 const textOnly = (c: FitCue) => c.extended && textClauses(c.text)?.rest === ''
@@ -210,25 +223,38 @@ export function withoutSaidText(text: string, said: readonly string[]): string {
   return (out + text.slice(at)).replace(/\s+/g, ' ').trim()
 }
 /**
- * A pause must not start while a clip still speaks: every text-only extended cue starts at or after the measured end of every placed
- * cue before it (fit put it TEXT_LEAD_MS before its action from estimated ends). Keeps its clip length; re-sorted (byStart) and the
- * clips re-slotted when one moved.
+ * A pause must not start while a clip still speaks: every extended cue (on-screen text, event, introducesNew) starts at or after the
+ * measured end of every placed cue before it — fit's starts were estimates (a text cue TEXT_LEAD_MS before its action; an event cue at the
+ * shot start, which can be inside the previous clip). Keeps its clip length. The cap holds after the move: an event cue that now starts
+ * within EVENT_SPACING_MS of an earlier event cue (in start order) is dropped, deterministically. Re-sorted (byStart) and the clips
+ * re-slotted when anything moved. Pure apart from the clip files (tested through voice).
  */
 async function afterClips(work: string, cues: FitCue[]): Promise<FitCue[]> {
   let end = -Infinity, moved = false
-  const out = cues.map((c, from) => {
+  const all = cues.map((c, from) => {
     if (!c.extended) { end = Math.max(end, c.endMs); return { c, from } }
-    if (!textOnly(c) || c.startMs >= end) return { c, from }
+    if (c.startMs >= end) return { c, from }
     moved = true
     return { c: { ...c, startMs: end, endMs: end + (c.endMs - c.startMs) }, from }
   })
   if (!moved) return cues
-  out.sort((a, b) => byStart(a.c, b.c))
+  all.sort((a, b) => byStart(a.c, b.c))
+  let lastEvent = -Infinity
+  const dropped: number[] = []
+  const out = all.filter(({ c, from }) => {
+    if (!c.event) return true
+    if (c.startMs - lastEvent < EVENT_SPACING_MS) { console.log(`voice: event cue moved to ${c.startMs} ms is within ${EVENT_SPACING_MS} ms of the one at ${lastEvent} ms; dropped: ${JSON.stringify(c.text)}`); dropped.push(from); return false }
+    lastEvent = c.startMs
+    return true
+  })
+  for (const from of dropped) for (const f of [cueAudioFile, cueSidecarFile]) await rm(`${work}/${f(from)}`, { force: true })
   const moves = out.flatMap(({ from }, to) => (from !== to ? [{ from, to }] : []))
   for (const { from } of moves) for (const f of [cueAudioFile, cueSidecarFile]) await rename(`${work}/${f(from)}`, `${work}/${MOVING}${f(from)}`)
   for (const { from, to } of moves) for (const f of [cueAudioFile, cueSidecarFile]) await rename(`${work}/${MOVING}${f(from)}`, `${work}/${f(to)}`)
   return out.map((x) => x.c)
 }
+/** The previous placed cue's text — what the AD track said before this cue; '' when none. An event is new against that, whatever the mode. */
+const previousPlaced = (kept: readonly FitCue[]) => [...kept].reverse().find((k) => !k.extended)?.text ?? ''
 
 /** The stored clip's duration when cue_{i}.mp3 exists and its sidecar matches; undefined otherwise. */
 async function reusable(work: string, i: number, want: Omit<CueSidecar, 'durationMs'>): Promise<number | undefined> {

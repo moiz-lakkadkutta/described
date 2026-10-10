@@ -115,6 +115,7 @@ describe('edit (scene-level context pass)', () => {
     expect(cleanShortening('Snow falls. Words appear: "SINTEL"')).toBe('Snow falls. Words appear: "SINTEL"')
     expect(cleanShortening('Snow falls. Words appear: "SINTEL". 5 words')).toBe('Snow falls. Words appear: "SINTEL".')
     expect(cleanShortening('Snow falls."')).toBe('Snow falls.') // a stray quote with no clause at the end
+    expect(cleanShortening('"Snow falls. Words appear: "SINTEL"')).toBe('"Snow falls. Words appear: "SINTEL"') // the last quote is the clause's: not a pair
     const cues: FitCue[] = [{ startMs: 0, endMs: 3000, text: 'Snow falls. Words appear: “The End.”', extended: false, wordCount: 6, shotIndex: 0, limitMs: 9000 }]
     const end: Described[] = [{ index: 0, startMs: 0, endMs: 4000, description: 'Snow falls on the hills. Words appear: “The End.”', sameAsPrev: false, tokens: 0, outputTokens: 0 }]
     expect(applyEdits(cues, end, [{ cue: 0, text: cleanShortening('Snow falls on hills. Words appear: “The End.”') }], [9]).applied).toHaveLength(1)

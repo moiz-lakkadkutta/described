@@ -168,6 +168,11 @@ export function cleanShortening(reply: string): string {
   for (let k = 0; k < 3; k++) t = unquote(t.replace(LEADING_COUNT, '').replace(TRAILING_COUNT, '').trim())
   return t.replace(/\s+/g, ' ')
 }
+/** Are the quotes inside a wrapping pair balanced (straight quotes in even numbers, each curly or angle opener closed)? `"a "b"` is not: its last quote is the clause's. */
+const balanced = (inner: string) => {
+  const n = (q: string) => inner.split(q).length - 1
+  return n('"') % 2 === 0 && n("'") % 2 === 0 && n('«') === n('»') && (n('“') === n('”') || n('„') === n('“'))
+}
 /** Opening quote → the closing quote that pairs with it around a whole reply. */
 const QUOTE_PAIRS: Record<string, string> = { '"': '"', "'": "'", '“': '”', '‘': '’', '«': '»', '»': '«', '„': '“' }
 /**
@@ -177,7 +182,7 @@ const QUOTE_PAIRS: Record<string, string> = { '"': '"', "'": "'", '“': '”', 
  */
 function unquote(t: string): string {
   const close = QUOTE_PAIRS[t[0] ?? '']
-  if (close && t.length > 1 && t.endsWith(close)) return t.slice(1, -1).trim()
+  if (close && t.length > 1 && t.endsWith(close) && balanced(t.slice(1, -1))) return t.slice(1, -1).trim()
   if (textSpans(t).some((s) => s.end >= t.length)) return t
   return t.replace(/^["'“”‘’«»„]+|["'“”‘’«»„]+$/g, '').trim()
 }

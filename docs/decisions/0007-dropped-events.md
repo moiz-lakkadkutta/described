@@ -26,11 +26,17 @@ House style gives a present-tense line with the subject first ("Red-haired girl 
 event when it has a **finite action verb**: a word ending in -s whose Porter stem (0006's `stem`) is in `ACTION_VERBS`, with at least
 one content word (its subject) before it, and
 - the previous voiced cue did not say that verb (by stem): "climbs brick rooftop" right after "climbs stone steps" is not a new event;
-- the sentence has no expression word (eyes, mouth, brow, expression, smile, tear, head): "opens eyes" is a look, not an act;
+- the sentence has no expression or reflection word (eyes, mouth, brow, expression, smile, tear, head, face, reflection …): "opens
+  eyes" is a look, "a veiled face emerges from the milk" a reflection, not an act (cost: "a man with a scarred face draws a sword" too);
 - no word before the verb is a setting or light noun (dawn, snow, fire, logo, title …): "Dawn breaks over city" is the light changing;
 - it is not an on-screen text clause (that has its own rule, `introducesNew`).
 Only -s forms count: in "Red-haired girl watches man stir pot over fire" the bare "stir" is what she watches, and watching is not a
-plot event. The verb list (≈ 170 bases) leaves out states and postures (holds, stands, sits, leans), looks and expressions (stares,
+plot event. In each clause (cut at , ; and "then") the verb is the *first* -s word after the subject, never a later one (a plural
+object: drinks, cuts), never a -ss / -us / -ous / -is word (dress, plus, nervous, his) or an -s function word (across, towards); a clause
+after the first carries its sentence's subject over ("A figure walks, falls."). "hands" is a verb only before her / him / them / his /
+a / the / it / me / us / you / over / back. A flying verb over scenery (sky, clouds, water, lake, hills, forest …) is the setting: "A bird
+flies over the lake." is not an event, "A dragon flies over the city." is — the scenery nouns are open land, water and sky, not places
+people are in, so a creature arriving over a town still counts. The verb list (170 bases, `ACTION_BASE_COUNT`) leaves out states and postures (holds, stands, sits, leans), looks and expressions (stares,
 watches, blinks, smiles, nods), sounds the film carries (speaks, roars), light and camera verbs (glows, fades), and verbs whose plural
 noun is common in descriptions (hands, steps, waves, blocks — "Two hands hold a bowl" is not an event).
 
@@ -66,22 +72,26 @@ replays fit and voice from the run's recorded descriptions, gaps, shots, Nova Li
   (`newWords`), then earliest, each at least `EVENT_SPACING_MS` = 30 000 ms from every chosen one: where two events compete for a window
   the richer one is heard.
 - **06-voice**: an overrunning clip that cannot be shortened into its slot, is not `introducesNew`, and whose cue text carries a new
-  plot event after the previous *kept* cue becomes an event cue when no event cue — fit's (`event: true` in cues.json) or one added
+  plot event after the previous *placed* cue becomes an event cue when no event cue — fit's (`event: true` in cues.json) or one added
   earlier in this pass — starts within 30 s of it (first come; voice decides cue by cue). The pause voices the **full cue text** (fit's
-  text for the slot), not the slot shortening: a pause has no slot. One more Polly call only when the slot shortening had changed the text.
+  text for the slot; the rest, when on-screen text was split off into its own pause — said once), not the slot shortening: a pause has
+  no slot. It starts where the action would have (after the text cue's lead). The original clip is set aside before the slot shortening
+  overwrites it, so voicing it again in the pause is a rename, not a third Polly call. "Previous" is the previous placed cue in both
+  steps: what the AD track said, whatever the mode.
 - **Counted against the cap**: only `event: true` cues, from either step. On-screen text cues and `introducesNew` cues are the existing
   behaviour and stay uncounted.
 - **05b-edit** treats an event cue as any extended cue: budget = its own length (no lengthening), its shot counts as voiced (not listed
   under `missedJustBefore` for the next cue), the guards apply, timing never changes.
 - **Player** (shared-ui `extended.ts`, unchanged): the cue carries `{extended=1}` in descriptions.vtt; Extended mode pauses on it,
-  plays its clip, resumes. Every published title now says what Extended mode adds.
+  plays its clip, resumes. DESC-007's device check needs a title with extended cues; `sintel-90-210` now has three.
 
 ## Follow-ups in the same change (06-voice, 05b-edit)
 
-- **(a)** A text-only extended cue never starts while a placed clip still speaks: fit put it `TEXT_LEAD_MS` before its action from
-  *estimated* ends; after the clips are measured, every such cue moves to at least the measured end of every placed cue before it
-  (`afterClips`, re-slotting the clips), and a text cue split in voice is placed after the measured end of *every* kept clip, not only
-  those ending before the cue's start (one may run past it, within the 200 ms tolerance).
+- **(a)** No extended cue starts while a placed clip still speaks: fit put a text cue `TEXT_LEAD_MS` before its action and an event
+  cue at the shot start from *estimated* ends; after the clips are measured, every extended cue (text, event, introducesNew) moves to at
+  least the measured end of every placed cue before it (`afterClips`, re-slotting the clips; an event cue moved to within 30 s of an
+  earlier event cue is dropped, so the cap holds), and a text cue split in voice is placed after the measured end of *every* kept clip,
+  not only those ending before the cue's start (one may run past it, within the 200 ms tolerance).
 - **(b)** `cleanShortening`'s word-count annotation needs whole words: "9 wordsmiths gather" and "raises a sword 2" are text.
 - **(c)** Wrapping quotes come off only as a matching pair around the whole reply, or when no on-screen text clause runs to the end of
   the line: the closing quote of `Words appear: “The End.”` is the clause's, and stripping it made the guard reject the edit.
@@ -93,8 +103,13 @@ replays fit and voice from the run's recorded descriptions, gaps, shots, Nova Li
 
 ## Risks
 
-- A plural noun that stems to a listed verb ("lifts", "cuts", "drops" as nouns) after a subject word makes a false event; the list
-  drops the common ones (hands, steps, waves, blocks), and a false positive costs one pause per 30 s at most, never a plain-track change.
+- **Action-verb hallucination.** The test judges the description, not the frames: an action the model invented becomes a pause, as
+  the `isNew` heuristic turned 2 of Nova's worst inventions into extended cues in the first Gate C run (0003). On A2 the two
+  unvoiced inventions (10 "opens eyes", 11 "face rises") do not pass — as looks/reflections, not because the test knows they are false.
+  Faithfulness of descriptions is Gate C's; the cap bounds the damage to one pause per 30 s, never a plain-track change.
+- A plural noun that stems to a listed verb: only the first -s word after the subject in a clause is the verb (review M2), so a later
+  noun (drinks, cuts, lights) never counts, but a plural subject whose noun stems to a verb ("The lifts open") can; the list drops the
+  common ones (steps, waves, blocks), "hands" counts only before her / him / a / the …
 - The pause lands at the cue's start: for a voice drop that is fit's placement, up to 1 s after the shot (LATE_MS), as for every cue.
 - Voice's cap is first-come, fit's is best-first; a title where voice drops two events within 30 s keeps the earlier one.
 - Cost: none in fit; in voice at most one extra Polly clip per event cue.

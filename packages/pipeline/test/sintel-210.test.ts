@@ -63,7 +63,8 @@ describe('sintel-90-210 run A2 golden replay', () => {
     const synthesized: string[] = []
     await voice(ctx, { synthesize: async (t) => { synthesized.push(t); return new TextEncoder().encode(t) }, measureMs: async (f) => { const t = await readFile(f, 'utf8'); return clips[t] ?? estimate(t) } })
     const out = JSON.parse(await readFile(`${work}/cues.json`, 'utf8')) as FitCue[]
-    // the golden list: which sintel-90-210 shots become extended event cues
+    // the golden list: which sintel-90-210 shots become extended event cues. Their endMs are estimated (the run dropped these
+    // clips, so their durations were not recorded); every other cue's endMs is the run's measured one.
     const events = out.filter((c) => c.event)
     expect(events.map((c) => c.shotIndex)).toEqual([8, 24])
     expect(events).toEqual([

@@ -79,7 +79,7 @@ export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, max
       }
       if (placed) continue
       if (introducesNew(s.description)) { out.push({ ...extended(s), ...await capExtended(s.description, shorten) }); continue }
-      const previous = out.at(-1)?.text ?? ''
+      const previous = [...out].reverse().find((x) => !x.extended)?.text ?? '' // the previous placed cue: what the AD track said, whatever the mode
       const verbs = plotEvents(s.description, previous)
       if (verbs.length) events.push({ cue: { ...extended(s), ...await capExtended(s.description, shorten), event: true }, verbs: verbs.length, fresh: newWords(s.description, previous) })
     }
