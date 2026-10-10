@@ -39,7 +39,8 @@ export function Focusable({ children, onPress, onFocus, onBlur, label, hint, rol
   const scale = useRef(new Animated.Value(1)).current
   const focused = useRef(false)
   // A toggle (selected is a boolean, not absent) always reserves the ✓ slot after its label, so the ✓ never covers
-  // text and selecting never changes the width (DESC-019: "My lis✓t"). No room (collapsed rail) → check={false}: no slot.
+  // text and selecting does not change the width (DESC-019: "My lis✓t") — except at a large Android font scale, where
+  // the slot (a minWidth) grows to fit the ✓ rather than clip it. No room (collapsed rail) → check={false}: no slot.
   const slot = check && selected !== undefined
   const animate = (to: number) => Animated.timing(scale, { toValue: to, duration: tokens.motion.focusMs, useNativeDriver: true }).start()
   // Always wrapped: toggling the wrapper would remount the node and drop focus.

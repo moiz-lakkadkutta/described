@@ -263,7 +263,7 @@ describe('Described and My list grids', () => {
     it('the first row keeps room above for the focus outline, and a focus scroll keeps it there', () => {
       const r = render(el())
       const scroll = r.root.find((n) => (n.type as unknown) === 'ScrollView')
-      expect(scroll.props.offsetFromStart).toBeGreaterThanOrEqual(rowPadY)
+      expect(scroll.props.offsetFromStart).toBe(rowPadY) // equal to the padding above the first row: focusing it scrolls to 0
       const grid = r.root.find((n) => (n.type as unknown) === 'Node' && n.props.alignInGrid === true)
       expect(grid.findAll((n) => (n.type as unknown) === 'View')[0]!.props.style).toMatchObject({ paddingTop: rowPadY })
     })

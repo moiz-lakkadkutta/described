@@ -23,7 +23,7 @@ export const tokens = {
     caption: { family: 'AtkinsonHyperlegible-Regular', weight: '400', size: 44, line: 57 }, // overlay
     reading: { family: 'AtkinsonHyperlegible-Regular', weight: '400', size: 36, line: 52 }, // full-screen synopsis
   } as Record<TypeRole, { family: string; weight: '400' | '700'; size: number; line: number; tracking?: number; tabular?: boolean }> & { floor: number },
-  layout: { safeX: 96, safeY: 54, rail: 96, railExpanded: 336, cardW: 412, cardH: 232, cardsVisible: 3, peek: 40, gutter: 24, heroW: 1488, heroH: 560, posterW: 480, posterH: 720, readingW: 1200 },
+  layout: { safeX: 96, safeY: 54, rail: 96, railExpanded: 336, cardW: 412, cardH: 232, cardsVisible: 3, peek: 40, gutter: 24, heroW: 1488, heroH: 560, posterW: 480, posterH: 720, readingW: 1200, headingGap: 24 }, // headingGap: a screen heading to the content below it
   focus: { width: 4, offset: 3, selectedWidth: 3, checkW: 28, checkGap: 12 }, // checkW (a minWidth)/checkGap: the ✓ slot after a toggle's label (label-size glyph)
   radius: { card: 12, badge: 6 }, // px at 1080p like every other size
   motion: { focusMs: 150, focusScale: 1.04, overlayHideMs: 4000, crossfadeMs: 300, audioSwitchHoldMs: 150 }, // audioSwitchHoldMs: silence after selectAudio while ExoPlayer resets its audio decoder (70–110 ms on a Fire TV Stick)

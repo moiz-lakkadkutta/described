@@ -127,21 +127,28 @@ describe('audio crossfade', () => {
       expect(tokens.motion.audioSwitchHoldMs).toBeGreaterThanOrEqual(110) // the slowest reset seen in logcat (DESC-006 device run)
     } finally { vi.useRealTimers() }
   })
-  it('a newer switch during the hold takes over: the volume stays at 0 until it has switched too', async () => {
+  it('a newer switch during the hold takes over: it selects at once (already silent) and holds the full hold before rising', async () => {
     vi.useFakeTimers()
     try {
-      const calls: string[] = []
-      const p = { selectAudio: (id: string) => calls.push(`select:${id}`), setVolume: (v: number) => calls.push(`v:${v}`) }
+      const half = tokens.motion.crossfadeMs / 2, hold = tokens.motion.audioSwitchHoldMs
+      const calls: { t: number; c: string }[] = []
+      const p = { selectAudio: (id: string) => calls.push({ t: Date.now(), c: `select:${id}` }), setVolume: (v: number) => calls.push({ t: Date.now(), c: `v:${v}` }) }
       const first = crossfadeAudio(p, 'a')
-      await vi.advanceTimersByTimeAsync(tokens.motion.crossfadeMs / 2 + 20) // 'a' selected, holding at 0
-      expect(calls.at(-1)).toBe('select:a')
-      const at = calls.length
+      await vi.advanceTimersByTimeAsync(half + 20) // 'a' selected, holding at 0: two switches within ~0.2 s
+      expect(calls.at(-1)!.c).toBe('select:a')
+      const at = calls.length, t1 = Date.now()
       const second = crossfadeAudio(p, 'b')
-      await vi.advanceTimersByTimeAsync((tokens.motion.crossfadeMs + tokens.motion.audioSwitchHoldMs) * 2)
+      await vi.advanceTimersByTimeAsync((tokens.motion.crossfadeMs + hold) * 2)
       await Promise.all([first, second])
-      const sel = calls.indexOf('select:b')
-      expect(calls.slice(at, sel).every((c) => c === 'v:0')).toBe(true) // nothing rose between the two switches
-      expect(calls.at(-1)).toBe('v:1')
+      const selB = calls.find((x) => x.c === 'select:b')!
+      expect(selB.t - t1).toBeLessThan(half) // no wasted fade from 0 to 0
+      expect(calls.slice(at).filter((x) => x.t < selB.t).every((x) => x.c === 'v:0')).toBe(true) // nothing rose between the switches
+      const up = calls.find((x) => x.t > selB.t && x.c.startsWith('v:') && Number(x.c.slice(2)) > 0)!
+      expect(up.t - selB.t).toBeGreaterThanOrEqual(hold) // the hold is honoured after the newer switch too
+      const silentFrom = calls.find((x) => x.c === 'v:0')!.t
+      expect(up.t - silentFrom).toBeLessThanOrEqual(20 + hold + half) // silence ≈ hold + one fade step, not + another fade-down
+      expect(calls.filter((x) => x.c.startsWith('select')).map((x) => x.c)).toEqual(['select:a', 'select:b'])
+      expect(calls.at(-1)!.c).toBe('v:1')
     } finally { vi.useRealTimers() }
   })
   it('a selectAudio that throws still ends at volume 1', async () => {

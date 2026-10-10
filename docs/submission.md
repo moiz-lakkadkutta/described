@@ -116,8 +116,9 @@ describer — and delivers description through the TV's own audio-track selector
   is TODO(human) (waves plan H12) ([fire-os-bindings §1](platform/fire-os-bindings.md#1-catalog-integration)).
   Personalization (continue watching in the Fire TV UI) needs catalog integration and is not built
   ([fire-os-bindings](platform/fire-os-bindings.md) table, row 3).
-- **Switching audio is a hard cut** with a 0.5–0.6 s stall measured on the stick ([0001](decisions/0001-week0-gates.md)
-  Gate A), until the kit's volume control lands (TASKS.md DESC-006). TODO(human): update if the crossfade ships.
+- **Switching audio takes about 450 ms**: the sound fades down, stays silent for ~150 ms while ExoPlayer resets its audio
+  decoder, and fades back up (TASKS.md DESC-006). Before the fade, Gate A measured a 0.5–0.6 s stall on the stick
+  ([0001](decisions/0001-week0-gates.md)).
 - **Device checks pending.** The Player, Extended mode and platform-binding checks on the stick (docs/device-checks/DESC-006–008) had not been run on 2026-10-04. TODO(human): delete this line once they pass, or say what did not.
 - **English only** in the demo titles. TODO(human): confirm; Polly's de-DE voice is wired but not shown.
 - All demo content is CC-BY or public domain (Blender open movies, Internet Archive) with attribution in the app.

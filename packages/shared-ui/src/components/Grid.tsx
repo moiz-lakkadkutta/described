@@ -38,7 +38,7 @@ export function Grid({ memoryKey, heading, items, empty, emptyFocusLabel, onOpen
     <View style={{ flex: 1 }}>
       {/* The heading sits above the scroll view: a focus scroll puts the focused row offsetFromStart below the scroll
           view's top, which used to push a heading inside it half out of view (device run 2026-10-10). */}
-      <T variant="title" style={{ marginBottom: px(Math.max(0, 24 - rowPadY)), marginLeft: px(rowPad) }}>{heading}</T>
+      <T variant="title" style={{ marginBottom: px(Math.max(0, L.headingGap - rowPadY)), marginLeft: px(rowPad) }}>{heading}</T>
       {isEmpty && empty ? (
         <View accessibilityLiveRegion="polite"><T variant="body" color={tokens.color.textSecondary} style={{ marginTop: px(rowPadY), marginLeft: px(rowPad), maxWidth: px(L.readingW) }}>{empty}</T></View>
       ) : null}

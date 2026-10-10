@@ -118,7 +118,7 @@ const fades = new WeakMap<VolumePlayer, { gen: number; v: number }>()
  * audio-track-changed event (ExoPlayer publishes none, KIT-029) and `onPosition` is ≤ 4 Hz, too coarse to time this,
  * so the hold is fixed. A second switch on the same player while one is running takes over: the older one stops where
  * it is (it never selects its track, nor raises the volume after the hold), and the newer fades down from the current
- * volume, so the volume always ends at 1. On Vega the kit's `setVolume` is a no-op, so the switch lands after the
+ * volume — or, if that is already 0, selects at once and holds — so the volume always ends at 1. On Vega the kit's `setVolume` is a no-op, so the switch lands after the
  * fade-down without an audible fade. A `selectAudio` that throws is logged and the fade still comes back up to 1.
  * Never rejects; resolves when this switch is done or has given way.
  *
@@ -133,7 +133,8 @@ export async function crossfadeAudio(p: VolumePlayer, id: string, wait: (ms: num
   const live = () => f.gen === gen
   const set = (v: number) => { f.v = v; p.setVolume(v) }
   const half = tokens.motion.crossfadeMs / 2, from = f.v
-  for (let i = steps - 1; i >= 0; i--) { set((from * i) / steps); await wait(half / steps); if (!live()) return }
+  // Already silent (a newer switch during the previous one's hold): select at once rather than fade from 0 to 0.
+  if (from > 0) for (let i = steps - 1; i >= 0; i--) { set((from * i) / steps); await wait(half / steps); if (!live()) return }
   try { p.selectAudio(id) } catch (e) { console.warn('crossfadeAudio: selectAudio failed', e) }
   await wait(tokens.motion.audioSwitchHoldMs); if (!live()) return
   for (let i = 1; i <= steps; i++) { await wait(half / steps); if (!live()) return; set(i / steps) }
