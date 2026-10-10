@@ -157,9 +157,11 @@ uses the framework `android.media.session` API, API 21+):
   active session (MainActivity's `onKeyDown` does not consume media keys). If §4 of the device check shows 126/127
   doing nothing, set `MEDIA_SESSION_OWNS_KEYS = false` in apps/expo/src/platform/mediaSession.ts (one value; keys go
   back to the key path).
-- **Fire TV's mapping.** Per the Fire TV doc's table, "Alexa, fast forward / rewind [N seconds]" and "restart" arrive
-  as `onSeekTo(pos)` (ACTION_SEEK_TO; pos computed from the position the session reports, 10 s by default), not as
-  `onFastForward / onRewind`; "pause" / "play" / "resume" come as media keys (126 / 127) or `onPause / onPlay`.
+- **Fire TV's mapping.** Per the Fire TV doc's table, "Alexa, fast forward / rewind [N seconds]" arrive as
+  `onSeekTo(pos)` (ACTION_SEEK_TO; pos computed from the position the session reports, 10 s by default) and "restart"
+  as `onSeekTo(0)`, not as `onFastForward / onRewind`; absolute time ("go to 5 minutes") is **not supported** by the
+  mapping. "pause" / "play" / "resume" come as media keys (126 / 127) or `onPause / onPlay`. A negative `onSeekTo`
+  (rewind near the start) is a seek to 0 in `fromNative`.
 - **Visibility, not foreground.** The session goes inactive when the activity is no longer visible (`onActivityStopped`
   via `Application.ActivityLifecycleCallbacks`: Home, another app) and active again when it is started, if the Player
   still holds it — so Alexa never controls a hidden app. It stays active while the activity is merely **paused**: during

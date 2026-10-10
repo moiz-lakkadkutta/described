@@ -67,6 +67,8 @@ describe('media session: native events → Transport', () => {
     [{ control: 'fastForward' }, { kind: 'seekBy', dir: 1 }],
     [{ control: 'rewind' }, { kind: 'seekBy', dir: -1 }],
     [{ control: 'seekTo', positionS: 300 }, { kind: 'seekTo', s: 300 }],
+    [{ control: 'seekTo', positionS: 0 }, { kind: 'seekTo', s: 0 }], // "Alexa, restart"
+    [{ control: 'seekTo', positionS: -4 }, { kind: 'seekTo', s: 0 }], // "rewind" 4 s in: Fire TV sends position − 10
     [{ control: 'seekTo' }, null],
     [{ control: 'skipToNext' }, null],
   ])('%j → %j', (e, want) => expect(fromNative(e)).toEqual(want))
@@ -112,10 +114,11 @@ describe('media session binding', () => {
     const n = fakeNative(); const b = createMediaSession(n)!
     b.setNowPlaying(PLAYING)
     const got: Transport[] = []; b.onTransport((t) => got.push(t))
-    // Fire TV says "fast forward" / "rewind" as onSeekTo(position ± 10 s) (ACTION_SEEK_TO) and "go to 30 seconds" as
-    // onSeekTo(30 s); other controllers send the relative controls. The remote's ►► key (90) stays with the key path.
+    // Fire TV says "fast forward" / "rewind" as onSeekTo(position ± 10 s) (ACTION_SEEK_TO; absolute "go to N" is not in
+    // its mapping) and "restart" as onSeekTo(0); other controllers send the relative controls or any onSeekTo position.
+    // The remote's ►► key (90) stays with the key path.
     n.emit('onTransport', { control: 'seekTo', positionS: 52.5 })
-    n.emit('onTransport', { control: 'seekTo', positionS: 30 })
+    n.emit('onTransport', { control: 'seekTo', positionS: 30 }) // another controller's absolute seek
     n.emit('onTransport', { control: 'fastForward' }); n.emit('onTransport', { control: 'rewind' })
     n.emit('onTransport', { control: 'button', keyCode: 90 })
     expect(got).toEqual([{ kind: 'seekTo', s: 52.5 }, { kind: 'seekTo', s: 30 }, { kind: 'seekBy', dir: 1 }, { kind: 'seekBy', dir: -1 }])

@@ -185,8 +185,9 @@ describe('Root → Player → media session', () => {
     const kp = () => r!.root.find((n) => (n.type as unknown) === 'KitPlayer').props
     act(() => { kp().onState('playing') }); act(() => { kp().onPosition(100) })
     const seeks = kit.ref.seek.mock.calls.length
-    // Fire TV says "fast forward" / "rewind" as seekTo(position ± 10 s) and "go to 30 seconds" as seekTo(30); other
-    // controllers send the relative controls. Each request is one seek on the player: no second handler.
+    // Fire TV says "fast forward" / "rewind" as seekTo(position ± 10 s) and "restart" as seekTo(0) (absolute "go to N"
+    // is not in its mapping); other controllers send the relative controls or any seekTo position. Each request is one
+    // seek on the player: no second handler.
     act(() => send({ kind: 'seekTo', s: 110 })); expect(kit.ref.seek).toHaveBeenLastCalledWith(110)
     act(() => { kp().onPosition(110) })
     act(() => send({ kind: 'seekBy', dir: 1 })); expect(kit.ref.seek).toHaveBeenLastCalledWith(110 + SEEK_STEP_S)

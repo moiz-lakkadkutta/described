@@ -63,12 +63,16 @@ Start Sintel from the app and let it play. Watch logcat (`DescribedMediaSession`
 - [ ] **"Alexa, fast forward"** / **"Alexa, rewind"** → jumps ±10 s once. Fire TV sends these as a seek to the computed
       position (`control=seekTo positionS=<current ± 10>`, per the Fire TV doc's table); `control=fastForward` / `rewind`
       would come from another controller and is also a pass.
-- [ ] **"Alexa, go to 5 minutes"** → `control=seekTo positionS=300.0`, video at 5:00.
+- [ ] **"Alexa, restart"** → `control=seekTo positionS=0.0`, video at 0:00.
+- [ ] "Alexa, go to N seconds / minutes" is absolute time, which Fire TV's mapping does not support (the doc: "absolute
+      time is not supported"): Alexa says it is not supported, or nothing happens. **Not a FAIL.**
 - [ ] **One session per playback (run check 14 regression):** across all the voice commands above, logcat shows
       `session created` **once**, and `adb logcat -d | grep -c 'New Session: tag=DescribedMediaSession'` stays at 1 for
       this playback (Fire TV's publisher `whad` logs one per *activation*). During each voice interaction logcat shows
-      `activity paused, still visible: session stays active` and `dumpsys media_session` keeps `active=true` — the
-      Alexa UI pauses the activity, and an inactive session would be unpublished before the SeekTo directive lands.
+      `activity paused, still visible: session stays active` and **no** `session inactive (activity stopped)`, and
+      `dumpsys media_session` keeps `active=true` while the Alexa UI is up — the Alexa UI pauses the activity, and an
+      inactive session would be unpublished before the SeekTo directive lands. (If the Alexa UI stopped the activity
+      instead, `(activity stopped)` would show and the visibility fix would be a no-op: record it as a FAIL.)
 - [ ] If any voice command logs **only** `transport control=button keyCode=…` (85, 89 or 90) and the video does not react,
       Alexa sends relative media buttons: set `createMediaSession(nativeMediaSession, { acceptButtons: true })` in
       apps/expo/App.tsx, rebuild, re-run §3 and §4 (check §4 for double toggles), and file a friction log.

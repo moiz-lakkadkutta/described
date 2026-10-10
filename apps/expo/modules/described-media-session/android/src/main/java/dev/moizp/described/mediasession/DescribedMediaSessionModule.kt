@@ -12,20 +12,22 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
 /**
  * Android MediaSession for the Player (DESC-008), so Fire TV routes Alexa transport commands ("Alexa, pause",
- * "resume", "fast forward", "rewind", "go to 5 minutes") to Described — near-field (remote mic) and far-field (Echo).
+ * "resume", "fast forward", "rewind", "restart") to Described — near-field (remote mic) and far-field (Echo).
  * https://developer.amazon.com/docs/fire-tv/mediasession-api-integration.html
  *
  * The session only reports: every request goes to JS as an `onTransport` event and JS drives the kit's player, the
  * same calls the remote makes. The session never touches ExoPlayer, so the kit's paused/playing state stays the truth.
  *
  * Fire TV delivers "fast forward" and "rewind" as `onSeekTo(pos)` (the doc's table: ACTION_SEEK_TO, 10 s unless a
- * duration is said), computed from the position this session reports, and "restart" as `onSeekTo(0)`. onFastForward /
- * onRewind stay mapped for other controllers.
+ * duration is said), computed from the position this session reports, and "restart" as `onSeekTo(0)`. Absolute time
+ * ("go to 5 minutes") is not supported by Fire TV's mapping. onFastForward / onRewind stay mapped for other controllers.
  *
  * Media buttons: Alexa may arrive as MEDIA_PLAY / MEDIA_PAUSE / MEDIA_STOP key events. Those go through the default
  * mapping (super → onPlay / onPause / onStop); while the session is active the JS key path skips those key codes
@@ -33,40 +35,41 @@ import expo.modules.kotlin.modules.ModuleDefinition
  * and REWIND are relative — the Player's key handling owns them — so they are swallowed here and reported as control
  * "button" (JS ignores those unless `acceptButtons`, which moves them to the session and off the key path).
  *
- * Visibility: the session goes inactive when the activity is no longer visible (`onActivityStopped`: Home, another
- * app; Alexa must not "pause" a hidden app) and active again when it is (`onActivityStarted`) if the Player still holds
- * it. Not on `onPause`: during a voice interaction Fire TV pauses the activity under the Alexa UI, and Fire TV's
- * media-session publisher (`whad`) unpublishes an inactive session at once — a directive that arrives while it is
- * unpublished (SeekTo: fast forward, rewind, go to) finds no session and is dropped, while Pause / Play, sent as media
- * keys, still reach the last media-button session. Each re-activation also shows up as a "New Session" in `whad`'s
- * log (device run check 14: 13 of them in one playback). Fire OS user builds drop Log.d, so every line here is Log.i.
- * Logcat: `adb logcat -s DescribedMediaSession`.
+ * Visibility: the session goes inactive when no activity of ours is started any more (`onActivityStopped`: Home,
+ * another app; Alexa must not "pause" a hidden app) and active again when one is (`onActivityStarted`) if the Player
+ * still holds it. Not on `onPause`: during a voice interaction Fire TV pauses the activity under the Alexa UI, and
+ * Fire TV's media-session publisher (`whad`) unpublishes an inactive session at once — a directive that arrives while
+ * it is unpublished (SeekTo: fast forward, rewind, restart) finds no session and is dropped, while Pause / Play, sent
+ * as media keys, still reach the last media-button session. Each re-activation also shows up as a "New Session" in
+ * `whad`'s log (device run check 14: 13 of them in one playback). Fire OS user builds drop Log.d, so every line here
+ * is Log.i. Logcat: `adb logcat -s DescribedMediaSession`.
  */
 class DescribedMediaSessionModule : Module() {
   private var session: MediaSession? = null
   /** True once OnDestroy ran: queued main-thread work and late callbacks must not touch the session or emit. */
   @Volatile private var destroyed = false
-  /** The activity is started (visible, possibly paused under a dialog or the Alexa UI). True until told otherwise. */
+  /** Some activity of ours is started (visible, possibly paused under a dialog or the Alexa UI). True until told otherwise. */
   @Volatile private var visible = true
-  private var startedActivities = 0
-  private var application: Application? = null
+  /** The started activities (main thread only), seeded with the current one: a second activity's start / stop pair never counts the first one out. */
+  private val started = mutableSetOf<Activity>()
+  @Volatile private var application: Application? = null
   private val main = Handler(Looper.getMainLooper())
 
   /** onStart / onStop of this app's activities (registered on its Application; the callbacks run on the main thread). */
   private val lifecycle = object : Application.ActivityLifecycleCallbacks {
     override fun onActivityStarted(activity: Activity) {
-      startedActivities += 1
+      started.add(activity)
       setVisible(true, "started")
     }
     override fun onActivityStopped(activity: Activity) {
-      startedActivities = maxOf(0, startedActivities - 1)
-      if (startedActivities == 0) setVisible(false, "stopped")
+      started.remove(activity)
+      if (started.isEmpty()) setVisible(false, "stopped")
     }
+    override fun onActivityDestroyed(activity: Activity) { started.remove(activity) }
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
     override fun onActivityResumed(activity: Activity) {}
     override fun onActivityPaused(activity: Activity) {}
     override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
-    override fun onActivityDestroyed(activity: Activity) {}
   }
 
   override fun definition() = ModuleDefinition {
@@ -74,10 +77,18 @@ class DescribedMediaSessionModule : Module() {
     Events("onTransport", "onSessionState")
 
     OnCreate {
-      val app = runCatching { appContext.reactContext?.applicationContext as? Application }.getOrNull()
-        ?: runCatching { appContext.currentActivity?.application }.getOrNull()
-      if (app == null) Log.w(TAG, "no Application: visibility falls back to pause / resume")
-      else { app.registerActivityLifecycleCallbacks(lifecycle); application = app }
+      main.post {
+        if (destroyed) return@post
+        val current = runCatching { appContext.currentActivity }.getOrNull()
+        val app = runCatching { appContext.reactContext?.applicationContext as? Application }.getOrNull() ?: current?.application
+        if (app == null) { Log.w(TAG, "no Application: visibility falls back to pause / resume"); return@post }
+        // The activity is already started when the module is created: count it in, or the first onActivityStopped of
+        // any other activity would leave `started` empty and the session inactive while the app is visible.
+        if (current is LifecycleOwner && current.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) started.add(current)
+        if (current != null) visible = started.isNotEmpty()
+        app.registerActivityLifecycleCallbacks(lifecycle); application = app
+        Log.i(TAG, "visibility follows activity start / stop (started now: ${started.size})")
+      }
     }
     /** durationS ≤ 0 means unknown. Call on every play/pause/seek; the system extrapolates position while playing. */
     Function("setNowPlaying") { title: String, durationS: Double, positionS: Double, playing: Boolean ->
