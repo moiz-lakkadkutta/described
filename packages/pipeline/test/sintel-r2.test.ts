@@ -75,7 +75,7 @@ describe('sintel-90-150-r2 golden replay', () => {
     expect(head.map((c) => [c.startMs, c.extended, c.text])).toEqual([
       [0, true, 'Words appear: SINTEL.'],
       [400, false, 'Snowy mountains. A lone figure walks left.'],
-      [5604, false, 'Snowy mountains. A figure walks, falls. Words appear: SINTEL.'], // 6 of 8 action words kept beside the text
+      [5604, false, 'Snowy mountains. A figure walks, falls. Logo fades.'], // voice does not say SINTEL twice (DESC-020 follow-up): without the clause the whole line fits, "Logo fades." included
     ])
   })
 })

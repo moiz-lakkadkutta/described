@@ -3,12 +3,15 @@ import type { Ctx } from './index'
 import type { Described } from './04-describe'
 import type { Gap } from './03-speech'
 import { TEXT_LABEL, textSpans } from '../textClause'
+import { eventSpaced, newWords, plotEvents } from '../plotEvent'
 
 /**
  * endMs: fit's estimate (words / WPS + 300 ms) until 06-voice measures the Polly clip and rewrites it as startMs + clip duration (DESC-013).
  * limitMs: placed cues only — the end of the gap the cue was placed in, which the clip must not overrun (06-voice); absent on extended cues.
+ * event: an extended cue added because its shot carries a new plot event and could not be placed (DESC-020, fit or 06-voice); these
+ * count against the one-per-30 s cap — on-screen text cues and introducesNew cues do not.
  */
-export interface FitCue { startMs: number; endMs: number; text: string; extended: boolean; wordCount: number; shotIndex: number; limitMs?: number }
+export interface FitCue { startMs: number; endMs: number; text: string; extended: boolean; wordCount: number; shotIndex: number; limitMs?: number; event?: true }
 export const WPS = 160 / 60 // 2.67 words per second
 /** A description may start up to 1 s after its shot ends, never later (Gate C, approved 2026-10-01). */
 export const LATE_MS = 1000
@@ -24,11 +27,16 @@ const MIN_WORDS = 3
  * clause only beside at least half of the action's words — the rest (the action) is placed in the first gap it fits, and the text
  * clause becomes its own extended cue (splitText): TEXT_LEAD_MS before the action, never before the shot start or the end of the
  * previous placed cue; with no room for that lead, the action moves TEXT_LEAD_MS after the text cue when it still fits its gap.
+ * Dropped events (DESC-020, human 2026-10-10): a shot with no room that carries a new plot event (../plotEvent: a finite action verb the
+ * previous voiced cue did not say — "accepts bowl", "kneels beside…"; not a setting, light or expression) becomes an extended cue with
+ * `event: true`, its own description capped like any extended cue — at most one per EVENT_SPACING_MS (capEvents: the most new action
+ * verbs first). The plain AD track is unchanged: extended cues play only in Extended mode.
  * fitDescriptions passes safeShorten, so a model shortening that changes a fact falls back to shortenDeterministic.
  */
 export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, maxWords: number) => Promise<string> | string): Promise<FitCue[]> | FitCue[] {
   const free = gaps.map((g) => ({ ...g, cursor: g.startMs }))
   const out: FitCue[] = []
+  const events: EventCandidate[] = []
   const work = async () => {
     for (const s of shots) {
       if (s.sameAsPrev || !s.description) continue
@@ -69,11 +77,27 @@ export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, max
         placed = true
         break
       }
-      if (!placed && introducesNew(s.description)) out.push({ ...extended(s), ...await capExtended(s.description, shorten) })
+      if (placed) continue
+      if (introducesNew(s.description)) { out.push({ ...extended(s), ...await capExtended(s.description, shorten) }); continue }
+      const previous = [...out].reverse().find((x) => !x.extended)?.text ?? '' // the previous placed cue: what the AD track said, whatever the mode
+      const verbs = plotEvents(s.description, previous)
+      if (verbs.length) events.push({ cue: { ...extended(s), ...await capExtended(s.description, shorten), event: true }, verbs: verbs.length, fresh: newWords(s.description, previous) })
     }
-    return out.sort(byStart)
+    return [...out, ...capEvents(events)].sort(byStart)
   }
   return work()
+}
+
+/** A shot fit could not place whose description carries a new plot event: the extended cue it would become, and how much is new in it. */
+export interface EventCandidate { cue: FitCue; verbs: number; fresh: number }
+/**
+ * The cap (DESC-020): of the event candidates, those at least EVENT_SPACING_MS from every other chosen one — taken in order of most new
+ * action verbs, then most new content words, then earliest; so where two events compete for one 30 s window the richer one is heard.
+ */
+export function capEvents(events: readonly EventCandidate[]): FitCue[] {
+  const chosen: FitCue[] = []
+  for (const e of [...events].sort((a, b) => b.verbs - a.verbs || b.fresh - a.fresh || a.cue.startMs - b.cue.startMs)) if (eventSpaced(chosen.map((c) => c.startMs), e.cue.startMs)) chosen.push(e.cue)
+  return chosen
 }
 
 /** A pause (extended cue) is checked against playback position 4 times a second; on the action's own ms it cut the action's first syllable. */

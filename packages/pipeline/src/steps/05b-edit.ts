@@ -1,14 +1,16 @@
 import { copyFile, readFile, writeFile } from 'node:fs/promises'
 import { z } from 'zod'
-import { stemmer } from 'stemmer'
 import type { Ctx } from './index'
 import type { Described } from './04-describe'
 import type { Word } from './03-speech'
 import { textClauses, type FitCue } from './05-fit'
 import { NEXT_CUE_SPACING_MS } from './06-voice'
 import { textSpans } from '../textClause'
+import { contentWords, stem } from '../contentWords'
 import { editRequest, editModelId, shortenEditWithNovaLite, stripFence, type EditConverse, type EditCueInput, bedrockEditSend } from '../prompts'
 import { meter } from '../cost'
+
+export { contentWords, stem } from '../contentWords'
 
 /** fit's cues as fit wrote them (05-fit); the edit step always starts from this file, so re-running it (a finish-job retry, --from edit) is idempotent. */
 export const FIT_CUES_FILE = 'cues.fit.json'
@@ -150,8 +152,11 @@ export function replyEdits(reply: unknown): Edit[] | undefined {
   return parsed.success ? parsed.data.edits : undefined
 }
 
-/** A word-count annotation as Nova Lite writes one: "(9 words)", "[9 words]", "9 words", "— 9 words", "Word count: 9", "(Word count: 9)". */
-const COUNT = String.raw`[([]?\s*(?:(?:word\s*count|words?)\s*[:=]?\s*\d+|\d+\s*words?)\s*[)\]]?`
+/**
+ * A word-count annotation as Nova Lite writes one: "(9 words)", "[9 words]", "9 words", "— 9 words", "Word count: 9", "(Word count: 9)".
+ * Whole words only: "9 wordsmiths gather" and "raises a sword 2" are text.
+ */
+const COUNT = String.raw`[([]?\s*(?:\b(?:word\s*count|words?)\s*[:=]?\s*\d+\b|\b\d+\s*words?\b)\s*[)\]]?`
 const LEADING_COUNT = new RegExp(String.raw`^\s*(?:${COUNT})\s*[:.,;—–-]?\s*`, 'i')
 const TRAILING_COUNT = new RegExp(String.raw`\s*[—–-]?\s*(?:${COUNT})\s*\.?\s*$`, 'i')
 /**
@@ -160,8 +165,26 @@ const TRAILING_COUNT = new RegExp(String.raw`\s*[—–-]?\s*(?:${COUNT})\s*\.?\
  */
 export function cleanShortening(reply: string): string {
   let t = reply.trim()
-  for (let k = 0; k < 3; k++) t = t.replace(LEADING_COUNT, '').replace(TRAILING_COUNT, '').trim().replace(/^["'“”‘’«»]+|["'“”‘’«»]+$/g, '').trim()
+  for (let k = 0; k < 3; k++) t = unquote(t.replace(LEADING_COUNT, '').replace(TRAILING_COUNT, '').trim())
   return t.replace(/\s+/g, ' ')
+}
+/** Are the quotes inside a wrapping pair balanced (straight quotes in even numbers, each curly or angle opener closed)? `"a "b"` is not: its last quote is the clause's. */
+const balanced = (inner: string) => {
+  const n = (q: string) => inner.split(q).length - 1
+  return n('"') % 2 === 0 && n("'") % 2 === 0 && n('«') === n('»') && (n('“') === n('”') || n('„') === n('“'))
+}
+/** Opening quote → the closing quote that pairs with it around a whole reply. */
+const QUOTE_PAIRS: Record<string, string> = { '"': '"', "'": "'", '“': '”', '‘': '’', '«': '»', '»': '«', '„': '“' }
+/**
+ * Wrapping quotes come off only as a matching pair around the whole reply (“…”, "…", «…»), or — any run of leading or trailing quote
+ * marks — when no on-screen text clause runs to the end of the line: the closing quote of `Words appear: “The End.”` or `… "SINTEL"` is
+ * the clause's own, and stripping it changed the clause (the guard then rejected the edit as "on-screen text clause changed").
+ */
+function unquote(t: string): string {
+  const close = QUOTE_PAIRS[t[0] ?? '']
+  if (close && t.length > 1 && t.endsWith(close) && balanced(t.slice(1, -1))) return t.slice(1, -1).trim()
+  if (textSpans(t).some((s) => s.end >= t.length)) return t
+  return t.replace(/^["'“”‘’«»„]+|["'“”‘’«»„]+$/g, '').trim()
 }
 
 export const wordCount = (t: string) => t.trim().split(/\s+/).filter(Boolean).length
@@ -258,26 +281,7 @@ export function factWords(original: string, previous: string): string[] {
 const DROPPABLE = new Set(['large', 'small', 'big', 'little', 'tiny', 'huge', 'tall', 'short', 'long', 'wide', 'narrow', 'thick', 'thin', 'heavy', 'old', 'young', 'ancient', 'bright', 'dim', 'faint', 'soft', 'rough', 'smooth', 'sharp', 'wooden', 'snowy', 'rocky', 'icy', 'dusty', 'muddy', 'wet', 'dry', 'distant', 'nearby', 'vast', 'massive', 'slender', 'ornate', 'simple', 'various', 'several',
   'slowly', 'quickly', 'suddenly', 'gently', 'quietly', 'softly', 'carefully', 'briefly', 'slightly', 'rapidly', 'swiftly', 'steadily', 'firmly', 'tightly', 'calmly', 'silently', 'gracefully', 'cautiously', 'intently'])
 
-/**
- * Function words an edit may use freely: articles, linking conjunctions, case prepositions, auxiliaries, demonstratives. Everything
- * that changes a fact must trace to the allowed text instead: negations (not, no, nicht, kein), quantifiers (all, both, more, one,
- * another), again / same / still, gendered pronouns (he, she, his, her, er, sie, ihr, sein) and spatial words (over, under, behind,
- * left, über, hinter …) are deliberately not here.
- */
-const STOP = new Set([
-  'a', 'an', 'the', 'and', 'or', 'but', 'then', 'as', 'while', 'when', 'of', 'in', 'on', 'at', 'to', 'from', 'by', 'for', 'with',
-  'is', 'are', 'be', 'been', 'being', 'has', 'have', 'does', 'do', 'it', 'its', 'they', 'them', 'their', 'this', 'that', 'these', 'those', 'there', 'who', 'which', 'what', 'also', 'too', 'so',
-  // German
-  'der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einen', 'einem', 'einer', 'und', 'oder', 'aber', 'dann', 'als', 'während', 'mit', 'von', 'vom', 'im', 'an', 'am', 'auf', 'zu', 'zum', 'zur', 'aus', 'bei', 'ist', 'sind', 'hat', 'haben', 'es', 'dieser', 'diese', 'dieses', 'auch',
-])
-export const contentWords = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}\s'-]/gu, ' ').split(/\s+/).map((w) => w.replace(/^['-]+|['-]+$/g, '').replace(/'s$/, '')).filter((w) => w && !STOP.has(w))
-
-/**
- * One canonical stem per word: Porter (the `stemmer` package, MIT, no dependencies — a hand-rolled candidate-set stemmer matched
- * stars ~ stares and car ~ caring). Two words match when their stems are equal: walks ~ walking ~ walk, fired ~ fire, but fir ≠ fired,
- * scar ≠ scared. Porter is English; a German inflection matches only when written the same (so the guard is stricter in German).
- */
-export const stem = (word: string) => stemmer(word.toLowerCase())
+// contentWords / stem (the STOP list, the Porter stem): ../contentWords, shared with the plot-event test (DESC-020); re-exported above.
 
 export interface DialogueTurn { start: number; end: number; speaker?: string; text: string }
 /** Speaker turns (words joined, speaker changes split) overlapping [fromMs, toMs], for the model's "what the viewer hears" context. */

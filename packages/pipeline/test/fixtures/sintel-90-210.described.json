@@ -1,0 +1,324 @@
+[
+  {
+    "index": 0,
+    "startMs": 0,
+    "endMs": 5604,
+    "part": {
+      "of": 2,
+      "i": 0
+    },
+    "description": "Words appear: SINTEL. A lone figure walks left across snow, mountains loom behind.",
+    "sameAsPrev": false,
+    "tokens": 0,
+    "outputTokens": 0,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 1,
+    "startMs": 5604,
+    "endMs": 11208,
+    "part": {
+      "of": 2,
+      "i": 1
+    },
+    "description": "The figure falls prone in the snow. The logo fades.",
+    "sameAsPrev": false,
+    "tokens": 3008,
+    "outputTokens": 13,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 2,
+    "startMs": 11208,
+    "endMs": 15271,
+    "part": {
+      "of": 2,
+      "i": 0
+    },
+    "description": "Darkness. A fire pit glows faintly in a dim room.",
+    "sameAsPrev": false,
+    "tokens": 0,
+    "outputTokens": 0,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 3,
+    "startMs": 15271,
+    "endMs": 19333,
+    "part": {
+      "of": 2,
+      "i": 1
+    },
+    "description": "A figure leans forward, gripping a staff.",
+    "sameAsPrev": false,
+    "tokens": 2103,
+    "outputTokens": 10,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 4,
+    "startMs": 19333,
+    "endMs": 25833,
+    "description": "Bearded man holds ornate staff. Red-haired woman watches.",
+    "sameAsPrev": false,
+    "tokens": 0,
+    "outputTokens": 0,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 5,
+    "startMs": 25833,
+    "endMs": 28125,
+    "description": "Red-haired girl watches man stir pot over fire.",
+    "sameAsPrev": false,
+    "tokens": 0,
+    "outputTokens": 0,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 6,
+    "startMs": 28125,
+    "endMs": 30042,
+    "description": "The woman with short red hair and a grey tank top blinks slowly, her expression unreadable in the dim, warm light.",
+    "sameAsPrev": false,
+    "tokens": 0,
+    "outputTokens": 0,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 7,
+    "startMs": 30042,
+    "endMs": 33125,
+    "description": "Old man pours broth.",
+    "sameAsPrev": false,
+    "tokens": 0,
+    "outputTokens": 0,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 8,
+    "startMs": 33125,
+    "endMs": 36333,
+    "description": "Red-haired girl accepts bowl.",
+    "sameAsPrev": false,
+    "tokens": 0,
+    "outputTokens": 0,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 9,
+    "startMs": 36333,
+    "endMs": 41000,
+    "description": "Tent interior. Fire glows.",
+    "sameAsPrev": false,
+    "tokens": 0,
+    "outputTokens": 0,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 10,
+    "startMs": 41000,
+    "endMs": 44042,
+    "description": "Red-haired woman opens eyes.",
+    "sameAsPrev": false,
+    "tokens": 0,
+    "outputTokens": 0,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 11,
+    "startMs": 44042,
+    "endMs": 48125,
+    "description": "Two hands hold a reddish-brown bowl; a pale, veiled face slowly rises within its milky liquid.",
+    "sameAsPrev": false,
+    "tokens": 0,
+    "outputTokens": 0,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 12,
+    "startMs": 48125,
+    "endMs": 51000,
+    "description": "Bearded man with red face paint speaks.",
+    "sameAsPrev": false,
+    "tokens": 0,
+    "outputTokens": 0,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 13,
+    "startMs": 51000,
+    "endMs": 58417,
+    "part": {
+      "of": 2,
+      "i": 0
+    },
+    "description": "Red-haired woman looks down, then darkness swallows scene.",
+    "sameAsPrev": false,
+    "tokens": 0,
+    "outputTokens": 0,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 14,
+    "startMs": 58417,
+    "endMs": 65833,
+    "part": {
+      "of": 2,
+      "i": 1
+    },
+    "description": "Dawn breaks over city.",
+    "sameAsPrev": false,
+    "tokens": 3000,
+    "outputTokens": 7,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 15,
+    "startMs": 65833,
+    "endMs": 72083,
+    "description": "Red-haired woman in brown clothes lifts wooden plank in ruined alley between stone buildings.",
+    "sameAsPrev": false,
+    "tokens": 0,
+    "outputTokens": 0,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 16,
+    "startMs": 72083,
+    "endMs": 79813,
+    "part": {
+      "of": 2,
+      "i": 0
+    },
+    "description": "The woman with red hair grabs a dark sleeve, then holds up a red apple, standing in a sunlit courtyard.",
+    "sameAsPrev": false,
+    "tokens": 0,
+    "outputTokens": 0,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 17,
+    "startMs": 79813,
+    "endMs": 87542,
+    "part": {
+      "of": 2,
+      "i": 1
+    },
+    "description": "She turns, holding a spiky green fruit, then walks away.",
+    "sameAsPrev": false,
+    "tokens": 3013,
+    "outputTokens": 16,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 18,
+    "startMs": 87542,
+    "endMs": 90125,
+    "description": "Red-haired woman climbs stone steps, scales wall.",
+    "sameAsPrev": false,
+    "tokens": 0,
+    "outputTokens": 0,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 19,
+    "startMs": 90125,
+    "endMs": 92042,
+    "description": "Red-haired woman climbs brick rooftop.",
+    "sameAsPrev": false,
+    "tokens": 0,
+    "outputTokens": 0,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 20,
+    "startMs": 92042,
+    "endMs": 94375,
+    "description": "Small dragon bleeds on stone roof tiles.",
+    "sameAsPrev": false,
+    "tokens": 0,
+    "outputTokens": 0,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 21,
+    "startMs": 94375,
+    "endMs": 96708,
+    "description": "Pink-haired woman in gray tank top stands near stone wall.",
+    "sameAsPrev": false,
+    "tokens": 0,
+    "outputTokens": 0,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 22,
+    "startMs": 96708,
+    "endMs": 99792,
+    "description": "Small dragon clutches bleeding wing on stone roof.",
+    "sameAsPrev": false,
+    "tokens": 0,
+    "outputTokens": 0,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 23,
+    "startMs": 99792,
+    "endMs": 101875,
+    "description": "Red-haired woman in gray tank top stares.",
+    "sameAsPrev": false,
+    "tokens": 0,
+    "outputTokens": 0,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 24,
+    "startMs": 101875,
+    "endMs": 104667,
+    "description": "Red-haired woman kneels beside bleeding creature on cobblestones.",
+    "sameAsPrev": false,
+    "tokens": 0,
+    "outputTokens": 0,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 25,
+    "startMs": 104667,
+    "endMs": 107625,
+    "description": "Hand reaches toward small dragon on stone roof.",
+    "sameAsPrev": false,
+    "tokens": 0,
+    "outputTokens": 0,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 26,
+    "startMs": 107625,
+    "endMs": 113125,
+    "description": "A scaled creature with horns and bloodied wing looks up as a gloved hand reaches toward it.",
+    "sameAsPrev": false,
+    "tokens": 0,
+    "outputTokens": 0,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 27,
+    "startMs": 113125,
+    "endMs": 116000,
+    "description": "Red-haired woman smiles. Scaly beast roars.",
+    "sameAsPrev": false,
+    "tokens": 0,
+    "outputTokens": 0,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 28,
+    "startMs": 116000,
+    "endMs": 120000,
+    "description": "Red-haired girl holds book.",
+    "sameAsPrev": false,
+    "tokens": 0,
+    "outputTokens": 0,
+    "stopReason": "end_turn"
+  }
+]

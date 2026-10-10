@@ -99,6 +99,26 @@ describe('edit (scene-level context pass)', () => {
     }
     expect(cleanShortening('Two men walk 11 words apart.')).toBe('Two men walk 11 words apart.') // only a leading or trailing annotation
     expect(cleanShortening('(9 words)')).toBe('')
+    // whole words only
+    expect(cleanShortening('9 wordsmiths gather at the forge.')).toBe('9 wordsmiths gather at the forge.')
+    expect(cleanShortening('A man raises a sword 2')).toBe('A man raises a sword 2')
+    expect(cleanShortening('Swordsmen 3 words apart.')).toBe('Swordsmen 3 words apart.')
+  })
+
+  it('strips wrapping quotes only as a matching pair, or when no on-screen text clause runs to the end of the line', () => {
+    expect(cleanShortening('“Old man pours broth.”')).toBe('Old man pours broth.')
+    expect(cleanShortening('"Old man pours broth." (4 words)')).toBe('Old man pours broth.')
+    expect(cleanShortening('«Der alte Mann gießt Brühe ein.»')).toBe('Der alte Mann gießt Brühe ein.')
+    expect(cleanShortening('"Snow falls. Words appear: "SINTEL""')).toBe('Snow falls. Words appear: "SINTEL"')
+    // the closing quote belongs to the clause
+    expect(cleanShortening('Words appear: “The End.”')).toBe('Words appear: “The End.”')
+    expect(cleanShortening('Snow falls. Words appear: "SINTEL"')).toBe('Snow falls. Words appear: "SINTEL"')
+    expect(cleanShortening('Snow falls. Words appear: "SINTEL". 5 words')).toBe('Snow falls. Words appear: "SINTEL".')
+    expect(cleanShortening('Snow falls."')).toBe('Snow falls.') // a stray quote with no clause at the end
+    expect(cleanShortening('"Snow falls. Words appear: "SINTEL"')).toBe('"Snow falls. Words appear: "SINTEL"') // the last quote is the clause's: not a pair
+    const cues: FitCue[] = [{ startMs: 0, endMs: 3000, text: 'Snow falls. Words appear: “The End.”', extended: false, wordCount: 6, shotIndex: 0, limitMs: 9000 }]
+    const end: Described[] = [{ index: 0, startMs: 0, endMs: 4000, description: 'Snow falls on the hills. Words appear: “The End.”', sameAsPrev: false, tokens: 0, outputTokens: 0 }]
+    expect(applyEdits(cues, end, [{ cue: 0, text: cleanShortening('Snow falls on hills. Words appear: “The End.”') }], [9]).applied).toHaveLength(1)
   })
 
   it('names the facts the cue must keep — in the edit input and first in the shortening request', async () => {
