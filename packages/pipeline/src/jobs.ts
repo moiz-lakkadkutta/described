@@ -47,8 +47,8 @@ export type Boss = Pick<PgBoss, 'createQueue' | 'updateQueue' | 'send' | 'work'>
 export type Db = Pick<PrismaClient, 'title' | 'job' | 'shot' | 'gap' | 'descriptionCue' | 'rendition' | 'textTrack' | '$transaction'>
 export interface Deps { boss: Boss; db: Db; run?: (step: JobStep, ctx: Ctx) => Promise<void>; timeoutMs?: number }
 
-/** Steps 6–10 in order, with validate between package and publish. */
-const STEPS_6_10 = STEPS.slice(STEPS.indexOf('voice'))
+/** Every step after fit (edit, voice … publish) in order, with validate between package and publish. */
+const STEPS_6_10 = STEPS.slice(STEPS.indexOf('fit') + 1)
 export const runJobStep = async (step: JobStep, ctx: Ctx) => { if (step !== 'finish') return runStep(step, ctx); for (const s of STEPS_6_10) await runStep(s, ctx) }
 
 /** Creates (idempotent) and updates the queues, then one worker per step and one for the dead letters. */

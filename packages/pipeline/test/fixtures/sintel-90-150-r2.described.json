@@ -1,0 +1,152 @@
+[
+  {
+    "index": 0,
+    "startMs": 0,
+    "endMs": 5604,
+    "description": "Snowy mountains. A lone figure walks left, carrying a spear. Words appear: SINTEL.",
+    "sameAsPrev": false,
+    "tokens": 2959,
+    "outputTokens": 22,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 1,
+    "startMs": 5604,
+    "endMs": 11208,
+    "description": "Snowy mountains. A figure walks, falls. Logo fades. Words appear: SINTEL.",
+    "sameAsPrev": false,
+    "tokens": 2959,
+    "outputTokens": 21,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 2,
+    "startMs": 11208,
+    "endMs": 15271,
+    "description": "Darkness. A faint fire glows in a stone pit.",
+    "sameAsPrev": false,
+    "tokens": 2059,
+    "outputTokens": 14,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 3,
+    "startMs": 15271,
+    "endMs": 19333,
+    "description": "Dark room. Fire burns.",
+    "sameAsPrev": false,
+    "tokens": 2058,
+    "outputTokens": 7,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 4,
+    "startMs": 19333,
+    "endMs": 25833,
+    "description": "Bearded man holds ornate staff. Red-haired woman watches.",
+    "sameAsPrev": false,
+    "tokens": 2958,
+    "outputTokens": 14,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 5,
+    "startMs": 25833,
+    "endMs": 28125,
+    "description": "Red-haired girl watches man stir pot over fire.",
+    "sameAsPrev": false,
+    "tokens": 1608,
+    "outputTokens": 11,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 6,
+    "startMs": 28125,
+    "endMs": 30042,
+    "description": "Red-haired woman in gray tank top, dim light, eyes close slowly, tattoo visible on left shoulder.",
+    "sameAsPrev": false,
+    "tokens": 1609,
+    "outputTokens": 22,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 7,
+    "startMs": 30042,
+    "endMs": 33125,
+    "description": "Old man pours broth.",
+    "sameAsPrev": false,
+    "tokens": 1608,
+    "outputTokens": 6,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 8,
+    "startMs": 33125,
+    "endMs": 36333,
+    "description": "Red-haired girl accepts bowl.",
+    "sameAsPrev": false,
+    "tokens": 1608,
+    "outputTokens": 7,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 9,
+    "startMs": 36333,
+    "endMs": 41000,
+    "description": "Tent interior. Fire glows.",
+    "sameAsPrev": false,
+    "tokens": 2508,
+    "outputTokens": 9,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 10,
+    "startMs": 41000,
+    "endMs": 44042,
+    "description": "Red-haired woman opens eyes.",
+    "sameAsPrev": false,
+    "tokens": 1608,
+    "outputTokens": 7,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 11,
+    "startMs": 44042,
+    "endMs": 48125,
+    "description": "Two hands hold a terracotta bowl; a pale, veiled face slowly rises within the milky liquid, eyes opening.",
+    "sameAsPrev": false,
+    "tokens": 2059,
+    "outputTokens": 27,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 12,
+    "startMs": 48125,
+    "endMs": 51000,
+    "description": "Bearded man with nose piercings speaks.",
+    "sameAsPrev": false,
+    "tokens": 1608,
+    "outputTokens": 11,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 13,
+    "startMs": 51000,
+    "endMs": 55500,
+    "description": "Red-haired woman stares intently forward.",
+    "sameAsPrev": false,
+    "tokens": 2508,
+    "outputTokens": 9,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 14,
+    "startMs": 55500,
+    "endMs": 60000,
+    "description": "Darkness. Faint red sparks drift downward.",
+    "sameAsPrev": false,
+    "tokens": 2508,
+    "outputTokens": 11,
+    "stopReason": "end_turn"
+  }
+]
