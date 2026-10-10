@@ -54,12 +54,15 @@ describe('sintel-90-150-r2 golden replay', () => {
     expect(asked[1]).toBe(recorded[0]!.description) // shot 1 was asked only for what is new since shot 0
     expect(asked.filter((a) => a !== undefined)).toHaveLength(1)
     const described = dedupe(shots, replies)
-    // even when the model repeats itself (the recorded reply), the continuation is not voiced
-    expect(described[1]).toMatchObject({ sameAsPrev: true })
-    expect(described.filter((d) => d.sameAsPrev).map((d) => d.index)).toEqual([1])
+    // even when the model repeats itself (the recorded reply), only the new sentences of the continuation are kept
+    expect(described[1]).toMatchObject({ description: 'A figure walks, falls. Logo fades.', sameAsPrev: false })
+    expect(described.filter((d) => d.sameAsPrev)).toEqual([])
     const voiced = await fitAndVoice(described)
-    expect(voiced.find((c) => c.shotIndex === 1)).toBeUndefined()
-    expect(voiced.find((c) => c.shotIndex === 0)!.text).toBe('Snowy mountains. A lone figure walks left, carrying a spear. Words appear: SINTEL.')
+    expect(voiced.filter((c) => c.shotIndex <= 1).map((c) => [c.shotIndex, c.text])).toEqual([
+      [0, 'Snowy mountains. Words appear: SINTEL.'], // shortened by 06-voice to end before shot 1's cue; the text survives
+      [1, 'A figure walks, falls. Logo fades.'],
+    ])
+    expect(voiced.filter((c) => c.text.includes('SINTEL'))).toHaveLength(1) // said once
   })
 
   it('the recorded r2 path (both halves placed, both clips over their limit) keeps SINTEL in each shortened cue', async () => {

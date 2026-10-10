@@ -2,6 +2,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import type { Ctx } from './index'
 import type { Described } from './04-describe'
 import type { Gap } from './03-speech'
+import { TEXT_LABEL, textSpans } from '../textClause'
 
 /**
  * endMs: fit's estimate (words / WPS + 300 ms) until 06-voice measures the Polly clip and rewrites it as startMs + clip duration (DESC-013).
@@ -19,6 +20,8 @@ const MIN_WORDS = 3
  * that call lives in ../prompts.shortenWithNovaLite and is injected so tests run without AWS.
  * Each shot scans the gaps in order for the first with ≥ MIN_WORDS of room starting in [shot start, shot end + LATE_MS];
  * describe *as* action occurs, never before. No room → an extended cue (≤ EXTENDED_WORDS) if introducesNew, else dropped.
+ * On-screen text that does not fit beside the rest (human, 2026-10-10): the rest — the action — is placed as usual, shortened, and
+ * the text clause becomes its own extended cue at the shot start (splitText). Neither is dropped.
  * fitDescriptions passes safeShorten, so a model shortening that changes a fact falls back to shortenDeterministic.
  */
 export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, maxWords: number) => Promise<string> | string): Promise<FitCue[]> | FitCue[] {
@@ -36,7 +39,14 @@ export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, max
         if (maxWords < MIN_WORDS) continue
         let text = s.description
         if (words(text) > maxWords) text = await shorten(text, maxWords)
-        if (words(text) > maxWords) continue
+        if (words(text) > maxWords) {
+          const c = textClauses(s.description)
+          if (!c?.rest) continue
+          text = c.rest
+          if (words(text) > maxWords) text = await shorten(text, maxWords)
+          if (words(text) > maxWords) continue
+          out.push({ ...extended(s), ...await capExtended(c.clause, shorten) })
+        }
         const end = Math.min(g.endMs, start + Math.round((words(text) / WPS) * 1000) + 300)
         out.push({ startMs: start, endMs: end, text, extended: false, wordCount: words(text), shotIndex: s.index, limitMs: g.endMs })
         g.cursor = end + 150
@@ -45,7 +55,7 @@ export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, max
       }
       if (!placed && introducesNew(s.description)) out.push({ ...extended(s), ...await capExtended(s.description, shorten) })
     }
-    return out.sort((a, b) => a.startMs - b.startMs)
+    return out.sort((a, b) => a.startMs - b.startMs) // stable: a split shot's text cue stays before its action cue
   }
   return work()
 }
@@ -67,7 +77,7 @@ export async function capExtended(text: string, shorten: (text: string, maxWords
     if (words(t) <= EXTENDED_WORDS) text = t
     else {
       const c = textClauses(text)
-      text = c && c.words <= EXTENDED_WORDS ? rejoin(c, c.rest && c.words < EXTENDED_WORDS ? cutAt(c.rest, EXTENDED_WORDS - c.words) : '', EXTENDED_WORDS) : cutAt(text, EXTENDED_WORDS)
+      text = c?.rest && c.words < EXTENDED_WORDS ? join(c, cutAt(c.rest, EXTENDED_WORDS - c.words)) : cutAt(text, EXTENDED_WORDS)
     }
   }
   return { text, wordCount: words(text) }
@@ -81,30 +91,35 @@ function cutAt(text: string, n: number) {
 }
 
 /**
- * On-screen text (DESC-017): "Words appear:" up to its sentence end, a quoted text kept whole. The most important fact of its shot —
- * shortening (deterministic, model, capExtended) never shortens or removes it; it shortens the rest to the words left beside it.
+ * On-screen text (DESC-017; ../textClause): a label ("Words appear:", or German "Text erscheint:" …) and the text, quoted or up to its
+ * sentence end. The most important fact of its shot — shortening (deterministic, model, capExtended) never shortens or removes it:
+ * it shortens the rest to the words left beside it. A clause that opened the text still opens it; a clause after other text is put
+ * back at the end, so a mid-text clause moves to the end when the text is shortened.
  */
-const TEXT_CLAUSE = /Words appear:\s*(?:"[^"]*"|“[^”]*”|[^.!?"“]*)[.!?]?/gi
-interface TextClauses { lead: string; tail: string; rest: string; words: number }
-/** text split into its text clauses (lead: one that opens the text; tail: the others) and the rest; undefined when it has none. */
+interface TextClauses { lead: string; tail: string; clause: string; rest: string; words: number }
+/** text split into its text clauses (lead: one that opens the text; tail: the others; clause: all of them) and the rest; undefined when it has none. */
 export function textClauses(text: string): TextClauses | undefined {
-  const m = text.match(TEXT_CLAUSE)?.map((x) => x.trim())
-  if (!m?.length) return undefined
-  const lead = text.trim().startsWith(m[0]!) ? m[0]! : ''
-  const rest = text.replace(TEXT_CLAUSE, ' ').replace(/\s+/g, ' ').trim()
-  return { lead, tail: (lead ? m.slice(1) : m).join(' '), rest, words: words(m.join(' ')) }
+  const spans = textSpans(text)
+  if (!spans.length) return undefined
+  const m = spans.map((x) => text.slice(x.start, x.end).trim())
+  const lead = text.slice(0, spans[0]!.start).trim() ? '' : m[0]!
+  let rest = '', at = 0
+  for (const x of spans) { rest += `${text.slice(at, x.start)} `; at = x.end }
+  rest = (rest + text.slice(at)).replace(/\s+/g, ' ').trim()
+  return { lead, tail: (lead ? m.slice(1) : m).join(' '), clause: m.join(' '), rest, words: words(m.join(' ')) }
 }
-/** The shortened rest put back beside the text clauses (a clause that opened the text still opens it; others follow); only the clauses when that does not fit. */
-function rejoin(c: TextClauses, short: string, maxWords: number) {
-  const all = [c.lead, short.trim(), c.tail].filter(Boolean).join(' ')
-  return words(all) <= maxWords ? all : [c.lead, c.tail].filter(Boolean).join(' ')
+/** The shortened rest put back beside the text clauses; a sentence end is added before a clause that follows it. */
+function join(c: TextClauses, short: string) {
+  let r = short.trim()
+  if (r && c.tail && !/[.!?]$/.test(r)) r = `${r.replace(/[,;:]$/, '')}.`
+  return [c.lead, r, c.tail].filter(Boolean).join(' ')
 }
 
 /**
  * Does the shot introduce a new character, location or on-screen text (PLAN §4.3)? Only those become extended cues.
  * Crude on purpose: "Words appear:", a scene-change sentence ("Night.", "A rooftop."), or a newly introduced person ("a man", "a woman").
  */
-export const introducesNew = (description: string) => /\b(words appear|night\.|day\.|a (man|woman|girl|boy)|rooftop|room|street)\b/i.test(description)
+export const introducesNew = (description: string) => new RegExp(TEXT_LABEL.source, 'iu').test(description) || /\b(night\.|day\.|a (man|woman|girl|boy)|rooftop|room|street)\b/i.test(description)
 
 /** The only words a shortening may add. Prepositions and pronouns change facts ("runs from" → "runs to", an added "her"). */
 const STOPWORDS = new Set(['a', 'an', 'the', 'and'])
@@ -145,15 +160,16 @@ const verbOrEnd = (next: string) => JOINERS.has(next.toLowerCase().replace(/[^a-
  * Deterministic shortening (PLAN §4.3): drop listed adjectives and adverbs that modify a following word, then drop clauses from
  * the end (sentence by sentence) until the text fits. Never drops a capitalised word mid-sentence (a name), nor an adjective used
  * as a noun ("the old walks": after an article, before a verb or the clause end). Only removes words. May still not fit; fit() decides.
- * Never touches an on-screen text clause (textClauses): the rest is shortened beside it, or dropped when only the clause fits, and a
- * clause that alone is over maxWords leaves the text unchanged so the cue becomes extended.
+ * Never touches an on-screen text clause (textClauses): the rest is shortened beside it. When the clause and some of the rest do not
+ * fit together the text comes back unchanged, and fit / 06-voice split it: the action placed, the text its own extended cue.
  */
 export function shortenDeterministic(text: string, maxWords: number): string {
   if (words(text) <= maxWords) return text
   const c = textClauses(text)
   if (!c) return shortenPlain(text, maxWords)
-  if (c.words > maxWords) return text // the text alone does not fit: nothing is removed, the cue becomes extended (fit, 06-voice)
-  return rejoin(c, c.rest && c.words < maxWords ? shortenPlain(c.rest, maxWords - c.words) : '', maxWords)
+  if (!c.rest || c.words >= maxWords) return text
+  const all = join(c, shortenPlain(c.rest, maxWords - c.words))
+  return words(all) <= maxWords ? all : text
 }
 function shortenPlain(text: string, maxWords: number): string {
   if (words(text) <= maxWords) return text
@@ -179,8 +195,9 @@ function shortenPlain(text: string, maxWords: number): string {
 export async function safeShorten(text: string, maxWords: number, model: (text: string, maxWords: number) => Promise<string> | string): Promise<string> {
   const c = words(text) > maxWords ? textClauses(text) : undefined
   if (!c) return safeShortenPlain(text, maxWords, model)
-  if (c.words >= maxWords || !c.rest) return shortenDeterministic(text, maxWords) // no room beside the text: no model call
-  return rejoin(c, await safeShortenPlain(c.rest, maxWords - c.words, model), maxWords)
+  if (!c.rest || c.words >= maxWords) return text // no room beside the text: no model call; fit splits it
+  const all = join(c, await safeShortenPlain(c.rest, maxWords - c.words, model))
+  return words(all) <= maxWords ? all : text
 }
 async function safeShortenPlain(text: string, maxWords: number, model: (text: string, maxWords: number) => Promise<string> | string): Promise<string> {
   const m = (await model(text, maxWords)).trim()

@@ -3,7 +3,7 @@ import { execa } from 'execa'
 import { readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { z } from 'zod'
 import type { Ctx } from './index'
-import { capExtended, introducesNew, shortenDeterministic, type FitCue } from './05-fit'
+import { capExtended, introducesNew, shortenDeterministic, textClauses, type FitCue } from './05-fit'
 import { cueAudioFile } from '../cues'
 import { meter, pollyUsd } from '../cost'
 
@@ -59,7 +59,9 @@ const words = (t: string) => t.trim().split(/\s+/).filter(Boolean).length
  * 2. A placed cue's limit is min(limitMs, start of the next placed cue in cues.json − NEXT_CUE_SPACING_MS): fit's start times are
  *    fixed by now, so a clip longer than fit's estimate must not run into the next cue of the same gap. A clip ending past
  *    limit + OVERRUN_TOLERANCE_MS is shortened deterministically to max(3, ⌊words × (limit − startMs) / durationMs⌋) words and
- *    synthesized once more. Still over: it becomes an extended cue
+ *    synthesized once more. Still over and the text has on-screen text beside other words (human, 2026-10-10): split — the rest,
+ *    shortened to fit, stays in this slot, and the text clause becomes its own extended cue at the same start (voiced after the
+ *    loop, cues re-slotted in start order, the text cue before the action). Still over: it becomes an extended cue
  *    when the text introduces something new (capped like fit's extended cues), else it is dropped.
  * 3. cues.json is written back with endMs = startMs + durationMs for every kept cue; 07-mix and 08-text read those ends.
  * Clips keep following cues.json indices: a kept cue after a dropped one moves down (cue_{i} → cue_{j}), and every
@@ -85,7 +87,8 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
     await writeFile(`${ctx.work}/${cueSidecarFile(i)}`, JSON.stringify({ text, voice: ctx.voice, language, ssml: cueSsml(text), durationMs } satisfies CueSidecar))
     return durationMs
   }
-  const kept: FitCue[] = []
+  let kept: FitCue[] = []
+  const texts: FitCue[] = [] // extended on-screen text cues split off overrunning cues; voiced after the loop
   for (const [i, c] of cues.entries()) {
     ctx.signal?.throwIfAborted()
     let text = c.text
@@ -97,6 +100,16 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
       const maxWords = Math.max(3, Math.floor((words(text) * (limit - c.startMs)) / durationMs))
       const shorter = shortenDeterministic(text, maxWords)
       if (shorter !== text) { text = shorter; durationMs = await synth(i, text) }
+      const tc = c.startMs + durationMs > limit + OVERRUN_TOLERANCE_MS ? textClauses(text) : undefined
+      if (tc?.rest) {
+        const fitWords = Math.max(3, Math.floor((words(text) * (limit - c.startMs)) / durationMs))
+        const { limitMs: _, ...rest } = c
+        const clause = (await capExtended(tc.clause, shortenDeterministic)).text
+        texts.push({ ...rest, endMs: c.startMs + 100, text: clause, extended: true, wordCount: words(clause) })
+        console.log(`voice: cue ${i} at ${c.startMs} ms: on-screen text split into its own extended cue: ${JSON.stringify(clause)}`)
+        text = shortenDeterministic(tc.rest, fitWords)
+        durationMs = await synth(i, text)
+      }
       if (c.startMs + durationMs > limit + OVERRUN_TOLERANCE_MS) {
         if (introducesNew(text)) {
           const capped = (await capExtended(text, shortenDeterministic)).text
@@ -115,9 +128,25 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
     if (j !== i) for (const f of [cueAudioFile, cueSidecarFile]) await rename(`${ctx.work}/${f(i)}`, `${ctx.work}/${f(j)}`)
     kept.push({ ...cue, text, endMs: cue.startMs + durationMs, wordCount: words(text) })
   }
+  if (texts.length) kept = await withTextCues(ctx.work, kept, texts, synth, (i, text) => reusable(ctx.work, i, { text, voice: ctx.voice, language, ssml: cueSsml(text) }))
   await removeCueFilesFrom(ctx.work, kept.length)
   warnOverlaps(kept)
   await writeFile(`${ctx.work}/cues.json`, JSON.stringify(kept, null, 2))
+}
+
+/**
+ * Merges split-off text cues into the kept cues in start order (a text cue before a kept cue of the same start), moves every kept
+ * clip to its new slot (through temporary names, so no clip overwrites one not yet moved), then voices each text cue in its slot.
+ */
+async function withTextCues(work: string, kept: FitCue[], texts: FitCue[], synth: (i: number, text: string) => Promise<number>, reuse: (i: number, text: string) => Promise<number | undefined>): Promise<FitCue[]> {
+  const all = [...kept.map((c, from) => ({ c, from })), ...texts.map((c) => ({ c, from: -1 }))]
+  all.sort((a, b) => a.c.startMs - b.c.startMs || (a.from < 0 ? -1 : 0) - (b.from < 0 ? -1 : 0))
+  const moves = all.flatMap(({ from }, to) => (from >= 0 && from !== to ? [{ from, to }] : []))
+  const files = [cueAudioFile, cueSidecarFile]
+  for (const { from } of moves) for (const f of files) await rename(`${work}/${f(from)}`, `${work}/moving_${f(from)}`)
+  for (const { from, to } of moves) for (const f of files) await rename(`${work}/moving_${f(from)}`, `${work}/${f(to)}`)
+  for (const [to, x] of all.entries()) if (x.from < 0) x.c = { ...x.c, endMs: x.c.startMs + ((await reuse(to, x.c.text)) ?? await synth(to, x.c.text)) }
+  return all.map((x) => x.c)
 }
 
 /** The stored clip's duration when cue_{i}.mp3 exists and its sidecar matches; undefined otherwise. */

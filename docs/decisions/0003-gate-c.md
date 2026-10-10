@@ -86,8 +86,16 @@ The margin is thin (2.4 points): follow-ups are a shortener that may not change 
 
 Found on the Fire TV Stick in `sintel-90-150-r2`: shots 0 and 1, the two halves of one 11.2 s camera shot (`shotsFromCuts` splits
 > 8 s), were described from scratch and both voiced; and 06-voice's overrun shortening cut "Words appear: SINTEL." from both cues.
-1. Split parts carry `part: { of, i }`. A later part's request — and only that request — appends what the earlier parts said and one
-   instruction: say only what is new, or reply exactly SAME (the system prompt is unchanged). In `dedupe`, a later part whose content
-   words are ≥ 60 % already said by its earlier parts is not voiced (`CONTINUATION_REPEAT`, tuned on r2: shot 1 = 0.625).
-2. Shortening (deterministic, model, `capExtended`) never shortens or removes a "Words appear: …" clause; the model shortener never
-   sees it. When only the clause fits, only the clause is voiced; when it alone does not fit, the cue becomes extended.
+1. Split parts carry `part: { of, i }`. Each camera shot is described as one sequential chain. A later part's request — and only
+   that request — appends what the first and the previous part said and one instruction: say only what is new, or reply exactly
+   SAME (the system prompt is unchanged). In `dedupe`, a later part keeps only its sentences with a content word not already said;
+   with none left it is not voiced (r2 shot 1 → "A figure walks, falls. Logo fades."). A share-of-words rule was rejected in review:
+   the stable descriptor the prompt requires made "The woman in the red coat draws a gun." look like a repeat. SAME is recognised in
+   any case, as are "Nothing new." / "No new information." / "Nichts Neues." / "Gleich.".
+2. Shortening (deterministic, model, `capExtended`) never shortens or removes on-screen text ("Words appear:", or German
+   "Text erscheint:" / "Wörter erscheinen:" / "Schrift erscheint:"); the model shortener never sees it. A clause after other text is
+   put back at the end when the text is shortened.
+3. **Decision (human, 2026-10-10): split.** When the on-screen text does not fit the gap budget together with the action, the action
+   is placed as a normal cue in the gap (shortened, text removed) and the text clause becomes its own extended cue at the shot start —
+   in 05-fit, and in 06-voice when an overrunning clip cannot keep the text beside the action. Neither is dropped. Cues stay sorted by
+   start (the text cue before its action cue); extended cues never count toward overlap.

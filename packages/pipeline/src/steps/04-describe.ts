@@ -8,6 +8,7 @@ import type { Shot } from './02-shots'
 import type { Gap, Word } from './03-speech'
 import { describeSystemPrompt, wordBudget } from '../prompts'
 import { meter } from '../cost'
+import { sentences, TEXT_LABEL, textSpans } from '../textClause'
 
 /** `tokens` = Converse input tokens (the Prisma `novaTokens` column); `outputTokens` is kept alongside for the docs/aws.md run log. */
 export interface Described extends Shot { description: string; sameAsPrev: boolean; tokens: number; outputTokens: number; stopReason?: string }
@@ -69,30 +70,34 @@ export async function mapLimit<T, R>(items: T[], n: number, fn: (t: T) => Promis
 }
 
 /**
- * Describes every shot, at most n at once, in rounds by part: first every whole shot and every first part, then every second part,
- * and so on, so part k is asked once parts 0…k−1 have replied. `said` is what those earlier parts said (alreadySaid); undefined
- * for a whole shot or a first part. Replies keep the input order.
+ * Describes every shot, at most n camera shots at once. Each camera shot is one sequential chain — a whole shot, or its parts in
+ * order, so part k is asked once part k−1 has replied — and the longest chains start first so they do not finish last. `said` is
+ * what the earlier parts said (alreadySaid); undefined for a whole shot or a first part. Replies keep the input order.
  */
 export async function describeInParts(shots: Shot[], n: number, one: (s: Shot, said: string | undefined) => Promise<RawReply>, signal?: AbortSignal): Promise<RawReply[]> {
   const out = new Array<RawReply>(shots.length)
-  const rounds = Math.max(0, ...shots.map((s) => (s.part?.i ?? 0) + 1))
-  for (let k = 0; k < rounds; k++) {
-    const at = shots.flatMap((s, i) => ((s.part?.i ?? 0) === k ? [i] : []))
-    const texts = out.map((r) => r?.text ?? '')
-    const rs = await mapLimit(at, n, (i) => one(shots[i]!, alreadySaid(shots, texts, i)), signal)
-    at.forEach((i, j) => { out[i] = rs[j]! })
-  }
+  const chains: number[][] = []
+  shots.forEach((s, i) => { if (!s.part?.i || !chains.length) chains.push([i]); else chains.at(-1)!.push(i) })
+  chains.sort((a, b) => b.length - a.length) // stable: equal chains keep time order
+  await mapLimit(chains, n, async (chain) => {
+    for (const i of chain) {
+      signal?.throwIfAborted()
+      out[i] = await one(shots[i]!, alreadySaid(shots, out.map((r) => r?.text ?? ''), i))
+    }
+  }, signal)
   return out
 }
 
 /**
- * What the earlier parts of shot i's camera shot said: their cleaned replies (parseDescription), SAME and empty ones skipped,
- * joined in time order. undefined when shot i is not a later part, or nothing was said. texts[j] is shot j's raw reply.
+ * What the earlier parts of shot i's camera shot said: the first part's and the previous part's cleaned replies (parseDescription),
+ * SAME and empty ones skipped, in time order — capped at two so a long chain's request does not grow. undefined when shot i is not
+ * a later part, or nothing was said. texts[j] is shot j's raw reply.
  */
 export function alreadySaid(shots: Shot[], texts: string[], i: number): string | undefined {
   const k = shots[i]?.part?.i ?? 0
+  if (!k) return undefined
   const said = []
-  for (let j = i - k; j < i; j++) { const d = parseDescription(texts[j] ?? '', ''); if (!d.sameAsPrev && d.description) said.push(d.description) }
+  for (const j of new Set([i - k, i - 1])) { const d = parseDescription(texts[j] ?? '', ''); if (!d.sameAsPrev && d.description) said.push(d.description) }
   return said.join(' ') || undefined
 }
 
@@ -101,6 +106,8 @@ export interface RawReply { text: string; usage: { inputTokens: number; outputTo
 
 /** Bump when buildDescribeRequest's fixed parts (user text, inferenceConfig) or replyText change, so old replies stop matching. */
 export const DESCRIBE_CACHE_VERSION = 1
+/** Bump when the continuation text (buildDescribeRequest with `said`) changes; hashed only for later parts, so whole shots keep their replies. */
+export const CONTINUATION_CACHE_VERSION = 1
 /**
  * sha256(cache version + model id + system prompt + key-frame bytes [+ what earlier parts said]): the request's only variable inputs.
  * `said` is hashed only when set, so a whole shot's or first part's key is what it was before DESC-017.
@@ -108,7 +115,7 @@ export const DESCRIBE_CACHE_VERSION = 1
 export function describeCacheKey(modelId: string, system: string, frames: Uint8Array[], said?: string): string {
   const h = createHash('sha256').update(`v${DESCRIBE_CACHE_VERSION}\0`).update(modelId).update('\0').update(system)
   for (const f of frames) h.update('\0').update(f)
-  if (said) h.update('\0said\0').update(said)
+  if (said) h.update(`\0continuation v${CONTINUATION_CACHE_VERSION}\0`).update(said)
   return h.digest('hex')
 }
 
@@ -134,32 +141,38 @@ export async function cachedDescribe(work: string, modelId: string, system: stri
   return reply
 }
 
+/** Words that carry no fact: articles, prepositions, pronouns, copulas (en, de). On-screen text labels are removed before counting. */
+const FILLER = new Set(['a', 'an', 'the', 'and', 'of', 'in', 'on', 'at', 'to', 'with', 'by', 'from', 'into', 'its', 'his', 'her', 'their', 'is', 'are',
+  'der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einen', 'einem', 'einer', 'und', 'im', 'am', 'ist', 'sind', 'mit'])
+const contentWords = (t: string) => new Set(normalize(t.replace(new RegExp(TEXT_LABEL.source, 'giu'), ' ')).split(' ').filter((w) => w && !FILLER.has(w)))
+
 /**
- * A later part of a camera shot whose content words are at least this share already said by its earlier parts is not voiced.
- * Tuned on sintel-90-150-r2 (DESC-017): shot 1 repeats 5 of its 8 content words (0.625: "snowy mountains", "figure walks", SINTEL)
- * and the human heard it as a repeat; "Figure falls." (1 of 2, 0.5) is new action and is kept, and so is a reply that adds a fall
- * and a fading logo to a figure that walks (2 of 5). Containment, not Jaccard: a short continuation of a long first part would
- * otherwise never reach the bar (word-set Jaccard of shots 0 and 1 is 0.42).
+ * The sentences of a later part's description that say something new (PR #25 review H1): a sentence — an on-screen text clause is
+ * one — is dropped when every content word in it was already said by the earlier parts ("Snowy mountains.", a repeated
+ * "Words appear: SINTEL."). Sentence by sentence, not a share of the whole: the stable descriptor the prompt asks for ("the woman in
+ * the red coat") is always said already, and a share made "The woman in the red coat draws a gun." look like a repeat.
  */
-export const CONTINUATION_REPEAT = 0.6
-/** Words that carry no fact: articles, prepositions, pronouns, copulas, and the "Words appear" label. */
-const FILLER = new Set(['a', 'an', 'the', 'and', 'of', 'in', 'on', 'at', 'to', 'with', 'by', 'from', 'into', 'its', 'his', 'her', 'their', 'is', 'are', 'words', 'appear'])
-const contentWords = (t: string) => new Set(normalize(t).split(' ').filter((w) => w && !FILLER.has(w)))
-/** Share of text's content words that also occur in said (0 when text has none). */
-const saidShare = (text: string, said: string) => { const t = contentWords(text), s = contentWords(said); return t.size ? [...t].filter((w) => s.has(w)).length / t.size : 0 }
+export function newSentences(text: string, said: string): string {
+  const known = contentWords(said)
+  return sentences(text).filter((u) => [...contentWords(u)].some((w) => !known.has(w))).join(' ')
+}
 
 /**
  * Second, sequential pass: parseDescription compares each reply with the previous voiced description in time order. A later part
- * of a split camera shot is also "nothing new" when ≥ CONTINUATION_REPEAT of its content words were said by its earlier parts.
+ * of a split camera shot keeps only its new sentences (newSentences), and is "nothing new" when none is left.
  */
 export function dedupe(shots: Shot[], replies: RawReply[]): Described[] {
   let prev = ''
   const texts = replies.map((r) => r.text)
   return shots.map((s, i) => {
     const r = replies[i]!
-    const parsed = parseDescription(r.text, prev), said = alreadySaid(shots, texts, i)
-    const { description } = parsed
-    const sameAsPrev = parsed.sameAsPrev || (!!description && !!said && saidShare(description, said) >= CONTINUATION_REPEAT)
+    let { description, sameAsPrev } = parseDescription(r.text, prev)
+    const said = alreadySaid(shots, texts, i)
+    if (!sameAsPrev && description && said) {
+      const fresh = newSentences(description, said)
+      if (fresh) description = fresh
+      else sameAsPrev = true
+    }
     if (!sameAsPrev && description) prev = description
     return { ...s, description, sameAsPrev, tokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens, stopReason: r.stopReason }
   })
@@ -280,7 +293,7 @@ export function buildDescribeRequest(system: string, frames: Uint8Array[], model
     system: [{ text: system }],
     messages: [{ role: 'user', content: [
       ...frames.map((bytes) => ({ image: { format: 'jpeg' as const, source: { bytes } } })),
-      { text: said ? `${task} Already said for the earlier part of this shot: "${said}" Say only what is new since then, or reply exactly SAME if nothing is new.` : task },
+      { text: said ? `${task} Already said for the earlier part(s) of this shot: "${said.replace(/"/g, '\\"')}" Say only what is new since then, or reply exactly SAME if nothing is new.` : task },
     ] }],
     inferenceConfig: { maxTokens: 120, temperature: 0 },
   }
@@ -291,19 +304,29 @@ const normalize = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}\s']/gu, '
 const jaccard = (a: string, b: string) => { const A = new Set(a.split(' ')), B = new Set(b.split(' ')); const both = [...A].filter((w) => B.has(w)).length; return both / (A.size + B.size - both) }
 
 /**
- * Cleans one model reply: strips quotes/fences/whitespace, treats a leading SAME or a (near-)verbatim repeat of the previous
- * description (word-set Jaccard ≥ 0.8) as "nothing new", and drops a "Words appear:" clause of more than 8 words (invented text).
+ * "Nothing new" replies (PR #25 review H2): the whole reply is one of these, in any case — "Same.", "Nothing new.", "Nothing is new.",
+ * "No new information.", German "Nichts Neues." / "Gleich." A description that opens with "Same" ("Same woman walks.") is not one.
+ */
+const NOTHING_NEW = /^(?:same|nothing (?:is )?new|no new information|nichts neues|gleich)[.!]?$/i
+/** A leading upper-case SAME followed by more text ("SAME. Woman holds bowl.") is "nothing new" too. */
+const SAME_PREFIX = /^SAME\b/
+
+/**
+ * Cleans one model reply: strips quotes/fences/whitespace, treats a SAME / "nothing new" reply (NOTHING_NEW) or a (near-)verbatim
+ * repeat of the previous description (word-set Jaccard ≥ 0.8) as "nothing new", and drops an on-screen text clause (../textClause,
+ * English or German label) of more than 8 words (invented text).
  */
 export function parseDescription(raw: string, prev: string): { description: string; sameAsPrev: boolean } {
   let text = raw.replace(/```[a-z]*/gi, ' ').replace(/\s+/g, ' ').trim()
   const q = /^["'`“‘]([^"`“”]+)["'`”’]$/.exec(text) // one wrapping pair only: '"A." Then "B."' keeps its inner quotes
   if (q) text = q[1]!.trim()
-  if (/^SAME\b/.test(text)) { if (text.replace(/^SAME\.?/, '').trim()) console.warn('describe: dropped text after SAME:', text); return { description: '', sameAsPrev: true } }
-  text = text.replace(/Words appear:\s*(?:["“]([^"”]*)["”]|([^.]*))\.?\s*/gi, (m, quoted?: string, bare?: string) => {
-    if ((quoted ?? bare ?? '').trim().split(/\s+/).filter(Boolean).length <= 8) return m
-    console.warn('describe: dropped on-screen text longer than 8 words:', m.trim())
-    return ''
-  }).replace(/\s*Words appear:\s*$/i, '').trim()
+  if (SAME_PREFIX.test(text) || NOTHING_NEW.test(text)) { if (SAME_PREFIX.test(text) && text.replace(/^SAME\.?/, '').trim()) console.warn('describe: dropped text after SAME:', text); return { description: '', sameAsPrev: true } }
+  for (const span of textSpans(text).reverse()) {
+    if (span.body.trim().split(/\s+/).filter(Boolean).length <= 8) continue
+    console.warn('describe: dropped on-screen text longer than 8 words:', text.slice(span.start, span.end))
+    text = text.slice(0, span.start) + text.slice(span.end).replace(/^\s+/, '')
+  }
+  text = text.replace(new RegExp(`\\s*${TEXT_LABEL.source}\\s*$`, 'iu'), '').trim()
   const a = normalize(text), b = normalize(prev)
   return { description: text, sameAsPrev: !!a && !!b && (a === b || jaccard(a, b) >= 0.8) }
 }
