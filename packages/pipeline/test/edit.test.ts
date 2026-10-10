@@ -3,8 +3,8 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ConverseCommandInput } from '@aws-sdk/client-bedrock-runtime'
-import { applyEdits, dialogueTurns, EDIT_CHUNK_CUES, editBudgets, editCues, editScene, FIT_CUES_FILE, isTextCue, replyEdits, stem, unfaithfulWords } from '../src/steps/05b-edit'
-import { editRequest, EDIT_TOOL_SCHEMA, type EditConverse } from '../src/prompts'
+import { applyEdits, cleanShortening, dialogueTurns, EDIT_CHUNK_CUES, editBudgets, editCues, editScene, factWords, FIT_CUES_FILE, isTextCue, replyEdits, stem, unfaithfulWords } from '../src/steps/05b-edit'
+import { editRequest, EDIT_TOOL_SCHEMA, shortenEditRequest, type EditConverse } from '../src/prompts'
 import type { FitCue } from '../src/steps/05-fit'
 import type { Described } from '../src/steps/04-describe'
 import type { Word } from '../src/steps/03-speech'
@@ -77,6 +77,48 @@ describe('edit (scene-level context pass)', () => {
     const r3 = await editScene(roomy, shots, words, 'en', toolReply([{ cue: BROTH, text: glued }]), undefined, () => 'A red-haired girl watches a man stir a pot over a fire, then pours broth.')
     expect(r3.cues[BROTH]!.text).toBe('Old man pours broth.')
     expect(r3.rejected.map((x) => x.reason)).toEqual(['over budget (15 > 11 words) (after shortening)'])
+  })
+
+  // sintel-90-210 (2026-10-10): the edit only added articles ("The red-haired woman looks down, then darkness swallows the scene.",
+  // 10 > 9 words) and Nova Lite's whole shortening reply was "(9 words)" — 3 of 5 rejections in edit.json were that annotation.
+  it('a shortening reply that is only a word count is treated as invalid, not as text', async () => {
+    const glued = 'A red-haired girl watches a man stir a pot over a fire. The old man pours broth.'
+    for (const reply of ['(11 words)', '11 words', ' (11 words) ', '[11 words]', 'Word count: 11', '""', '']) {
+      const r = await editScene(roomy, shots, words, 'en', toolReply([{ cue: BROTH, text: glued }]), undefined, () => reply)
+      expect(r.cues[BROTH]!.text).toBe('Old man pours broth.')
+      expect(r.applied).toEqual([])
+      expect(r.rejected).toEqual([{ i: BROTH, text: glued, reason: 'over budget (17 > 11 words)' }]) // the edit's own rejection, no "not in any shot description: 11, words"
+    }
+  })
+
+  it('strips a word-count annotation around a shortened line', async () => {
+    for (const reply of [`${FOLD} (11 words)`, `(11 words) ${FOLD}`, `"${FOLD}" — 11 words`, `${FOLD}\n11 words`, `${FOLD} [11 words]`, `${FOLD} (Word count: 11)`]) {
+      expect(cleanShortening(reply)).toBe(FOLD)
+      const r = await editScene(roomy, shots, words, 'en', toolReply([{ cue: BROTH, text: 'A red-haired girl watches a man stir a pot over a fire. The old man pours broth.' }]), undefined, () => reply)
+      expect(r.applied).toEqual([{ i: BROTH, from: 'Old man pours broth.', to: FOLD }])
+    }
+    expect(cleanShortening('Two men walk 11 words apart.')).toBe('Two men walk 11 words apart.') // only a leading or trailing annotation
+    expect(cleanShortening('(9 words)')).toBe('')
+  })
+
+  it('names the facts the cue must keep — in the edit input and first in the shortening request', async () => {
+    expect(factWords('Old man pours broth.', 'Bearded man holds staff.')).toEqual(['pours', 'broth']) // "old" droppable, "man" said by the previous cue
+    expect(factWords('Old man pours broth.', '')).toEqual(['man', 'pours', 'broth'])
+    const seen: ConverseCommandInput[] = []
+    const asked: string[][] = []
+    const glued = 'A red-haired girl watches a man stir a pot over a fire. The old man pours broth.'
+    await editScene(roomy, shots, words, 'en', async (i) => { seen.push(i); return toolReply([{ cue: BROTH, text: glued }])(i) }, undefined, (t, n, keep, must) => { asked.push(must); return t })
+    const body = (seen[0]!.messages![0]!.content![0] as { text: string }).text
+    const input = JSON.parse(body.slice(body.indexOf('{'), body.lastIndexOf('}') + 1))
+    expect(input.cues[BROTH].mustStillSay).toEqual(['pours', 'broth'])
+    expect((seen[0]!.system![0] as { text: string }).text).toContain('mustStillSay')
+    expect(asked).toEqual([['pours', 'broth']])
+    const req = shortenEditRequest(glued, 11, 'Old man pours broth.', ['pours', 'broth'], 'en')
+    const sys = (req.system![0] as { text: string }).text
+    expect(sys.indexOf('pours, broth')).toBeGreaterThanOrEqual(0)
+    expect(sys.indexOf('pours, broth')).toBeLessThan(sys.indexOf('11 words'))
+    expect(sys).not.toContain('(count them)')
+    expect(sys).toMatch(/never a word count/i)
   })
 
   it('checks words before the budget, so an edit that would fail anyway costs no shortening call', async () => {
@@ -269,7 +311,7 @@ describe('edit (scene-level context pass)', () => {
     const input = JSON.parse(body.slice(body.indexOf('{'), body.lastIndexOf('}') + 1))
     // by shot order (cue 5 for shot 7 starts 45 ms into shot 8): shots 5 and 6 under cue 5, shot 8 under cue 6 (shot 9), 10 and 11 under cue 7 (shot 12), 13 under cue 8
     expect(input.cues.map((c: { cue: number; missedJustBefore?: string[] }) => [c.cue, c.missedJustBefore?.length ?? 0])).toEqual([[0, 0], [1, 0], [2, 0], [3, 0], [4, 0], [5, 2], [6, 1], [7, 2], [8, 1]])
-    expect(input.cues[BROTH]).toEqual({ cue: 5, start: 33.2, missedJustBefore: ['Red-haired girl watches man stir pot over fire.', shots[6]!.description], text: 'Old man pours broth.', words: 4, wordsYouMayAdd: 7 })
+    expect(input.cues[BROTH]).toEqual({ cue: 5, start: 33.2, missedJustBefore: ['Red-haired girl watches man stir pot over fire.', shots[6]!.description], text: 'Old man pours broth.', mustStillSay: ['pours', 'broth'], words: 4, wordsYouMayAdd: 7 })
     expect(JSON.stringify(input)).not.toContain('Bearded man holds ornate staff') // a voiced shot's full description is not shown (the models restore it)
     expect(input.dialogue[0]).toMatchObject({ start: 16.92, speaker: 'spk_0', text: expect.stringContaining('This blade has a dark past.') })
     expect(req.toolConfig).toEqual({ tools: [{ toolSpec: { name: 'emit_edits', description: expect.any(String), inputSchema: { json: EDIT_TOOL_SCHEMA } } }], toolChoice: { tool: { name: 'emit_edits' } } })

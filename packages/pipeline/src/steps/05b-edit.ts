@@ -63,7 +63,7 @@ export interface EditReport { cues: FitCue[]; applied: { i: number; from: string
 
 /** Shortens `text` to maxWords keeping every fact of `keep` (the cue's original text): one Nova Lite call by default (with its usage); tests inject their own. */
 export type ShortenReply = string | { text: string; usage?: Partial<TokenUsage> }
-export type Shorten = (text: string, maxWords: number, keep: string) => Promise<ShortenReply> | ShortenReply
+export type Shorten = (text: string, maxWords: number, keep: string, mustSay: string[]) => Promise<ShortenReply> | ShortenReply
 
 /** An extended cue that is only on-screen text (DESC-017 split it from its action, or voice did): frozen for this pass. */
 export const isTextCue = (c: FitCue) => c.extended && textClauses(c.text)?.rest === ''
@@ -75,7 +75,7 @@ const prevActionIndex = (cues: readonly FitCue[], i: number) => { for (let k = i
  * An edit over its budget gets one shortening call (the model appends a dropped description whole rather than compressing it — probe
  * round 5: 17 words into 11), and the shortened text goes through the same guards; it is dropped when it still does not fit.
  */
-export async function editScene(cues: FitCue[], shots: Described[], words: Word[], language: 'en' | 'de', send: EditConverse, signal?: AbortSignal, shorten: Shorten = (t, n, keep) => shortenEditWithNovaLite(t, n, keep, language)): Promise<EditReport> {
+export async function editScene(cues: FitCue[], shots: Described[], words: Word[], language: 'en' | 'de', send: EditConverse, signal?: AbortSignal, shorten: Shorten = (t, n, keep, must) => shortenEditWithNovaLite(t, n, keep, must, language)): Promise<EditReport> {
   const model = editModelId()
   const report: EditReport = { cues: cues.map((c) => ({ ...c })), applied: [], rejected: [], model, usage: { inputTokens: 0, outputTokens: 0 }, shorteningCalls: 0 }
   if (!cues.length) return report
@@ -89,7 +89,7 @@ export async function editScene(cues: FitCue[], shots: Described[], words: Word[
       const p = prevActionIndex(cues, i), prevShot = p < 0 ? -1 : cues[p]!.shotIndex
       // Dropped shots go to the action cue that follows them, never to an on-screen text cue (frozen) and never twice.
       const missed = text ? [] : shots.filter((x) => !voiced.has(x.index) && !x.sameAsPrev && x.description && x.index > prevShot && x.index < c.shotIndex).map((x) => x.description)
-      return { i, startMs: c.startMs, text: c.text, wordCount: c.wordCount, budget: budgets[i]!, extended: c.extended, onScreenText: text, missed }
+      return { i, startMs: c.startMs, text: c.text, wordCount: c.wordCount, budget: budgets[i]!, extended: c.extended, onScreenText: text, missed, ...(text ? {} : { mustSay: factWords(c.text, p < 0 ? '' : cues[p]!.text) }) }
     })
     const heard = from ? report.cues[from - 1]!.text : undefined
     const input = { language, cues: window, dialogue: dialogueTurns(words, cues[from]!.startMs - 10_000, cues[to - 1]!.endMs + 10_000), heard }
@@ -119,9 +119,11 @@ export async function editScene(cues: FitCue[], shots: Described[], words: Word[
       let shorter: string
       try {
         report.shorteningCalls++
-        const s = await shorten(r.text, budgets[r.i]!, cues[r.i]!.text)
-        if (typeof s === 'string') shorter = s.trim(); else { shorter = s.text.trim(); add(s.usage) }
+        const p = prevActionIndex(cues, r.i)
+        const s = await shorten(r.text, budgets[r.i]!, cues[r.i]!.text, factWords(cues[r.i]!.text, p < 0 ? '' : cues[p]!.text))
+        if (typeof s === 'string') shorter = cleanShortening(s); else { shorter = cleanShortening(s.text); add(s.usage) }
       } catch (e) { if (signal?.aborted) throw e; report.rejected.push(r); continue }
+      // An empty reply, or one that was only an annotation, is no shortening: the edit's own over-budget rejection stands.
       if (shorter && shorter !== r.text) retry.push({ cue: r.i, text: shorter }); else report.rejected.push(r)
     }
     const again = retry.length ? applyEdits(cues, shots, retry, budgets, [from, to]) : { applied: [], rejected: [] }
@@ -146,6 +148,20 @@ export function replyEdits(reply: unknown): Edit[] | undefined {
   }
   const parsed = EditReply.safeParse(json)
   return parsed.success ? parsed.data.edits : undefined
+}
+
+/** A word-count annotation as Nova Lite writes one: "(9 words)", "[9 words]", "9 words", "— 9 words", "Word count: 9", "(Word count: 9)". */
+const COUNT = String.raw`[([]?\s*(?:(?:word\s*count|words?)\s*[:=]?\s*\d+|\d+\s*words?)\s*[)\]]?`
+const LEADING_COUNT = new RegExp(String.raw`^\s*(?:${COUNT})\s*[:.,;—–-]?\s*`, 'i')
+const TRAILING_COUNT = new RegExp(String.raw`\s*[—–-]?\s*(?:${COUNT})\s*\.?\s*$`, 'i')
+/**
+ * A shortening reply as text: a leading or trailing word-count annotation and wrapping quotes stripped, whitespace collapsed. '' when
+ * nothing else is left — the caller treats that as no reply (sintel-90-210: the whole reply was "(9 words)", 3 of 3 calls).
+ */
+export function cleanShortening(reply: string): string {
+  let t = reply.trim()
+  for (let k = 0; k < 3; k++) t = t.replace(LEADING_COUNT, '').replace(TRAILING_COUNT, '').trim().replace(/^["'“”‘’«»]+|["'“”‘’«»]+$/g, '').trim()
+  return t.replace(/\s+/g, ' ')
 }
 
 export const wordCount = (t: string) => t.trim().split(/\s+/).filter(Boolean).length
@@ -226,8 +242,17 @@ export function unfaithfulWords(text: string, allowed: readonly string[]): strin
  * Probe round 4: Nova Lite dropped "Logo fades." from "Snowy mountains. A figure walks, falls. Logo fades." in 2 of 3 replies.
  */
 export function droppedFacts(original: string, edited: string, previous: string): string[] {
-  const kept = new Set([...contentWords(edited), ...contentWords(previous)].map(stem))
-  return [...new Set(contentWords(original))].filter((w) => !DROPPABLE.has(w) && !kept.has(stem(w)))
+  const kept = new Set(contentWords(edited).map(stem))
+  return factWords(original, previous).filter((w) => !kept.has(stem(w)))
+}
+/**
+ * The content words of a cue an edit must keep (droppedFacts' list): not a droppable adjective or adverb, not said by the previous action
+ * cue. The request names them per cue (mustStillSay) and the shortening request names them first: on sintel-90-210 Nova Lite replaced
+ * "Old man pours broth." with the dropped shot ("…watches the old man stir a pot over the fire.") instead of folding it in.
+ */
+export function factWords(original: string, previous: string): string[] {
+  const said = new Set(contentWords(previous).map(stem))
+  return [...new Set(contentWords(original))].filter((w) => !DROPPABLE.has(w) && !said.has(stem(w)))
 }
 /** The words 05-fit's shortenDeterministic drops first (its ADJECTIVES and ADVERBS lists); colours are facts and stay. */
 const DROPPABLE = new Set(['large', 'small', 'big', 'little', 'tiny', 'huge', 'tall', 'short', 'long', 'wide', 'narrow', 'thick', 'thin', 'heavy', 'old', 'young', 'ancient', 'bright', 'dim', 'faint', 'soft', 'rough', 'smooth', 'sharp', 'wooden', 'snowy', 'rocky', 'icy', 'dusty', 'muddy', 'wet', 'dry', 'distant', 'nearby', 'vast', 'massive', 'slender', 'ornate', 'simple', 'various', 'several',

@@ -61,6 +61,11 @@ An edit over budget gets one shortening call (`shortenEditWithNovaLite`: "at mos
 the result passes the same guards; the model appends dropped descriptions whole rather than compressing them (17 words into an
 11-word room, round 5; four descriptions into one cue on the merged fit's cues, round 10), and fit's generic shortener kept the
 wrong half (dropped "pours broth", round 6).
+The cue's fact words (the content words guard 4 checks) are named per cue in the request (`mustStillSay`) and first in the
+shortening request. The shortening request no longer says "(count them)": on sintel-90-210 Nova Lite's whole reply to it was
+"(9 words)" in 3 of 3 calls, and the guard rejected that as "not in any shot description: 9, words". A leading or trailing word
+count is stripped from the reply (`cleanShortening`); a reply that is only a count, or empty, counts as no reply and the edit's own
+over-budget rejection stands.
 A forced-tool call that fails (Nova Lite: `ModelErrorException: Model produced invalid sequence as part of ToolUse`, 3 times on
 the flat-timeline input) is asked once more for plain JSON text (the first `{…}` of the reply is read, fence or prose around it
 ignored); a second failure or an unreadable reply keeps the window's original cues. An abort (job time up) is rethrown. Timing,
