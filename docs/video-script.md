@@ -59,9 +59,10 @@ Voice-over length: ≈ 260 words at ~150 wpm ≈ 1:45 of speech in 2:45, which l
 | E | vega-media-kit repo page, `infra/`, `docs/friction/` | Screen capture | Beat 5 | Show the kit's release tag only once it exists (H11). |
 | F | Title cards and end card | Screen / editor | Beats 1, 6 | End card URL: TODO(human). |
 
-Crossfade note: switching Original ↔ Audio description is a hard cut until the kit's `setVolume` lands (TASKS.md
-DESC-006; Gate A measured a 0.5–0.6 s stall on the switch, [0001](decisions/0001-week0-gates.md)). If the click or stall
-is audible in take B, keep it — do not cut around it in a way that hides it.
+Audio switch note: switching Original ↔ Audio description fades the sound down, holds a short silence while the
+player changes track, and fades back up — about 450 ms in all (TASKS.md DESC-006; before the fade, Gate A measured a
+0.5–0.6 s stall, [0001](decisions/0001-week0-gates.md)). If a click or stall is audible in take B, keep it — do not cut
+around it in a way that hides it.
 
 ## TODO(human) before recording
 

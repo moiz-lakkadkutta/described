@@ -10,7 +10,7 @@ export const SpatialNavigationFocusableView = ({ children, viewProps, onSelect, 
   React.createElement('FocusableView', { ...viewProps, onSelect, onFocus, onBlur }, render(children, !!stub.focused && viewProps?.['aria-label'] === stub.focused))
 export const SpatialNavigationNode = ({ children, orientation, onActive, alignInGrid }: { children: React.ReactNode | ((s: State) => React.ReactNode); orientation?: string; onActive?: Fn; alignInGrid?: boolean }) =>
   React.createElement('Node', { orientation, onActive, alignInGrid }, render(children))
-export const SpatialNavigationScrollView = ({ children }: { children: React.ReactNode }) => React.createElement('ScrollView', null, children)
+export const SpatialNavigationScrollView = ({ children, ...props }: { children: React.ReactNode; [k: string]: unknown }) => React.createElement('ScrollView', props, children)
 /** Subscribes to the configured remote while mounted, like the real root (useRemoteControl); moves go to stub.moves. */
 export const SpatialNavigationRoot = ({ children }: { children: React.ReactNode }) => {
   React.useEffect(() => {

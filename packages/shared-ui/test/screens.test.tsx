@@ -104,7 +104,7 @@ describe('focus visuals', () => {
     expect(hasCheck(labelArea!)).toBe(false)
     expect(slot!.props.testID).toBe('focusable-check')
     expect(hasCheck(slot!)).toBe(true)
-    expect(own(slot!)).toMatchObject({ width: tokens.focus.checkW, marginLeft: tokens.focus.checkGap }) // scale 1 in tests
+    expect(own(slot!)).toMatchObject({ minWidth: tokens.focus.checkW, marginLeft: tokens.focus.checkGap }) // scale 1 in tests
     // In flow: nothing between the ✓ and the button is absolutely positioned, so it cannot be drawn over the text.
     const glyph = slot!.findAll((x) => (x.type as unknown) === 'Text').find((t) => [t.props.children].flat().includes('✓'))!
     for (let p: ReactTestInstance | null = glyph; p && p !== list; p = p.parent) expect(own(p).position).not.toBe('absolute')
@@ -112,6 +112,13 @@ describe('focus visuals', () => {
     const ring = list.findAll((x) => (x.type as unknown) === 'View' && own(x).borderColor === tokens.color.interactive)
     expect(ring).toHaveLength(1)
     expect(hasCheck(ring[0]!)).toBe(false)
+  })
+  it('the check slot grows with a large Android font scale instead of clipping the ✓ (PR #28 review)', () => {
+    const slot = listButton(true).findByProps({ testID: 'focusable-check' })
+    expect(own(slot)).toMatchObject({ minWidth: tokens.focus.checkW })
+    expect(own(slot).width).toBeUndefined() // a fixed width would clip a font-scaled glyph
+    const glyph = slot.findAll((x) => (x.type as unknown) === 'Text').find((t) => [t.props.children].flat().includes('✓'))!
+    expect(glyph.props.numberOfLines).toBe(1) // never wraps onto a second line inside the slot
   })
   it('toggling selected does not change the control width', () => {
     const off = listButton(false), on = listButton(true)
@@ -230,6 +237,36 @@ describe('Described and My list grids', () => {
     const grid = r.root.find((n) => (n.type as unknown) === 'Node' && n.props.alignInGrid === true)
     const box = grid.findAll((n) => (n.type as unknown) === 'View')[0]!
     expect(box.props.style).toMatchObject({ paddingBottom: rowPadY })
+  })
+  describe.each([
+    ['Described', strings.described.heading, () => described()],
+    ['My list', strings.list.heading, () => <MyList catalog={four} myList={new Set(['tears-of-steel'])} onOpen={noop} />],
+  ])('%s heading (device run 2026-10-10: only the lower half of the letters showed)', (_, heading, el) => {
+    // Focusing the first card scrolled the grid so the card sat offsetFromStart below the top, which pushed the heading
+    // above it half out of the scroll view. The heading now sits above the scroll view, so no focus scroll can move it.
+    const headingText = (r: TestRenderer.ReactTestRenderer) => r.root.find((n) => (n.type as unknown) === 'Text' && n.props.children === heading)
+    it('is outside the scroll view, at a non-negative top offset', () => {
+      const r = render(el())
+      const t = headingText(r)
+      for (let n: ReactTestInstance | null = t.parent; n; n = n.parent) expect(n.type as unknown).not.toBe('ScrollView')
+      const style = Object.assign({}, ...[t.props.style].flat(Infinity).filter(Boolean)) as Record<string, number>
+      for (const k of ['top', 'marginTop', 'paddingTop'] as const) expect(style[k] ?? 0).toBeGreaterThanOrEqual(0)
+      expect(style.position).not.toBe('absolute')
+    })
+    it('has a line height that holds its glyphs (Atkinson Bold: caps 0.668 em + descender 0.29 em)', () => {
+      const t = headingText(render(el()))
+      const style = Object.assign({}, ...[t.props.style].flat(Infinity).filter(Boolean)) as Record<string, number>
+      expect(style.lineHeight).toBe(tokens.type.title.line)
+      expect(style.lineHeight).toBeGreaterThanOrEqual(style.fontSize! * (0.668 + 0.29))
+      expect(style.lineHeight).toBeGreaterThanOrEqual(style.fontSize!)
+    })
+    it('the first row keeps room above for the focus outline, and a focus scroll keeps it there', () => {
+      const r = render(el())
+      const scroll = r.root.find((n) => (n.type as unknown) === 'ScrollView')
+      expect(scroll.props.offsetFromStart).toBe(rowPadY) // equal to the padding above the first row: focusing it scrolls to 0
+      const grid = r.root.find((n) => (n.type as unknown) === 'Node' && n.props.alignInGrid === true)
+      expect(grid.findAll((n) => (n.type as unknown) === 'View')[0]!.props.style).toMatchObject({ paddingTop: rowPadY })
+    })
   })
   it('loading: skeleton cards, nothing focusable', () => {
     const r = render(<Described catalog={null} onOpen={noop} />)

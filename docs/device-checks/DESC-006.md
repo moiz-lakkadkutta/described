@@ -60,13 +60,14 @@ Stream under test: `https://dco7qa0c4m1pw.cloudfront.net/published/sintel-90-210
 
 - [ ] Select **Original**: narration stops, the film's own mix continues. Status line: **Description off · Rich captions**.
 - [ ] Select **Audio description (Joanna)**: narration returns. Status: **Description on · Joanna · Rich captions**.
-- [ ] Each switch is a crossfade of about **300 ms** (`tokens.motion.crossfadeMs`): the sound dips to silence over ~150 ms,
-      the rendition changes at the quiet point, and the sound comes back over ~150 ms (`KitPlayerRef.setVolume`, react-native-video's
-      `volume` prop on Fire OS). There should be **no click or pop** at the switch; heard one? ________.
+- [ ] Each switch takes about **450 ms**: the sound fades to silence over ~150 ms (half of `tokens.motion.crossfadeMs`), the
+      rendition changes, the sound stays silent for ~150 ms (`tokens.motion.audioSwitchHoldMs`, the time ExoPlayer needs to reset
+      its audio decoder), then comes back over ~150 ms (`KitPlayerRef.setVolume`, react-native-video's `volume` prop on Fire OS).
+      There should be **no click, pop or stutter** at the switch; heard one? ________.
 - [ ] Measure the switch time for each direction, from the Select press to the new audio at full volume (phone slow-mo video
-      of the TV if needed): Original → AD ________ ms, AD → Original ________ ms. Expect ≈ 300 ms plus ExoPlayer's track change.
+      of the TV if needed): Original → AD ________ ms, AD → Original ________ ms. Expect ≈ 450 ms.
 - [ ] **No rebuffer**: the picture does not freeze and the status line never reads **Loading…** during a switch (segments are 4 s
-      with aligned GOPs). Any freeze, or a switch over ~500 ms, goes in a friction log.
+      with aligned GOPs). Any freeze, or a switch over ~650 ms, goes in a friction log.
 - [ ] Switch twice quickly (Original, then Audio description within ~0.2 s): the sound comes back at full volume on the AD
       track — it is not left silent or quiet.
 
