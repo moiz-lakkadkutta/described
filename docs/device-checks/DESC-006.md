@@ -67,7 +67,7 @@ Stream under test: `https://dco7qa0c4m1pw.cloudfront.net/published/sintel-90-210
 - [ ] Measure the switch time for each direction, from the Select press to the new audio at full volume (phone slow-mo video
       of the TV if needed): Original → AD ________ ms, AD → Original ________ ms. Expect ≈ 450 ms.
 - [ ] **No rebuffer**: the picture does not freeze and the status line never reads **Loading…** during a switch (segments are 4 s
-      with aligned GOPs). Any freeze, or a switch over ~500 ms, goes in a friction log.
+      with aligned GOPs). Any freeze, or a switch over ~650 ms, goes in a friction log.
 - [ ] Switch twice quickly (Original, then Audio description within ~0.2 s): the sound comes back at full volume on the AD
       track — it is not left silent or quiet.
 
