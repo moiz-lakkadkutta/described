@@ -25,7 +25,7 @@ describe('runDescribe', () => {
     expect(calls).toEqual(['validate', 'publish'])
     vi.restoreAllMocks()
   })
-  it('the finish job runs validate too (steps 6–10 end with package, validate, publish)', async () => {
+  it('the finish job runs edit first and validate too (edit … package, validate, publish)', async () => {
     calls.length = 0
     const runStep = await import('../src/steps')
     const spy = vi.spyOn(runStep, 'runStep')

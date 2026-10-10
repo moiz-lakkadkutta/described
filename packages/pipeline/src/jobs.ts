@@ -11,7 +11,7 @@ import type { Described } from './steps/04-describe'
 import type { PackageReport } from './steps/09-package'
 import type { ManifestProblems } from './validate'
 
-/** One pg-boss job per step 1–5; `finish` runs steps 6–10 (voice … package, validate, publish) in one job (open question Q4 / decision pending). */
+/** One pg-boss job per step 1–5; `finish` runs every step after fit (edit, voice … package, validate, publish) in one job (open question Q4 / decision pending). */
 export const JOB_STEPS = ['probe', 'shots', 'speech', 'describe', 'fit', 'finish'] as const
 export type JobStep = typeof JOB_STEPS[number]
 /** Queue names: letters, digits, `-` and `_` only. apps/api/src/routes/admin.ts sends the first one by name. */
@@ -47,9 +47,9 @@ export type Boss = Pick<PgBoss, 'createQueue' | 'updateQueue' | 'send' | 'work'>
 export type Db = Pick<PrismaClient, 'title' | 'job' | 'shot' | 'gap' | 'descriptionCue' | 'rendition' | 'textTrack' | '$transaction'>
 export interface Deps { boss: Boss; db: Db; run?: (step: JobStep, ctx: Ctx) => Promise<void>; timeoutMs?: number }
 
-/** Every step after fit (edit, voice … publish) in order, with validate between package and publish. */
-const STEPS_6_10 = STEPS.slice(STEPS.indexOf('fit') + 1)
-export const runJobStep = async (step: JobStep, ctx: Ctx) => { if (step !== 'finish') return runStep(step, ctx); for (const s of STEPS_6_10) await runStep(s, ctx) }
+/** Every step after fit (edit, voice … publish) in order, with validate between package and publish. A retry re-runs edit from cues.fit.json, so the chain is idempotent. */
+const STEPS_AFTER_FIT = STEPS.slice(STEPS.indexOf('fit') + 1)
+export const runJobStep = async (step: JobStep, ctx: Ctx) => { if (step !== 'finish') return runStep(step, ctx); for (const s of STEPS_AFTER_FIT) await runStep(s, ctx) }
 
 /** Creates (idempotent) and updates the queues, then one worker per step and one for the dead letters. */
 export async function registerPipeline(deps: Deps) {

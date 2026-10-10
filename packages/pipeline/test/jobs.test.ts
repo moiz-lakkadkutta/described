@@ -36,7 +36,7 @@ function fakes() {
   return { db: db as unknown as Db, raw: db, boss, jobs, title, shots: () => shots, gaps: () => gaps, cues: () => cues, renditions: () => renditions, textTracks: () => textTracks }
 }
 const job = (id: string, retryCount = 0, retryLimit = 2) => ({ id, data: { titleId: 't1' }, retryCount, retryLimit })
-/** What steps 6–10 leave for persist('finish'): cues.json, package's package.json, validate's validate.json and publish's clips.json. */
+/** What the finish job's steps (edit … publish) leave for persist('finish'): cues.json, package's package.json, validate's validate.json and publish's clips.json. */
 const finishFiles = async (work: string, tracks = { captions: true, sdh: true, descriptions: true }) => {
   await mkdir(work, { recursive: true })
   await writeFile(`${work}/package.json`, JSON.stringify({ language: 'en', tracks }))
@@ -221,7 +221,7 @@ describe('pipeline jobs', () => {
     expect(f.title).toMatchObject({ posterKey: 'published/sintel/art/poster.jpg', heroKey: 'published/sintel/art/hero.jpg' })
     expect(f.raw.$disconnect).toHaveBeenCalled()
   })
-  it('finish that runs out of time writes no DescriptionCue rows and does not publish, even if steps 6–10 finish later', async () => {
+  it('finish that runs out of time writes no DescriptionCue rows and does not publish, even if the finish steps complete later', async () => {
     const f = fakes()
     let done!: () => void
     const run = vi.fn(async (_s: JobStep, ctx: Ctx) => { await new Promise<void>((r) => { done = r }); await finishFiles(ctx.work) })
