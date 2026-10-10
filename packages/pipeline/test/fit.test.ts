@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { EXTENDED_WORDS, fit, introducesNew, LATE_MS, preservesFacts, safeShorten, shortenDeterministic, WPS } from '../src/steps/05-fit'
+import { capExtended, EXTENDED_WORDS, fit, textClauses, TEXT_LEAD_MS, introducesNew, LATE_MS, preservesFacts, safeShorten, shortenDeterministic, WPS } from '../src/steps/05-fit'
 import type { Described } from '../src/steps/04-describe'
 import { mezzanineArgs } from '../src/steps/01-probe'
 import { shotsFromCuts, sceneFilter } from '../src/steps/02-shots'
@@ -211,6 +211,96 @@ describe('shortening', () => {
     for (const t of ['She sits.', 'Snow falls on the hills.']) expect(introducesNew(t)).toBe(false)
   })
 })
+// DESC-017, sintel-90-150-r2 cues 0 and 1: "… Words appear: SINTEL." was voiced without "Words appear: SINTEL." (06-voice's overrun shortening).
+describe('on-screen text clause', () => {
+  const SHOT0 = 'Snowy mountains. A lone figure walks left, carrying a spear. Words appear: SINTEL.'
+  it('shortening never removes the on-screen text clause', async () => {
+    expect(shortenDeterministic(SHOT0, 11)).toBe('Snowy mountains. A lone figure walks left. Words appear: SINTEL.')
+    expect(shortenDeterministic(SHOT0, 6)).toBe(SHOT0) // only 2 of the action's 10 words would stay beside the text: split instead
+    expect(shortenDeterministic('Words appear: "Berlin, 1989." A tall man slowly crosses the old bridge.', 9)).toBe('Words appear: "Berlin, 1989." A man crosses the bridge.')
+    // the model shortener never sees the clause; its reply is checked against the rest, then the clause is put back
+    const model = vi.fn(() => 'Snowy mountains. Lone figure walks left.') // r2's recorded shortening, minus the text it dropped
+    expect(await safeShorten(SHOT0, 10, model)).toBe('Snowy mountains. Lone figure walks left. Words appear: SINTEL.')
+    expect(model).toHaveBeenCalledWith('Snowy mountains. A lone figure walks left, carrying a spear.', 7)
+    // a model reply that drops or rewrites the text is impossible: it only shortens the rest
+    expect(await safeShorten(SHOT0, 10, () => 'Snowy mountains. A lone figure walks.')).toBe('Snowy mountains. A lone figure walks. Words appear: SINTEL.') // 6 of 10 kept
+    expect(await safeShorten(SHOT0, 10, () => 'Snowy mountains.')).toBe(SHOT0) // 2 of 10 kept: split instead
+    expect(await safeShorten(SHOT0, 4, () => 'Mountains.')).toBe(SHOT0)
+    // no room for the action beside the text: the text comes back whole, and fit / 06-voice split it
+    expect(shortenDeterministic(SHOT0, 3)).toBe(SHOT0)
+    expect(await safeShorten(SHOT0, 3, () => '')).toBe(SHOT0)
+    // capExtended's word cut (a failing shortener) keeps the clause too, with a sentence end before it
+    const long = `${'Snow falls on the hills, '.repeat(6).trim()} Words appear: SINTEL.`
+    expect((await capExtended(long, (t) => t)).text).toMatch(/hills\. Words appear: SINTEL\.$/)
+    expect((await capExtended(long, (t) => t)).wordCount).toBeLessThanOrEqual(EXTENDED_WORDS)
+    expect((await capExtended(`${'snow '.repeat(30).trim()} Words appear: SINTEL.`, (t) => t)).text).toBe(`${'snow '.repeat(22).trim()}. Words appear: SINTEL.`)
+  })
+  // PR #25 review M1, M2
+  it('reads bare on-screen text up to its sentence end, not to a period inside it', () => {
+    const clause = (t: string) => textClauses(t)?.clause
+    expect(clause('Words appear: DR. NO. A man runs.')).toBe('Words appear: DR. NO.')
+    expect(clause('Snow. Words appear: Mr. Smith. A man runs.')).toBe('Words appear: Mr. Smith.')
+    expect(clause('Words appear: 3.14. Snow.')).toBe('Words appear: 3.14.')
+    expect(clause('Words appear: U.S.A. A flag waves.')).toBe('Words appear: U.S.A.')
+    expect(clause('Words appear: SINTEL. A figure walks.')).toBe('Words appear: SINTEL.')
+    expect(clause('Words appear: I. A forest.')).toBe('Words appear: I.') // a single letter before an article ends the text
+    expect(clause('Words appear: J. Smith. A man runs.')).toBe('Words appear: J. Smith.')
+    expect(textClauses('Snow falls. Words appear: SINTEL.')).toMatchObject({ lead: '', rest: 'Snow falls.' })
+    // an unclosed quote runs to the end and is still protected
+    const open = 'Snow falls slowly on the old hills. Words appear: "EXIT'
+    expect(clause(open)).toBe('Words appear: "EXIT')
+    expect(shortenDeterministic(open, 9)).toBe('Snow falls on the old hills. Words appear: "EXIT')
+  })
+  it('reads German labels and quotes in the shorteners and introducesNew (de)', () => {
+    expect(textClauses('Text erscheint: „Kapitel 1. Der Anfang“. Schnee fällt.')).toMatchObject({ lead: 'Text erscheint: „Kapitel 1. Der Anfang“.', rest: 'Schnee fällt.' })
+    expect(textClauses('Schnee. Schrift erscheint: «SINTEL».')?.clause).toBe('Schrift erscheint: «SINTEL».')
+    expect(textClauses('Schnee. Wörter erscheinen: »ENDE«.')?.clause).toBe('Wörter erscheinen: »ENDE«.')
+    expect(shortenDeterministic('Eine Frau läuft langsam über die alte Brücke. Text erscheint: „BERLIN“.', 6)).toMatch(/Text erscheint: „BERLIN“\.$/)
+    for (const t of ['Text erscheint: SINTEL.', 'Wörter erscheinen: ENDE.', 'Schrift erscheint: «NORD».']) expect(introducesNew(t)).toBe(true)
+  })
+  // Human decision 2026-10-10 (M4): split, never drop either.
+  it('on-screen text that does not fit becomes its own extended cue and the action stays on the AD track', async () => {
+    const shot = (description: string, index = 0, startMs = 0): Described => ({ index, startMs, endMs: startMs + 2000, description, sameAsPrev: false, tokens: 0, outputTokens: 0 })
+    const TEXT = 'A girl runs. Words appear: "The Hunt for the Dragon".' // a 7-word text clause, 3 words of room
+    expect(shortenDeterministic(TEXT, 3)).toBe(TEXT) // nothing to remove: fit() decides
+    const cues = await fit([shot(TEXT)], [{ startMs: 0, endMs: 1300 }], (t, n) => safeShorten(t, n, () => 'Girl runs.'))
+    expect(cues).toEqual([ // no room to lead or to delay the action inside a 1.3 s gap: both start at the gap start
+      { startMs: 0, endMs: 100, text: 'Words appear: "The Hunt for the Dragon".', extended: true, wordCount: 7, shotIndex: 0 },
+      expect.objectContaining({ startMs: 0, text: 'A girl runs.', extended: false, limitMs: 1300 }),
+    ])
+    // the text fits but not beside any of the action: still split, the action shortened
+    const two = await fit([shot(SHOT0), shot('Smoke rises.', 1, 3000)], [{ startMs: 0, endMs: 1500 }, { startMs: 3000, endMs: 6000 }], (t, n) => safeShorten(t, n, () => 'Mountains walk.'))
+    expect(two.map((c) => [c.startMs, c.extended, c.text])).toEqual([[0, true, 'Words appear: SINTEL.'], [400, false, 'Snowy mountains.'], [3000, false, 'Smoke rises.']])
+  })
+  // PR #25 round 2, M2 (reviewer's repro)
+  it('places the whole text in a later gap of the shot window before splitting it', async () => {
+    const TEXT = 'A girl runs. Words appear: "The Hunt for the Dragon".'
+    const cues = await fit([{ index: 0, startMs: 0, endMs: 3000, description: TEXT, sameAsPrev: false, tokens: 0, outputTokens: 0 }], [{ startMs: 0, endMs: 2000 }, { startMs: 2500, endMs: 9000 }], (t, n) => safeShorten(t, n, (x) => x))
+    expect(cues).toEqual([expect.objectContaining({ startMs: 2500, text: TEXT, extended: false, limitMs: 9000 })])
+  })
+  // PR #25 round 2, M1: r2 shot 0 — the character's introduction must survive
+  it('splits when keeping the text beside the action would remove more than half of the action', async () => {
+    const cues = await fit([{ index: 0, startMs: 0, endMs: 3000, description: SHOT0, sameAsPrev: false, tokens: 0, outputTokens: 0 }], [{ startMs: 0, endMs: 3600 }], (t, n) => safeShorten(t, n, (x) => x))
+    expect(cues.map((c) => [c.startMs, c.extended, c.text])).toEqual([[0, true, 'Words appear: SINTEL.'], [400, false, 'Snowy mountains. A lone figure walks left.']])
+  })
+  // PR #25 round 2, M3: the player checks position 4 times a second, so a pause on the action's own ms cuts its first syllable.
+  it('the text cue leads its action cue by ~400 ms, or the action is delayed', async () => {
+    expect(TEXT_LEAD_MS).toBe(400)
+    const TEXT = 'A girl runs. Words appear: "The Hunt for the Dragon".'
+    const shot = (startMs: number, endMs: number, description = TEXT, index = 0): Described => ({ index, startMs, endMs, description, sameAsPrev: false, tokens: 0, outputTokens: 0 })
+    const at = async (shots: Described[], gaps: Array<{ startMs: number; endMs: number }>) => (await fit(shots, gaps, (t, n) => safeShorten(t, n, (x) => x))).map((c) => [c.startMs, c.extended])
+    // the action lands 1 s into the shot: the text cue leads it by 400 ms
+    expect(await at([shot(0, 4000)], [{ startMs: 1000, endMs: 3000 }])).toEqual([[600, true], [1000, false]])
+    // the action starts with the shot: the text cue may not start earlier, so the action moves 400 ms later
+    expect(await at([shot(0, 4000)], [{ startMs: 0, endMs: 2000 }])).toEqual([[0, true], [400, false]])
+    // nor before the previous cue ends
+    expect(await at([shot(0, 1000, 'Snow falls.', 0), shot(1000, 4000, TEXT, 1)], [{ startMs: 0, endMs: 4000 }])).toEqual([[0, false], [1050, true], [1450, false]])
+    // two extended cues on one start: the text cue first
+    const both = await fit([shot(0, 1000, 'Night. A rooftop.', 0), shot(0, 1000, 'Words appear: North.', 1)], [], (t) => t)
+    expect(both.map((c) => c.text)).toEqual(['Words appear: North.', 'Night. A rooftop.'])
+  })
+})
+
 describe('word budget', () => {
   it('8 words for a 3 s gap, min 4, extended 25', () => {
     expect(wordBudget({ index: 0, startMs: 0, endMs: 3000 }, [{ startMs: 0, endMs: 3000 }])).toBe(8)

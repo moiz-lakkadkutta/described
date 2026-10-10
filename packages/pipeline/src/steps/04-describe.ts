@@ -8,6 +8,7 @@ import type { Shot } from './02-shots'
 import type { Gap, Word } from './03-speech'
 import { describeSystemPrompt, wordBudget } from '../prompts'
 import { meter } from '../cost'
+import { sentences, TEXT_LABEL, textSpans } from '../textClause'
 
 /** `tokens` = Converse input tokens (the Prisma `novaTokens` column); `outputTokens` is kept alongside for the docs/aws.md run log. */
 export interface Described extends Shot { description: string; sameAsPrev: boolean; tokens: number; outputTokens: number; stopReason?: string }
@@ -24,6 +25,8 @@ export const DEFAULT_DESCRIBE_MODEL_ID = 'qwen.qwen3-vl-235b-a22b'
  * (conversation-inference-supported-models-features.html now redirects to the "Models at a glance" index, which links that card.)
  * Called directly per shot, no agent layer (docs/decisions/0005-describe-direct-bedrock.md); shots run DESCRIBE_CONCURRENCY at a time,
  * replies are cached per shot (cachedDescribe), and the "nothing new" dedupe runs afterwards in time order (dedupe).
+ * The exception to "no previous description" (DESC-017): a later part of a split camera shot is sent what its earlier parts said and
+ * asked only for what is new (describeInParts, buildDescribeRequest) — it is the same picture, so describing it from scratch repeats.
  */
 export async function describeShots(ctx: Ctx, send: Converse = bedrockConverse(ctx.signal)) {
   const shots = JSON.parse(await readFile(`${ctx.work}/shots.json`, 'utf8')) as Shot[]
@@ -31,9 +34,9 @@ export async function describeShots(ctx: Ctx, send: Converse = bedrockConverse(c
   const words = JSON.parse(await readFile(`${ctx.work}/words.json`, 'utf8').catch(() => '[]')) as Word[]
   const modelId = process.env.DESCRIBE_MODEL_ID ?? DEFAULT_DESCRIBE_MODEL_ID
   const videoMs = await videoDurationMs(`${ctx.work}/mezz.mp4`)
-  const replies = await mapLimit(shots, describeConcurrency(), async (s) => {
+  const replies = await describeInParts(shots, describeConcurrency(), async (s, said) => {
     const system = describeSystemPrompt({ maxWords: wordBudget(s, gaps), knownNames: knownNames(words, s.startMs, ctx.language), language: ctx.language })
-    return cachedDescribe(ctx.work, modelId, system, await keyframes(ctx.work, s, videoMs), send)
+    return cachedDescribe(ctx.work, modelId, system, await keyframes(ctx.work, s, videoMs), send, said)
   }, ctx.signal)
   console.log(`describe: ${shots.length} shots, ${replies.filter((r) => r.cached).length} from cache`)
   await writeFile(`${ctx.work}/described.json`, JSON.stringify(dedupe(shots, replies), null, 2))
@@ -66,15 +69,53 @@ export async function mapLimit<T, R>(items: T[], n: number, fn: (t: T) => Promis
   return out
 }
 
+/**
+ * Describes every shot, at most n camera shots at once. Each camera shot is one sequential chain — a whole shot, or its parts in
+ * order, so part k is asked once part k−1 has replied — and the longest chains start first so they do not finish last. `said` is
+ * what the earlier parts said (alreadySaid); undefined for a whole shot or a first part. Replies keep the input order.
+ */
+export async function describeInParts(shots: Shot[], n: number, one: (s: Shot, said: string | undefined) => Promise<RawReply>, signal?: AbortSignal): Promise<RawReply[]> {
+  const out = new Array<RawReply>(shots.length)
+  const chains: number[][] = []
+  shots.forEach((s, i) => { if (!s.part?.i || !chains.length) chains.push([i]); else chains.at(-1)!.push(i) })
+  chains.sort((a, b) => b.length - a.length) // stable: equal chains keep time order
+  await mapLimit(chains, n, async (chain) => {
+    for (const i of chain) {
+      signal?.throwIfAborted()
+      out[i] = await one(shots[i]!, alreadySaid(shots, out.map((r) => r?.text ?? ''), i))
+    }
+  }, signal)
+  return out
+}
+
+/**
+ * What the earlier parts of shot i's camera shot said: the first part's and the previous part's cleaned replies (parseDescription),
+ * SAME and empty ones skipped, in time order — capped at two so a long chain's request does not grow. undefined when shot i is not
+ * a later part, or nothing was said. texts[j] is shot j's raw reply.
+ */
+export function alreadySaid(shots: Shot[], texts: string[], i: number): string | undefined {
+  const k = shots[i]?.part?.i ?? 0
+  if (!k) return undefined
+  const said = []
+  for (const j of new Set([i - k, i - 1])) { const d = parseDescription(texts[j] ?? '', ''); if (!d.sameAsPrev && d.description) said.push(d.description) }
+  return said.join(' ') || undefined
+}
+
 /** One shot's raw reply as read from Bedrock or the cache. */
 export interface RawReply { text: string; usage: { inputTokens: number; outputTokens: number }; stopReason?: string; cached?: boolean }
 
 /** Bump when buildDescribeRequest's fixed parts (user text, inferenceConfig) or replyText change, so old replies stop matching. */
 export const DESCRIBE_CACHE_VERSION = 1
-/** sha256(cache version + model id + system prompt + key-frame bytes): the request's only variable inputs. */
-export function describeCacheKey(modelId: string, system: string, frames: Uint8Array[]): string {
+/** Bump when the continuation text (buildDescribeRequest with `said`) changes; hashed only for later parts, so whole shots keep their replies. */
+export const CONTINUATION_CACHE_VERSION = 1
+/**
+ * sha256(cache version + model id + system prompt + key-frame bytes [+ what earlier parts said]): the request's only variable inputs.
+ * `said` is hashed only when set, so a whole shot's or first part's key is what it was before DESC-017.
+ */
+export function describeCacheKey(modelId: string, system: string, frames: Uint8Array[], said?: string): string {
   const h = createHash('sha256').update(`v${DESCRIBE_CACHE_VERSION}\0`).update(modelId).update('\0').update(system)
   for (const f of frames) h.update('\0').update(f)
+  if (said) h.update(`\0continuation v${CONTINUATION_CACHE_VERSION}\0`).update(said)
   return h.digest('hex')
 }
 
@@ -84,11 +125,11 @@ export function describeCacheKey(modelId: string, system: string, frames: Uint8A
  * the job's meter. A reply cut off at max_tokens is not cached. An unreadable or truncated file is a miss; writes are atomic
  * (temp file + rename), so a crash mid-write never leaves one.
  */
-export async function cachedDescribe(work: string, modelId: string, system: string, frames: Uint8Array[], send: Converse): Promise<RawReply> {
-  const file = `${work}/cache/describe/${describeCacheKey(modelId, system, frames)}.json`
+export async function cachedDescribe(work: string, modelId: string, system: string, frames: Uint8Array[], send: Converse, said?: string): Promise<RawReply> {
+  const file = `${work}/cache/describe/${describeCacheKey(modelId, system, frames, said)}.json`
   const hit = await readFile(file, 'utf8').then((t) => { try { return JSON.parse(t) as RawReply } catch { return undefined } }, () => undefined)
   if (hit && typeof hit.text === 'string' && hit.usage) return { ...hit, usage: { inputTokens: 0, outputTokens: 0 }, cached: true }
-  const r = await send(buildDescribeRequest(system, frames, modelId))
+  const r = await send(buildDescribeRequest(system, frames, modelId, said))
   // usage.inputTokens / outputTokens — https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html
   const reply: RawReply = { text: replyText(r.output), usage: { inputTokens: r.usage?.inputTokens ?? 0, outputTokens: r.usage?.outputTokens ?? 0 }, stopReason: r.stopReason }
   meter()?.bedrock(modelId, reply.usage)
@@ -100,12 +141,38 @@ export async function cachedDescribe(work: string, modelId: string, system: stri
   return reply
 }
 
-/** Second, sequential pass: parseDescription compares each reply with the previous voiced description in time order. */
+/** Words that carry no fact: articles, prepositions, pronouns, copulas (en, de). On-screen text labels are removed before counting. */
+const FILLER = new Set(['a', 'an', 'the', 'and', 'of', 'in', 'on', 'at', 'to', 'with', 'by', 'from', 'into', 'its', 'his', 'her', 'their', 'is', 'are',
+  'der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einen', 'einem', 'einer', 'und', 'im', 'am', 'ist', 'sind', 'mit'])
+const contentWords = (t: string) => new Set(normalize(t.replace(new RegExp(TEXT_LABEL.source, 'giu'), ' ')).split(' ').filter((w) => w && !FILLER.has(w)))
+
+/**
+ * The sentences of a later part's description that say something new (PR #25 review H1): a sentence — an on-screen text clause is
+ * one — is dropped when every content word in it was already said by the earlier parts ("Snowy mountains.", a repeated
+ * "Words appear: SINTEL."). Sentence by sentence, not a share of the whole: the stable descriptor the prompt asks for ("the woman in
+ * the red coat") is always said already, and a share made "The woman in the red coat draws a gun." look like a repeat.
+ */
+export function newSentences(text: string, said: string): string {
+  const known = contentWords(said)
+  return sentences(text).filter((u) => [...contentWords(u)].some((w) => !known.has(w))).join(' ')
+}
+
+/**
+ * Second, sequential pass: parseDescription compares each reply with the previous voiced description in time order. A later part
+ * of a split camera shot keeps only its new sentences (newSentences), and is "nothing new" when none is left.
+ */
 export function dedupe(shots: Shot[], replies: RawReply[]): Described[] {
   let prev = ''
+  const texts = replies.map((r) => r.text)
   return shots.map((s, i) => {
     const r = replies[i]!
-    const { description, sameAsPrev } = parseDescription(r.text, prev)
+    let { description, sameAsPrev } = parseDescription(r.text, prev)
+    const said = alreadySaid(shots, texts, i)
+    if (!sameAsPrev && description && said) {
+      const fresh = newSentences(description, said)
+      if (fresh) description = fresh
+      else sameAsPrev = true
+    }
     if (!sameAsPrev && description) prev = description
     return { ...s, description, sameAsPrev, tokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens, stopReason: r.stopReason }
   })
@@ -215,15 +282,18 @@ export const keyframeArgs = (mezz: string, tSec: number, out: string) =>
 
 /**
  * The Converse request, as sent in the Gate C bake-off: image blocks (JPEG bytes) in time order, then the task; temperature 0, 120 tokens.
+ * A later part of a split camera shot (said = what its earlier parts said) gets that text and one instruction after the task
+ * (DESC-017, approved 2026-10-10); a leading SAME in the reply becomes sameAsPrev in parseDescription.
  * ImageBlock — https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ImageBlock.html
  */
-export function buildDescribeRequest(system: string, frames: Uint8Array[], modelId: string): ConverseCommandInput {
+export function buildDescribeRequest(system: string, frames: Uint8Array[], modelId: string, said?: string): ConverseCommandInput {
+  const task = 'These are frames from one shot, in time order. Describe this shot.'
   return {
     modelId,
     system: [{ text: system }],
     messages: [{ role: 'user', content: [
       ...frames.map((bytes) => ({ image: { format: 'jpeg' as const, source: { bytes } } })),
-      { text: 'These are frames from one shot, in time order. Describe this shot.' },
+      { text: said ? `${task} Already said for the earlier part(s) of this shot: "${said.replace(/"/g, '\\"')}" Say only what is new since then, or reply exactly SAME if nothing is new.` : task },
     ] }],
     inferenceConfig: { maxTokens: 120, temperature: 0 },
   }
@@ -234,19 +304,31 @@ const normalize = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}\s']/gu, '
 const jaccard = (a: string, b: string) => { const A = new Set(a.split(' ')), B = new Set(b.split(' ')); const both = [...A].filter((w) => B.has(w)).length; return both / (A.size + B.size - both) }
 
 /**
- * Cleans one model reply: strips quotes/fences/whitespace, treats a leading SAME or a (near-)verbatim repeat of the previous
- * description (word-set Jaccard ≥ 0.8) as "nothing new", and drops a "Words appear:" clause of more than 8 words (invented text).
+ * "Nothing new" replies (PR #25 review H2, round 2): the whole reply (≤ 5 words) is one of these, in any case — "Same.", "Nothing new.",
+ * "Nothing is new.", "No new information.", "Nothing new happens.", "No change(s).", "Unchanged.", "Nothing (has) changed.", German
+ * "Nichts Neues." / "Gleich." / "Unverändert." / "Keine Veränderung." / "Keine Änderung.". A description that only opens with one
+ * ("Same woman walks.") is not one.
+ */
+const NOTHING_NEW = /^(?:same|nothing (?:is )?new|no new information|nothing new happens|no changes?|unchanged|nothing (?:has )?changed|nichts neues|gleich|unverändert|keine (?:veränderung|änderung))[.!]?$/iu
+/** A leading upper-case SAME followed by more text ("SAME. Woman holds bowl.") is "nothing new" too. */
+const SAME_PREFIX = /^SAME\b/
+
+/**
+ * Cleans one model reply: strips quotes/fences/whitespace, treats a SAME / "nothing new" reply (NOTHING_NEW) or a (near-)verbatim
+ * repeat of the previous description (word-set Jaccard ≥ 0.8) as "nothing new", and drops an on-screen text clause (../textClause,
+ * English or German label) of more than 8 words (invented text).
  */
 export function parseDescription(raw: string, prev: string): { description: string; sameAsPrev: boolean } {
   let text = raw.replace(/```[a-z]*/gi, ' ').replace(/\s+/g, ' ').trim()
   const q = /^["'`“‘]([^"`“”]+)["'`”’]$/.exec(text) // one wrapping pair only: '"A." Then "B."' keeps its inner quotes
   if (q) text = q[1]!.trim()
-  if (/^SAME\b/.test(text)) { if (text.replace(/^SAME\.?/, '').trim()) console.warn('describe: dropped text after SAME:', text); return { description: '', sameAsPrev: true } }
-  text = text.replace(/Words appear:\s*(?:["“]([^"”]*)["”]|([^.]*))\.?\s*/gi, (m, quoted?: string, bare?: string) => {
-    if ((quoted ?? bare ?? '').trim().split(/\s+/).filter(Boolean).length <= 8) return m
-    console.warn('describe: dropped on-screen text longer than 8 words:', m.trim())
-    return ''
-  }).replace(/\s*Words appear:\s*$/i, '').trim()
+  if (SAME_PREFIX.test(text) || NOTHING_NEW.test(text)) { if (SAME_PREFIX.test(text) && text.replace(/^SAME\.?/, '').trim()) console.warn('describe: dropped text after SAME:', text); return { description: '', sameAsPrev: true } }
+  for (const span of textSpans(text).reverse()) {
+    if (span.body.trim().split(/\s+/).filter(Boolean).length <= 8) continue
+    console.warn('describe: dropped on-screen text longer than 8 words:', text.slice(span.start, span.end))
+    text = text.slice(0, span.start) + text.slice(span.end).replace(/^\s+/, '')
+  }
+  text = text.replace(new RegExp(`\\s*${TEXT_LABEL.source}\\s*$`, 'iu'), '').trim()
   const a = normalize(text), b = normalize(prev)
   return { description: text, sameAsPrev: !!a && !!b && (a === b || jaccard(a, b) >= 0.8) }
 }

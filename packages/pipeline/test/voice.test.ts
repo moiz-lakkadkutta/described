@@ -190,4 +190,33 @@ describe('clip duration', () => {
     const { stdout } = await execa('ffprobe', clipDurationArgs(mp3))
     expect(parseClipDurationMs(stdout)).toBe(2500)
   })
+  // Human decision 2026-10-10 (M4): r2 cue 0 ran past the next cue; the shortening could not keep the text beside the action.
+  it('an overrun whose on-screen text does not fit beside the action keeps the action within its limit and the text as its own extended cue', async () => {
+    const SHOT0 = 'Snowy mountains. A lone figure walks left, carrying a spear. Words appear: SINTEL.'
+    await writeCues([{ ...cue(0, SHOT0, 16720), shotIndex: 0 }, { ...cue(2000, 'Smoke rises.', 16720), shotIndex: 1 }])
+    const synthesize = vi.fn(async (text: string) => new TextEncoder().encode(text))
+    const measureMs = vi.fn(async (file: string) => (await readFile(file, 'utf8')).split(/\s+/).length * 560)
+    await voice(ctx(), { synthesize, measureMs })
+    const out = await readCues()
+    // no shots.json here: the text cue cannot lead (it may not start before the cue), so the action moves 400 ms later
+    expect(out.map((c) => [c.startMs, c.extended, c.text, c.shotIndex])).toEqual([[0, true, 'Words appear: SINTEL.', 0], [400, false, 'Snowy mountains.', 0], [2000, false, 'Smoke rises.', 1]])
+    expect(out[1]!.endMs).toBeLessThanOrEqual(2000 - 150 + OVERRUN_TOLERANCE_MS) // the action stays within its limit
+    expect(out[0]).not.toHaveProperty('limitMs')
+    expect(out[0]!.endMs).toBe(3 * 560) // the text cue's own clip
+    // every clip sits in its cue's slot
+    for (const [i, c] of out.entries()) {
+      expect(await readFile(`${work}/cue_${i}.mp3`, 'utf8')).toBe(c.text)
+      expect((JSON.parse(await readFile(`${work}/${cueSidecarFile(i)}`, 'utf8')) as CueSidecar).text).toBe(c.text)
+    }
+    expect(await files()).toEqual(['cue_0.json', 'cue_0.mp3', 'cue_1.json', 'cue_1.mp3', 'cue_2.json', 'cue_2.mp3'])
+  })
+  it('a split text cue leads its action by 400 ms when the shot started earlier, and stale moving_ files are removed', async () => {
+    const SHOT0 = 'Snowy mountains. A lone figure walks left, carrying a spear. Words appear: SINTEL.'
+    await writeFile(`${work}/shots.json`, JSON.stringify([{ index: 0, startMs: 0, endMs: 3000 }]))
+    await writeFile(`${work}/moving_cue_7.mp3`, 'stale')
+    await writeCues([{ ...cue(1000, SHOT0, 3500), shotIndex: 0 }])
+    await voice(ctx(), { synthesize: async (t) => new TextEncoder().encode(t), measureMs: async (f) => (await readFile(f, 'utf8')).split(/\s+/).length * 560 })
+    expect((await readCues()).map((c) => [c.startMs, c.extended, c.text])).toEqual([[600, true, 'Words appear: SINTEL.'], [1000, false, 'Snowy mountains.']])
+    expect((await readdir(work)).filter((f) => f.startsWith('moving_'))).toEqual([])
+  })
 })
