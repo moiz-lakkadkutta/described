@@ -181,14 +181,29 @@ export type EditConverse = (input: ConverseCommandInput) => Promise<Pick<Convers
 export const bedrockEditSend: EditConverse = (i) => client().send(new ConverseCommand(i), { abortSignal: meter()?.signal })
 
 /**
- * Shortens an over-budget edit to maxWords while keeping every fact of `keep` (the cue's original text): fit's shortener keeps "the
- * most plot-relevant fact" and dropped the cue's own action from a fold (probe round 6). The edit step re-runs its guards on the reply
- * and adds the usage to edit.json.
+ * The shortening request for an over-budget edit: maxWords, keeping every fact of `keep` (the cue's original text). The words the guard
+ * requires (`mustSay`, 05b-edit factWords) come first: fit's shortener keeps "the most plot-relevant fact" and dropped the cue's own
+ * action from a fold (probe round 6). No "(count them)": on sintel-90-210 Nova Lite's whole reply to that was "(9 words)" (3 of 3
+ * calls); the edit step also strips such an annotation (cleanShortening) and treats a reply that is only one as no reply.
  */
-export async function shortenEditWithNovaLite(text: string, maxWords: number, keep: string, language: 'en' | 'de'): Promise<{ text: string; usage?: { inputTokens?: number; outputTokens?: number } }> {
-  const r = await client().send(new ConverseCommand({ modelId: editModelId(), system: [{ text: `Shorten an audio description line to at most ${maxWords} words (count them). It must still state everything in this line: "${keep}" — you may reword it, never drop a fact from it. Compress or drop the other part first. Present tense, no new facts. ${language === 'de' ? 'German.' : 'English.'} Reply with the line only.` }], messages: [{ role: 'user', content: [{ text }] }], inferenceConfig: { maxTokens: 80, temperature: 0 } }), { abortSignal: meter()?.signal })
+export function shortenEditRequest(text: string, maxWords: number, keep: string, mustSay: readonly string[], language: 'en' | 'de'): ConverseCommandInput {
+  return {
+    modelId: editModelId(),
+    system: [{ text: [
+      `Shorten an audio description line. The shortened line must still contain ${mustSay.length ? `these words (another form of the same word is fine): ${mustSay.join(', ')} — and ` : ''}every fact of this line: "${keep}". You may reword it; never drop a fact from it. Compress or drop the other part first.`,
+      `At most ${maxWords} words. Present tense, no new facts. ${language === 'de' ? 'German.' : 'English.'}`,
+      'Reply with the shortened line only: never a word count, a note, quotes or anything else.',
+    ].join('\n') }],
+    messages: [{ role: 'user', content: [{ text }] }],
+    inferenceConfig: { maxTokens: 80, temperature: 0 },
+  }
+}
+
+/** One Nova Lite call for shortenEditRequest; the edit step cleans the reply and re-runs its guards on it, and adds the usage to edit.json. */
+export async function shortenEditWithNovaLite(text: string, maxWords: number, keep: string, mustSay: readonly string[], language: 'en' | 'de'): Promise<{ text: string; usage?: { inputTokens?: number; outputTokens?: number } }> {
+  const r = await client().send(new ConverseCommand(shortenEditRequest(text, maxWords, keep, mustSay, language)), { abortSignal: meter()?.signal })
   meter()?.bedrock(editModelId(), r.usage)
-  return { text: (r.output?.message?.content?.[0]?.text ?? text).trim(), usage: r.usage }
+  return { text: (r.output?.message?.content?.find((c) => c.text)?.text ?? '').trim(), usage: r.usage }
 }
 
 /** JSON Schema for the forced emit_edits tool's input (Nova: top level object with type, properties, required only). */
@@ -198,7 +213,7 @@ export const EDIT_TOOL_SCHEMA = {
 }
 
 /** One cue as the edit step hands it to the request: its index in cues.json, budget, whether it is a frozen on-screen text cue, and the dropped descriptions just before it. */
-export interface EditCueInput { i: number; startMs: number; text: string; wordCount: number; budget: number; extended: boolean; onScreenText: boolean; missed: string[] }
+export interface EditCueInput { i: number; startMs: number; text: string; wordCount: number; budget: number; extended: boolean; onScreenText: boolean; missed: string[]; /** the cue's facts the guard requires the edit to keep (05b-edit factWords) */ mustSay?: string[] }
 export interface EditInput {
   language: 'en' | 'de'
   cues: readonly EditCueInput[]
@@ -222,17 +237,18 @@ export function editRequest({ language, cues, dialogue, heard }: EditInput, mode
   const s = (ms: number) => Math.round(ms / 100) / 10
   const items = cues.map((c) => c.onScreenText
     ? { cue: c.i, start: s(c.startMs), text: c.text, onScreenText: true, fixed: true }
-    : { cue: c.i, start: s(c.startMs), ...(c.extended ? { extended: true } : {}), ...(c.missed.length ? { missedJustBefore: c.missed } : {}), text: c.text, words: c.wordCount, wordsYouMayAdd: c.budget - c.wordCount })
+    : { cue: c.i, start: s(c.startMs), ...(c.extended ? { extended: true } : {}), ...(c.missed.length ? { missedJustBefore: c.missed } : {}), text: c.text, ...(c.mustSay?.length ? { mustStillSay: c.mustSay } : {}), words: c.wordCount, wordsYouMayAdd: c.budget - c.wordCount })
   const input = JSON.stringify({ language, ...(heard ? { heardJustBefore: heard } : {}), cues: items, dialogue })
   return {
     modelId: editModelId(),
     system: [{ text: [
       `You edit an audio description script for blind and low-vision viewers, in ${language === 'de' ? 'German' : 'English'}. Each shot was described on its own, then the cues were shortened and placed in the pauses of the dialogue. The viewer hears only the cues, in order. Your job is continuity between cues.`,
-      'The input lists the cues in order: the text as the viewer hears it, its word count, how many words you may add (the pause allows no more), and under missedJustBefore the descriptions of shots that were dropped between the previous cue and this one (never heard: there was no pause), plus the dialogue. A cue marked fixed is on-screen text read out as written: never return it.',
+      'The input lists the cues in order: the text as the viewer hears it, under mustStillSay the words of that cue your text must still contain, how many words you may add (the pause allows no more), and under missedJustBefore the descriptions of shots that were dropped between the previous cue and this one (never heard: there was no pause), plus the dialogue. A cue marked fixed is on-screen text read out as written: never return it.',
       mode === 'tool'
         ? 'Return, through the emit_edits tool, the revised text of voiced cues only, and only the cues you change. Returning no edits is a valid answer.'
         : 'Reply with one JSON object only, exactly {"edits":[{"cue":<number>,"text":"<revised cue>"}]} — no prose, no code fence — holding the revised text of voiced cues only, and only the cues you change. {"edits":[]} is a valid answer.',
       'Rules, in order of importance:',
+      '0. A revised cue must still contain every word of its mustStillSay (another form of the same word is fine, e.g. pour → pours). A fold adds the dropped shot to the cue; it never replaces the cue\'s own action. If that does not fit, leave the cue unchanged.',
       '1. Facts come only from the cues and their missedJustBefore descriptions. Never add a person, object, action, colour, place or on-screen text that is not stated there. No interpretation, no emotion or motivation.',
       '2. wordsYouMayAdd is exact: count the words of your text (whitespace-separated); a cue with wordsYouMayAdd 0 may only be reworded or shortened. If a change does not fit, leave the cue unchanged.',
       '3. When a cue\'s missedJustBefore states something the viewer needs (a new person, an object, an action), fold it into THAT cue, before the cue\'s own action, when the words fit: e.g. missedJustBefore ["Man stirs pot over fire."] and text "Old man pours broth." (wordsYouMayAdd 7) → "The man stirs a pot over the fire, then pours broth." Never fold anything into another cue.',
