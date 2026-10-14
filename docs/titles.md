@@ -117,8 +117,13 @@ and left in S3: `published/tears-of-steel-40-100/descriptions/16.vtt` (the old r
 `cues/cue_*.<hash>.mp3` clips whose hash changed (immutable keys, nothing points at them).
 
 Pipeline-side notes from these runs (not fixed here):
-- Captions and Rich captions carry Transcribe's speaker labels as WebVTT voice spans (`<v spk_0>`), as before; valid VTT, and the
-  speaker tag rule only adds a name when one is spoken, but a renderer that shows voice names would show "spk_0".
+- ~~Captions and Rich captions carry Transcribe's speaker labels as WebVTT voice spans (`<v spk_0>`), as before; valid VTT, and the
+  speaker tag rule only adds a name when one is spoken, but a renderer that shows voice names would show "spk_0".~~ The app is such a
+  renderer: the kit's parseVtt reads `<v spk_0>` as the cue's speaker and CueOverlay draws "[spk_0] " before the line (Fire OS and Vega
+  both render text through CueOverlay). Fixed in 08-text (`textTrackVtt`): published VTTs carry no voice spans; a name the SDH rules
+  accept stays the leading "[Name] " of the Rich captions text. Titles published before the fix are rewritten in place with
+  `pnpm pipeline strip-voices <slug…> --run` (caption and Rich captions VTTs and their HLS segments only, then one
+  `/published/<slug>/*` invalidation); on sintel-90-150-r2 its output is byte-identical to a local `--from text` re-run.
 - Work dirs are not kept anywhere durable: a `--from fit` re-run needs the machine the title was run on. Uploading
   `described.json` (and `shots.json`) to `work/<slug>/` in S3 would make these re-runs restorable.
 

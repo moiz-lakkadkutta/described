@@ -1,5 +1,5 @@
 import { CloudFrontClient, CreateInvalidationCommand } from '@aws-sdk/client-cloudfront'
-import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { GetObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { Upload } from '@aws-sdk/lib-storage'
 import { randomUUID } from 'node:crypto'
 import { createReadStream, createWriteStream } from 'node:fs'
@@ -32,6 +32,30 @@ export async function download(uri: string, file: string, region?: string) {
 export async function upload(file: string, uri: string, opts: { ContentType: string; CacheControl?: string; region?: string }) {
   const { region, ...meta } = opts
   await new Upload({ client: s3(region), params: { ...parseS3Uri(uri), Body: createReadStream(file), ...meta } }).done()
+}
+
+/**
+ * Every key under `prefix`, following continuation tokens (≤ 1,000 keys a page).
+ * https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/client/s3/command/ListObjectsV2Command/
+ */
+export async function listKeys(bucket: string, prefix: string, region?: string): Promise<string[]> {
+  const keys: string[] = []
+  let token: string | undefined
+  do {
+    const r = await s3(region).send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ContinuationToken: token }))
+    for (const o of r.Contents ?? []) if (o.Key) keys.push(o.Key)
+    token = r.IsTruncated ? r.NextContinuationToken : undefined
+  } while (token)
+  return keys
+}
+/** A small text object (a VTT) as UTF-8. https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/client/s3/command/GetObjectCommand/ */
+export async function getText(bucket: string, key: string, region?: string): Promise<string> {
+  const r = await s3(region).send(new GetObjectCommand({ Bucket: bucket, Key: key }))
+  return r.Body!.transformToString('utf-8')
+}
+/** A small text object, replacing any at the key. https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/client/s3/command/PutObjectCommand/ */
+export async function putText(bucket: string, key: string, body: string, meta: { ContentType: string; CacheControl?: string }, region?: string) {
+  await s3(region).send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: body, ...meta }))
 }
 
 const CONTENT_TYPES: Record<string, string> = { '.m3u8': 'application/vnd.apple.mpegurl', '.m4s': 'video/iso.segment', '.mp4': 'video/mp4', '.vtt': 'text/vtt', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.json': 'application/json', '.jpg': 'image/jpeg' }

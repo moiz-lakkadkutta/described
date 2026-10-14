@@ -3,6 +3,8 @@ import { ctxFor, runDescribe } from './steps'
 import { persistForCli } from './cues'
 import { resolveLanguageAndVoice } from './steps/06-voice'
 import { promptOptions, synthesizePrompts } from './promptClips'
+import { createInvalidation, getText, listKeys, putText } from './s3'
+import { stripPublishedVoiceSpans } from './voiceSpans'
 const program = new Command().name('described-pipeline')
 program.command('describe').requiredOption('--title <slug>').requiredOption('--source <s3uri>').option('--lang <en|de>', 'language of the title', 'en').option('--voice <name>', 'Polly voice (default: POLLY_VOICE_EN/DE, else Joanna/Vicki)').option('--from <step>', 'resume from step')
   .action(async (o) => {
@@ -22,6 +24,21 @@ program.command('prompts').option('--voice <names>', 'comma-separated voices (de
     console.log(`${r.clips.length} clips, ${r.chars} characters, ≈ $${r.usd.toFixed(4)} (Polly neural)`)
     if (opts.dryRun) console.log('dry run: no Polly call, nothing written or uploaded. Add --run to synthesize and upload.')
     else console.log(`wrote ${r.written.length}, uploaded ${r.uploaded.length}`)
+    process.exit(0)
+  })
+// DESC-010 follow-up: strip Transcribe voice spans (<v spk_0>) from already-published caption VTTs and their HLS segments, in place.
+// A dry run by default (S3 reads only). --run writes the changed objects and, with CLOUDFRONT_DISTRIBUTION_ID, invalidates /published/<slug>/*.
+program.command('strip-voices').argument('<slugs...>', 'published title slugs').option('--run', 'write the changed objects and invalidate; without it this is a dry run')
+  .action(async (slugs: string[], o: { run?: boolean }) => {
+    const bucket = process.env.S3_BUCKET_MEDIA
+    if (!bucket) throw new Error('S3_BUCKET_MEDIA is not set')
+    const deps = { list: (b: string, p: string) => listKeys(b, p), get: (b: string, k: string) => getText(b, k), put: putText, invalidate: (id: string, paths: string[]) => createInvalidation(id, paths) }
+    for (const slug of slugs) {
+      const r = await stripPublishedVoiceSpans(slug, { bucket, run: !!o.run, distributionId: process.env.CLOUDFRONT_DISTRIBUTION_ID, onWrite: (k) => console.log(`  wrote ${k}`) }, deps)
+      if (!o.run) for (const k of r.changed) console.log(`  would write ${k}`)
+      console.log(`${slug}: ${r.changed.length} of ${r.checked.length} caption VTTs ${o.run ? 'rewritten' : 'would change'}${r.invalidated ? `, /published/${slug}/* invalidated` : ''}`)
+    }
+    if (!o.run) console.log('dry run: nothing written. Add --run to rewrite and invalidate.')
     process.exit(0)
   })
 program.parseAsync()
