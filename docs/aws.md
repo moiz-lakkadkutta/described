@@ -12,4 +12,4 @@ Every call, why it is load-bearing, and its approximate cost. Kept current; judg
 | Amazon CloudFront — CreateInvalidation | global | Invalidate `/published/{title}/*` by hand (console or `aws cloudfront create-invalidation`, `CLOUDFRONT_DISTRIBUTION_ID`) after a re-run republishes a title; the pipeline calls it itself when `PUBLISH_INVALIDATE=1` (PR #16), and the pipeline role is granted it on this distribution only ([API](https://docs.aws.amazon.com/cloudfront/latest/APIReference/API_CreateInvalidation.html)) | cents (one wildcard path per re-run) |
 | AWS CDK | — | Infra as code (`infra/`) | — |
 
-Infra as code: `infra/` (AWS CDK, TypeScript). Dev tooling: Claude Code, Kiro Crew, Amazon Devices Builder Tools MCP.
+Infra as code: `infra/` (AWS CDK, TypeScript). Dev tooling: Claude Code.
