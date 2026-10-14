@@ -17,26 +17,37 @@ swaps (its words must appear in the original's order); it did not stop a sentenc
 
 1. **in order** — the content words (by stem) are a subsequence of the original's;
 2. **no new list comma** — a comma or semicolon follows a word that had one in the original ("City," fails);
-3. **a verb** — when the original has a verb, at least one of them is kept ("Snowy mountains." from "Snowy mountains. A lone figure
-   walks left, carrying a spear." fails);
-4. **no verbless sentence** cut from a sentence that had a verb ("Scaled creature. Hand reaches." fails; "Snowy mountains." beside
-   "A lone figure walks left." passes).
+3. **not only a subject** (English only) — a sentence of the shortening with no verb of its own is rejected when every content word
+   in it comes from the subject of a clause of the original that has a verb, i.e. the words before that clause's first verb
+   ("A scaled creature with horns." from "A scaled creature with horns and bloodied wing stares as …" fails). It **fails open**: a
+   word from a clause where no verb was found, or from after a verb, makes the sentence acceptable ("Snowy mountains.", "Two hands
+   hold a red bowl."). Check 2 is what catches both rater fragments; check 3 only stops a bare subject.
+
+German: checks 1 and 2 only (fit, edit pass and 06-voice get the title's language) — the verb heuristic is English, and German -s
+words (links, rechts, etwas, alles) are not verbs.
 
 When Nova Lite's reply fails, the deterministic shortening is tried under the same checks; when that fails too, the text comes back
 unshortened, and fit does what it does with any text that does not fit: the next gap in the window, an extended cue
 (`introducesNew`, a plot event) or a drop. No new behaviour, no model call. The Nova Lite prompt now asks for "one or more complete
 present-tense sentences, each with its verb; never a list of nouns".
 
-Verbs are found by a deterministic English heuristic: is / are / has / have, or an -s word that does not open its sentence and does
-not follow an article, number, possessive, preposition or adjective-like word ("with horns", "two hands", "snowy mountains"). It misses
-verbs without -s ("Two hands hold a bowl.", German) and reads some plural nouns as verbs; both mostly let a shortening through rather
-than reject a good one. Check 2 is language-independent.
+Verbs are found by a deterministic English heuristic: is / are / has / have; an -s word that does not open its sentence and does not
+follow an article, number, possessive, preposition or adjective-like word ("with horns", "two hands", "snowy mountains"; an -ly adverb
+is skipped and the word before it judged: "Sintel slowly lifts", but "a butterfly lands"); and a base form right after a plural subject
+or "X and Y" at a clause start ("Two hands hold", "Dragons attack", "Celia and Thom argue"). It still misses other base forms and past
+tense; a missed verb only makes check 3 more lenient.
+
+**Extended cues.** `capExtended` (fit and 06-voice) uses a shortening or its cut to 25 words only when it passes the same checks; when
+neither does, there is no extended cue (dropped). A text within 25 words is unchanged.
+
+**Sweep** (PR review): every recorded description's deterministic shortenings (96 descriptions, 123 shortenings). The first version of
+check 3 rejected 22; this one rejects 6, each a bare subject ("The woman with red hair.", "A scaled creature with horns.", "A dark.").
 
 ## Replay (recorded fit inputs, no AWS call)
 
 Recorded shortenings were recovered from each run's `cues.fit.json` and fed back as the model's replies; fit before and after:
-`sintel-90-150-r2` and `tears-of-steel-40-100` — no cue changes. `sintel-90-210` (A2) — shot 26 "A scaled creature with horns." (no
-verb) is no longer placed; shot 27 "Red-haired woman smiles. Scaly beast roars." takes the slot. `sintel-90-210-g9` — shot 14 "City,
+`sintel-90-150-r2` and `tears-of-steel-40-100` — no cue changes. `sintel-90-210` (A2) — shot 26 "A scaled creature with horns." (only a
+subject) is no longer placed; shot 27 "Red-haired woman smiles. Scaly beast roars." takes the slot. `sintel-90-210-g9` — shot 14 "City,
 central pyramid." is rejected and placed whole in the next gap ("Dense city under hazy sky, central pyramid structure.", 4.3 s
 later); later cues move with it (shot 17 "She turns." becomes the whole description, shot 21 drops out and 22 comes in).
 
@@ -50,6 +61,5 @@ later); later cues move with it (shot 17 "She turns." becomes the whole descript
   stares." is rejected and stays "A scaled creature with horns and bloodied wing stares."; the other two edits still apply.
 - **06-voice.** The overrun shortening (and the shortening of the action beside split-off on-screen text) uses `shortenSentences`:
   `shortenDeterministic` under `readsAsSentences`, or the text unshortened. The cue then follows voice's existing path: extended
-  when it introduces something new, an event pause, or dropped. "Night. A rooftop. A man waits by the chimney, watching the street."
-  is no longer voiced as "Night. A rooftop." in its slot; it becomes an extended cue, whole. The recorded voice shortenings of
+  when it introduces something new, an event pause, or dropped. The recorded voice shortenings of
   sintel-90-150-r2, tears-of-steel-40-100, sintel-90-210 and g9 all still pass the check.

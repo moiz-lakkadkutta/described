@@ -188,16 +188,16 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
     const overruns = (start: number) => limit !== undefined && (start + speechMs > limit || start + durationMs > Math.min(limit + OVERRUN_TOLERANCE_MS, next ? next.startMs : Infinity))
     if (limit !== undefined && overruns(c.startMs)) {
       const maxWords = Math.max(3, Math.floor((words(text) * (limit - c.startMs)) / durationMs))
-      const shorter = shortenSentences(text, maxWords) // DESC-028: a shortening with none of the verbs is no shortening
+      const shorter = shortenSentences(text, maxWords, 'voice', ctx.language) // DESC-028: a shortening with none of the verbs is no shortening
       if (shorter !== text) { await setAside(i); aside = { text, durationMs, speechMs }; text = shorter; ({ durationMs, speechMs } = await synth(i, text)) }
       const tc = overruns(c.startMs) ? textClauses(text) : undefined
       if (tc?.rest) {
         const fitWords = Math.max(3, Math.floor((words(text) * (limit - c.startMs)) / durationMs))
         const { limitMs: _, ...rest } = c
-        const clause = (await capExtended(tc.clause, shortenDeterministic)).text
+        const clause = (await capExtended(tc.clause, shortenDeterministic, ctx.language))?.text ?? tc.clause
         texts.push({ ...rest, endMs: c.startMs + 100, text: clause, extended: true, wordCount: words(clause) })
         console.log(`voice: cue ${i} at ${c.startMs} ms: on-screen text split into its own extended cue: ${JSON.stringify(clause)}`)
-        text = shortenSentences(tc.rest, fitWords)
+        text = shortenSentences(tc.rest, fitWords, 'voice', ctx.language)
         ;({ durationMs, speechMs } = await synth(i, text))
         const prevEnd = Math.max(shotStart.get(c.shotIndex) ?? c.startMs, ...kept.filter((k) => !k.extended).map((k) => k.endMs)) // every kept clip's measured end: one may run past this cue's start (within tolerance)
         const lead = leadText(c.startMs, prevEnd, (later) => !overruns(later))
@@ -207,20 +207,30 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
       }
       if (overruns(startMs)) {
         if (introducesNew(text)) {
-          const capped = (await capExtended(text, shortenDeterministic)).text
-          if (capped !== text) { text = capped; ({ durationMs, speechMs } = await synth(i, text)) }
-          const { limitMs: _, ...rest } = c
-          cue = { ...rest, extended: true }
-          console.log(`voice: cue ${i} at ${c.startMs} ms runs ${c.startMs + durationMs - limit} ms past its limit; now extended: ${JSON.stringify(text)}`)
+          const capped = (await capExtended(text, shortenDeterministic, ctx.language))?.text // DESC-028: undefined when no cut reads as sentences
+          if (capped === undefined) {
+            cue = null
+            console.log(`voice: cue ${i} at ${c.startMs} ms runs past its limit and no extended cut reads as sentences; dropped: ${JSON.stringify(text)}`)
+          } else {
+            if (capped !== text) { text = capped; ({ durationMs, speechMs } = await synth(i, text)) }
+            const { limitMs: _, ...rest } = c
+            cue = { ...rest, extended: true }
+            console.log(`voice: cue ${i} at ${c.startMs} ms runs ${c.startMs + durationMs - limit} ms past its limit; now extended: ${JSON.stringify(text)}`)
+          }
         } else if (plotEvent(base, previousPlaced(kept)) && eventSpaced(eventStarts, startMs)) {
           // the full text (the rest, when the on-screen text was split off above — said once, in its own pause), not the slot shortening
-          const full = (await capExtended(tc?.rest ? textClauses(base)!.rest : base, shortenDeterministic)).text
-          if (full === aside?.text) { await restore(i); text = full; durationMs = aside.durationMs; speechMs = aside.speechMs; aside = undefined }
-          else if (full !== text) { text = full; ({ durationMs, speechMs } = await synth(i, text)) }
-          const { limitMs: _, ...rest } = c
-          cue = { ...rest, extended: true, event: true }
-          eventStarts.push(startMs)
-          console.log(`voice: cue ${i} at ${startMs} ms runs ${c.startMs + durationMs - limit} ms past its limit; a new plot event, now extended: ${JSON.stringify(text)}`)
+          const full = (await capExtended(tc?.rest ? textClauses(base)!.rest : base, shortenDeterministic, ctx.language))?.text // DESC-028: undefined → dropped
+          if (full === undefined) {
+            cue = null
+            console.log(`voice: cue ${i} at ${startMs} ms runs past its limit, a new plot event with no extended cut that reads as sentences; dropped: ${JSON.stringify(base)}`)
+          } else {
+            if (full === aside?.text) { await restore(i); text = full; durationMs = aside.durationMs; speechMs = aside.speechMs; aside = undefined }
+            else if (full !== text) { text = full; ({ durationMs, speechMs } = await synth(i, text)) }
+            const { limitMs: _, ...rest } = c
+            cue = { ...rest, extended: true, event: true }
+            eventStarts.push(startMs)
+            console.log(`voice: cue ${i} at ${startMs} ms runs ${c.startMs + durationMs - limit} ms past its limit; a new plot event, now extended: ${JSON.stringify(text)}`)
+          }
         } else {
           cue = null
           console.log(`voice: cue ${i} at ${c.startMs} ms runs ${c.startMs + durationMs - limit} ms past its limit; dropped: ${JSON.stringify(text)}`)

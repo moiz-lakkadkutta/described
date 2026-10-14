@@ -193,6 +193,15 @@ describe('edit (scene-level context pass)', () => {
     expect(applyEdits(g9, g9shots, [{ cue: 0, text: 'A scaled creature with horns and bloodied wing stares as a gloved hand reaches toward it.' }], [25]).applied).toHaveLength(1)
   })
 
+  it('German edits pass (language de: only the list-comma check); a new semicolon list is rejected in English', () => {
+    const de: FitCue[] = [{ startMs: 0, endMs: 2000, text: 'Ein Mann geht.', extended: false, wordCount: 3, shotIndex: 1, limitMs: 6000 }]
+    const deShots: Described[] = [{ index: 0, startMs: 0, endMs: 1000, description: 'Das Feuer brennt.', sameAsPrev: false, tokens: 0, outputTokens: 0 }, { index: 1, startMs: 1000, endMs: 3000, description: 'Ein Mann geht.', sameAsPrev: false, tokens: 0, outputTokens: 0 }]
+    expect(applyEdits(de, deShots, [{ cue: 0, text: 'Das Feuer brennt. Ein Mann geht.' }], [25], [0, 1], 'de').applied).toHaveLength(1)
+    const en: FitCue[] = [{ startMs: 0, endMs: 2000, text: 'Old man pours broth.', extended: false, wordCount: 4, shotIndex: 1, limitMs: 6000 }]
+    const enShots: Described[] = [{ index: 0, startMs: 0, endMs: 1000, description: 'Red-haired woman smiles.', sameAsPrev: false, tokens: 0, outputTokens: 0 }, { index: 1, startMs: 1000, endMs: 3000, description: 'Old man pours broth.', sameAsPrev: false, tokens: 0, outputTokens: 0 }]
+    expect(applyEdits(en, enShots, [{ cue: 0, text: 'Old man pours broth; woman smiles.' }], [25]).rejected.map((r) => r.reason)).toEqual(['not a sentence: new list comma after "broth"'])
+  })
+
   it('matches inflections through one Porter stem per word and nothing else', () => {
     expect(unfaithfulWords('The man stirs the pot, then pours broth.', ['Red-haired girl watches man stir pot over fire.', 'Old man pours broth.'])).toEqual([])
     expect(unfaithfulWords('Sparks drifting. The figure falling.', ['Faint red sparks drift downward.', 'A figure walks, falls.'])).toEqual([])

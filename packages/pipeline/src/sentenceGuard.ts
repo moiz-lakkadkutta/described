@@ -7,39 +7,34 @@ import { contentWords, STOP, stem } from './contentWords'
  * 1. in order — the shortening's content words (../contentWords: STOP left out, Porter stem) are a subsequence of the original's: no
  *    role swap ("The girl chases the dragon."), no reordered fact, no new word;
  * 2. no new list comma — a comma or semicolon in the shortening follows a word that had one in the original. Dropping the words
- *    between two nouns and joining them with a comma is how a sentence becomes a list ("Scaled creature, horns, bloodied wing, stares.");
- * 3. a verb — when the original has a verb (originalVerbs), the shortening keeps at least one;
- * 4. no verbless sentence — a sentence of the shortening with no verb is allowed only when every original sentence its words come from
- *    had none either ("Snowy mountains." may stay beside "A lone figure walks left."; "Scaled creature." cut from a sentence with
- *    "stares" may not).
- * Checks 3 and 4 use the English heuristic in originalVerbs; in German it rarely finds a verb, so there only checks 1 and 2 apply.
+ *    between two nouns and joining them with a comma is how a sentence becomes a list ("Scaled creature, horns, bloodied wing, stares.").
+ *    This is the check that catches both g9 fragments;
+ * 3. not only a subject (English only) — a sentence of the shortening is rejected when it has no verb of its own (verbIndexes) and
+ *    every content word in it comes from the subject of a clause of the original that has a verb: the words before that clause's
+ *    first verb ("A scaled creature with horns." from "A scaled creature with horns and bloodied wing stares as …"). Reason 'no verb'
+ *    when that is the whole shortening, else 'verbless sentence: …'. It fails open: a word from a clause with no verb found, or from
+ *    after a verb, makes the sentence acceptable ("Snowy mountains.", "Two hands hold a red bowl.").
+ * German ('de'): checks 1 and 2 only — the verb heuristic is English (German -s words such as links, rechts, etwas, alles are not verbs).
  */
-export function readsAsSentences(original: string, shortened: string): string | undefined {
+export function readsAsSentences(original: string, shortened: string, language: 'en' | 'de' = 'en'): string | undefined {
   if (!inOrder(original, shortened)) return 'out of order'
-  const orig = words(original), verbs = verbIndexes(orig)
+  const orig = words(original)
   const aligned = align(orig, words(shortened))
   for (const a of aligned) if (/[,;]\W*$/.test(a.raw) && (a.at < 0 || !/[,;:]\W*$/.test(orig[a.at]!.raw))) return `new list comma after "${a.bare}"`
-  if (!verbs.size) return undefined
-  if (!aligned.some((a) => verbs.has(a.at))) return 'no verb'
-  for (const s of sentencesOf(aligned)) {
-    if (s.some((a) => verbs.has(a.at))) continue
-    const from = new Set(s.filter((a) => a.at >= 0).map((a) => orig[a.at]!.sentence))
-    if ([...verbs].some((v) => from.has(orig[v]!.sentence))) return `verbless sentence: "${s.map((a) => a.raw).join(' ')}"`
-  }
-  return undefined
+  return language === 'de' ? undefined : onlySubjects(shortened, [original])
 }
 
 /**
  * The same question for the edit pass (05b-edit, DESC-028), whose edits may add words from `sources` (the shot descriptions the cue may
- * absorb and the cue texts — applyEdits' allowed list) and reorder them, so there is no in-order check and verbs are found in the edit's
- * own text. g9 shot 26: fit's "A scaled creature with horns and bloodied wing stares." was edited into "Scaled creature, horns, bloodied
- * wing, stares." and both raters failed it. The checks, in order:
+ * absorb and the cue texts — applyEdits' allowed list) and reorder them, so there is no in-order check. g9 shot 26: fit's "A scaled
+ * creature with horns and bloodied wing stares." was edited into "Scaled creature, horns, bloodied wing, stares." and both raters
+ * failed it. The checks, in order:
  * 1. no new list comma — a comma or semicolon follows a word that has one in a source, or comes before a joining word (then, and,
- *    while, as, who, which …) or an -ing word ("…over the fire, then pours broth.", "walks, holding a staff");
- * 2. a verb — when the cue's original text has a verb (originalVerbs), the edit has one;
- * 3. no verbless sentence, unless all its content words come from sentences of the sources that have none ("Snowy mountains.").
+ *    while, as, who, which …) or an -ing word ("…over the fire, then pours broth.", "walks, holding a staff"). "Old man pours broth;
+ *    woman smiles." is rejected (a semicolon joining two sentences the sources did not join) — intended;
+ * 2. not only a subject (English only), as readsAsSentences check 3, against the sources.
  */
-export function editReadsAsSentences(original: string, edited: string, sources: readonly string[]): string | undefined {
+export function editReadsAsSentences(original: string, edited: string, sources: readonly string[], language: 'en' | 'de' = 'en'): string | undefined {
   const ws = words(edited), src = sources.map(words)
   const commaIn = new Set(src.flatMap((w) => w.filter((x) => /[,;:]\W*$/.test(x.raw)).map((x) => x.bare)))
   for (const [k, w] of ws.entries()) {
@@ -47,19 +42,48 @@ export function editReadsAsSentences(original: string, edited: string, sources: 
     const next = ws[k + 1]?.bare ?? ''
     if (!JOINERS.has(next) && !/ing$/.test(next)) return `new list comma after "${w.bare}"`
   }
-  if (!verbIndexes(words(original)).size) return undefined
-  const verbs = verbIndexes(ws)
-  if (!verbs.size) return 'no verb'
-  const verbless = new Set(src.flatMap((w) => { const v = verbIndexes(w); return sentencesOf(w.map((x, i) => ({ ...x, i }))).filter((s) => !s.some((x) => v.has(x.i))).flatMap((s) => contentWords(s.map((x) => x.raw).join(' ')).map(stem)) }))
-  for (const s of sentencesOf(ws.map((x, i) => ({ ...x, i })))) {
-    if (s.some((x) => verbs.has(x.i))) continue
-    const text = s.map((x) => x.raw).join(' ')
-    if (!contentWords(text).every((w) => verbless.has(stem(w)))) return `verbless sentence: "${text}"`
-  }
-  return undefined
+  return language === 'de' ? undefined : onlySubjects(edited, [original, ...sources])
 }
 /** Words that may follow a comma the sources did not have: they open a clause, not the next item of a list. */
 const JOINERS = new Set(['and', 'then', 'while', 'as', 'but', 'who', 'which', 'when', 'before', 'after', 'until', 'where', 'whose'])
+
+/**
+ * Check 3: 'no verb' when every sentence of `text` is only a subject of `sources`, 'verbless sentence: …' when one is, else undefined.
+ * A sentence is only a subject when it has content words, no verb of its own (verbIndexes) and each content word's stem occurs in the
+ * sources only before the first verb of a clause (split at , ; and sentence ends) that has one.
+ */
+function onlySubjects(text: string, sources: readonly string[]): string | undefined {
+  const subject = new Set<string>(), elsewhere = new Set<string>()
+  for (const src of sources) {
+    const ws = words(src), verbs = verbIndexes(ws)
+    for (const clause of clauses(ws)) {
+      const v = clause.findIndex((i) => verbs.has(i))
+      for (const [k, i] of clause.entries()) for (const w of contentWords(ws[i]!.raw).map(stem)) (v > k ? subject : elsewhere).add(w)
+    }
+  }
+  const ws = words(text), verbs = verbIndexes(ws)
+  const bare = sentencesOf(ws.map((x, i) => ({ ...x, i }))).filter((s) => {
+    if (s.some((x) => verbs.has(x.i))) return false
+    const cw = contentWords(s.map((x) => x.raw).join(' ')).map(stem)
+    return cw.length > 0 && cw.every((w) => subject.has(w) && !elsewhere.has(w))
+  })
+  if (!bare.length) return undefined
+  return bare.length === sentencesOf(ws).length ? 'no verb' : `verbless sentence: "${bare[0]!.map((x) => x.raw).join(' ')}"`
+}
+/**
+ * Word indexes of each clause: split after a word ending in , ; : or a sentence end — except a comma between adjectives at the start of
+ * a clause ("A dark, complex airship floats …": "A dark," is not a clause).
+ */
+function clauses(ws: readonly Word[]): number[][] {
+  const out: number[][] = [[]]
+  ws.forEach((w, i) => {
+    const c = out.at(-1)!
+    c.push(i)
+    if (/^[^,]*,["'”’)\]]*$/.test(w.raw) && c.length <= 2 && adjectiveLike(w.bare)) return
+    if (/[,;:.!?…]["'”’)\]]*$/.test(w.raw)) out.push([])
+  })
+  return out.filter((c) => c.length)
+}
 
 /** The shortening's content words, by stem, are a subsequence of the original's (same order; nothing new). */
 export function inOrder(original: string, shortened: string): boolean {
@@ -108,7 +132,7 @@ const NOT_VERBS = new Set(['across', 'towards', 'perhaps', 'always', 'sometimes'
 /** After one of these, an -s word is a noun: articles, determiners, possessives, numbers, prepositions. */
 const NOUN_BEFORE = new Set(['a', 'an', 'the', 'his', 'her', 'its', 'their', 'my', 'your', 'our', 'this', 'that', 'these', 'those', 'some', 'many', 'several', 'few', 'both', 'all', 'no',
   'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'twin', 'with', 'without', 'of', 'in', 'on', 'at', 'by', 'for', 'from', 'into', 'onto', 'under', 'over', 'behind', 'beside',
-  'near', 'between', 'among', 'through', 'across', 'toward', 'towards', 'above', 'below', 'beneath', 'around', 'along', 'against', 'inside', 'outside', 'like'])
+  'near', 'between', 'among', 'through', 'across', 'toward', 'towards', 'above', 'below', 'beneath', 'around', 'along', 'against', 'inside', 'outside', 'like', 'beyond', 'within', 'upon', 'past', 'amid', 'atop'])
 /** Colours and listed size / texture words: after one, an -s word is a plural noun ("red flames", "large rocks"). */
 const ADJECTIVES = new Set(['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'brown', 'black', 'white', 'grey', 'gray', 'golden', 'silver', 'pale', 'dark',
   'large', 'small', 'big', 'little', 'tiny', 'huge', 'tall', 'short', 'long', 'wide', 'narrow', 'thick', 'thin', 'heavy', 'old', 'young', 'ancient', 'bright', 'dim', 'faint', 'soft',
@@ -118,26 +142,52 @@ const Y_NOUNS = new Set(['body', 'army', 'baby', 'lady', 'city', 'enemy', 'famil
 const adjectiveLike = (w: string) => ADJECTIVES.has(w) || /(?:ed|ish|ful|ous|less|ive)$/.test(w) || (/y$/.test(w) && w.length >= 4 && !Y_NOUNS.has(w))
 
 /**
- * A heuristic for the finite verbs of a house-style line (present tense, subject first): is / are / has / have, or a word ending in -s
- * (not -ss / -us / -is, not STOP or NOT_VERBS) that does not open its sentence (the subject does) and does not follow a word that marks
- * a noun (NOUN_BEFORE: "with horns", "two hands") or an adjective (adjectiveLike: "bloodied wings", "snowy mountains", "red flames").
- * After "and", an -s word is a verb only when the word before "and" was ("turns and runs"; not "horns and wings").
- * Limits: verbs not ending in -s are missed ("Two hands hold a bowl.", "Flames rise.", past tense, German); a plural noun after a noun
- * is read as a verb ("Stone steps."), and a verb after a -y, -ed, -ive … noun not in Y_NOUNS is missed ("Pony trots." is found,
- * "Olive glows." is not). A missed verb makes the original look verbless (checks 3 and 4 then pass); a noun read as a verb is one more
- * word whose survival counts as "a verb kept". Either way the misread lets a shortening through rather than rejecting a good one —
- * except when the only verb a shortening keeps is one the heuristic missed beside one it found.
+ * A heuristic for the finite verbs of a house-style English line (present tense, subject first):
+ * - is / are / has / have / was / were;
+ * - a word ending in -s (not -ss / -us / -is, not STOP or NOT_VERBS) that does not open its clause (the subject does) and does not
+ *   follow a word that marks a noun (NOUN_BEFORE: "with horns", "two hands") or an adjective (adjectiveLike: "bloodied wings", "snowy
+ *   mountains", "red flames"). An -ly word before it is skipped and the word before that judged ("Sintel slowly lifts"), unless an
+ *   article or the like comes before the -ly word, which is then a noun ("a butterfly lands"). After "and", an -s word is a verb only
+ *   when the word before "and" was ("turns and runs"; not "horns and wings");
+ * - a base form after a plural subject: the first word of a clause with no verb yet, right after an -s noun ("Two hands hold", "Dragons
+ *   attack", "red sparks drift") or after "X and Y" at the clause start ("Celia and Thom argue", "The man and the woman talk"), when it
+ *   is lower-case and not a function word, preposition, listed adjective or an -ing / -ed / -ly / -s word.
+ * Limits: other base forms and past tense are missed ("A man and his dog in the snow walk", "Two figures in coats walk"); a plural noun
+ * after a noun is read as a verb ("Stone steps."). The check that uses it fails open: a missed verb makes a clause count as having no
+ * verb, and words from such a clause make a sentence acceptable.
  */
 function verbIndexes(ws: readonly Word[]): Set<number> {
   const out = new Set<number>()
+  const clauseOf = new Map<number, number[]>()
+  for (const c of clauses(ws)) for (const i of c) clauseOf.set(i, c)
   ws.forEach((w, i) => {
-    const prev = ws[i - 1]
     if (LINKING.has(w.bare)) { out.add(i); return }
+    const prev = ws[i - 1]
     if (!prev || prev.sentence !== w.sentence) return // opens its sentence: the subject
-    if (!/^\p{L}[\p{L}'-]*s$/u.test(w.bare) || STOP.has(w.bare) || NOT_VERBS.has(w.bare) || /(?:ss|us|is)$/.test(w.bare)) return
-    if (prev.bare === 'and') { if (out.has(i - 2)) out.add(i); return }
-    if (NOUN_BEFORE.has(prev.bare) || adjectiveLike(prev.bare)) return
-    out.add(i)
+    const clause = clauseOf.get(i)!, k = clause.indexOf(i)
+    if (finiteS(w.bare)) {
+      if (prev.bare === 'and') { if (out.has(i - 2)) out.add(i); return }
+      let judge = prev.bare
+      if (/ly$/.test(judge) && !Y_NOUNS.has(judge)) {
+        const pp = ws[i - 2]
+        if (!pp || pp.sentence !== w.sentence || NOUN_BEFORE.has(pp.bare)) { out.add(i); return } // "a butterfly lands"
+        judge = pp.bare
+      }
+      if (!NOUN_BEFORE.has(judge) && !adjectiveLike(judge)) out.add(i)
+      return
+    }
+    if (k < 1 || clause.slice(0, k).some((j) => out.has(j)) || !baseForm(w)) return
+    const pluralSubject = finiteS(prev.bare) && !out.has(i - 1)
+    if (pluralSubject || andHead(clause.slice(0, k).map((j) => ws[j]!.bare))) out.add(i)
   })
   return out
 }
+const finiteS = (w: string) => /^\p{L}[\p{L}'-]*s$/u.test(w) && !STOP.has(w) && !NOT_VERBS.has(w) && !/(?:ss|us|is)$/.test(w)
+/** A candidate base-form verb: lower-case, a word, not a function word, preposition, listed adjective, -ing / -ed / -ly / -s form. */
+const baseForm = (w: Word) => /^\p{Ll}[\p{Ll}'-]*[,;:.!?]?$/u.test(w.raw) && !STOP.has(w.bare) && !NOUN_BEFORE.has(w.bare) && !ADJECTIVES.has(w.bare) && !/(?:ing|ed|s)$/.test(w.bare) && !/.{3}ly$/.test(w.bare)
+/** "X and Y" (each one word, with an optional article) as the whole clause so far: "celia and thom", "the man and the woman". */
+const andHead = (ws: readonly string[]) => {
+  const t = ws.filter((w) => !ARTICLES.has(w))
+  return t.length === 3 && t[1] === 'and'
+}
+const ARTICLES = new Set(['a', 'an', 'the', 'his', 'her', 'their', 'its'])

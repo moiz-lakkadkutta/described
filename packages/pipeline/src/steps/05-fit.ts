@@ -44,7 +44,7 @@ const MIN_WORDS = 3
  * fitDescriptions passes safeShorten, so a model shortening that changes a fact or stops reading as sentences (DESC-028) falls back to
  * shortenDeterministic, and a deterministic one that stops reading as sentences to the unshortened text.
  */
-export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, maxWords: number) => Promise<string> | string): Promise<FitCue[]> | FitCue[] {
+export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, maxWords: number) => Promise<string> | string, language: 'en' | 'de' = 'en'): Promise<FitCue[]> | FitCue[] {
   const free = gaps.map((g) => ({ ...g, cursor: g.startMs }))
   const out: FitCue[] = []
   const events: EventCandidate[] = []
@@ -83,7 +83,7 @@ export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, max
         if (text === undefined) continue
         const prevEnd = Math.max(s.startMs, ...out.filter((x) => !x.extended && x.endMs <= start).map((x) => x.endMs))
         const { textStart, actionStart } = leadText(start, prevEnd, (later) => words(text) <= wordsThatFit(g.endMs - later))
-        out.push({ ...extended(s), ...await capExtended(c.clause, shorten), startMs: textStart, endMs: textStart + 100 })
+        out.push({ ...extended(s), ...(await capExtended(c.clause, shorten, language)) ?? { text: c.clause, wordCount: words(c.clause) }, startMs: textStart, endMs: textStart + 100 })
         place(g, actionStart, text)
         placed = true
         break
@@ -94,10 +94,11 @@ export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, max
         const startMs = Math.max(s.startMs, ...out.filter((x) => !x.extended && x.shotIndex < s.index).map((x) => x.endMs))
         return { ...extended(s), startMs, endMs: startMs + 100 }
       }
-      if (introducesNew(s.description)) { out.push({ ...pause(), ...await capExtended(s.description, shorten) }); continue }
+      if (introducesNew(s.description)) { const capped = await capExtended(s.description, shorten, language); if (capped) out.push({ ...pause(), ...capped }); continue } // no cap that reads as sentences: dropped
       const previous = [...out].reverse().find((x) => !x.extended)?.text ?? '' // the previous placed cue: what the AD track said, whatever the mode
       const verbs = plotEvents(s.description, previous)
-      if (verbs.length) events.push({ cue: { ...pause(), ...await capExtended(s.description, shorten), event: true }, verbs: verbs.length, fresh: newWords(s.description, previous) })
+      const capped = verbs.length ? await capExtended(s.description, shorten, language) : undefined
+      if (capped) events.push({ cue: { ...pause(), ...capped, event: true }, verbs: verbs.length, fresh: newWords(s.description, previous) })
     }
     return [...out, ...capEvents(events)].sort(byStart)
   }
@@ -142,17 +143,27 @@ export const MIN_CLAUSE_CUT_WORDS = 8
  * ending a clause ([,;:.]) within the first EXTENDED_WORDS, when that keeps ≥ MIN_CLAUSE_CUT_WORDS words (a trailing , ; : becomes .),
  * else at EXTENDED_WORDS words. The cut never touches an on-screen text clause (DESC-017): the rest is cut to the words left beside it.
  * Also used by 06-voice when an overrun cue becomes extended.
+ * DESC-028: the shortening and the cut must still read as sentences (sentenceOk, fail open); a shortening that does not is not used,
+ * and when the cut does not either, there is no cue (undefined): the caller drops the extended cue. A text within the cap is unchanged.
  */
-export async function capExtended(text: string, shorten: (text: string, maxWords: number) => Promise<string> | string) {
+export async function capExtended(text: string, shorten: (text: string, maxWords: number) => Promise<string> | string, language: 'en' | 'de' = 'en'): Promise<{ text: string; wordCount: number } | undefined> {
   if (words(text) > EXTENDED_WORDS) {
+    const original = text
     const t = await shorten(text, EXTENDED_WORDS)
-    if (words(t) <= EXTENDED_WORDS) text = t
+    if (words(t) <= EXTENDED_WORDS && sentenceOk(original, t, language)) text = t
     else {
       const c = textClauses(text)
       text = c?.rest && c.words < EXTENDED_WORDS ? join(c, cutAt(c.rest, EXTENDED_WORDS - c.words)) : cutAt(text, EXTENDED_WORDS)
+      if (!sentenceOk(original, text, language)) { console.warn('fit: extended cue cut is not sentences, no cue:', JSON.stringify(original), '→', JSON.stringify(text)); return undefined }
     }
   }
   return { text, wordCount: words(text) }
+}
+/** readsAsSentences on the action beside any on-screen text clause (the clause itself is never shortened, and may move to the end). */
+const sentenceOk = (original: string, short: string, language: 'en' | 'de') => !sentenceProblem(original, short, language)
+function sentenceProblem(original: string, short: string, language: 'en' | 'de') {
+  const a = textClauses(original), b = textClauses(short)
+  return readsAsSentences(a ? a.rest : original, a && b ? b.rest : short, language)
 }
 /** capExtended's cut: after the last clause end within the first n words when that keeps ≥ MIN_CLAUSE_CUT_WORDS, else at n words. */
 function cutAt(text: string, n: number) {
@@ -271,29 +282,29 @@ function shortenPlain(text: string, maxWords: number): string {
  * it only where it fits whole (else the next gap, an extended cue or a drop, as for any text that does not fit). The model never sees
  * an on-screen text clause: it shortens the rest to the words left beside the clause, which is then put back (DESC-017).
  */
-export async function safeShorten(text: string, maxWords: number, model: (text: string, maxWords: number) => Promise<string> | string): Promise<string> {
+export async function safeShorten(text: string, maxWords: number, model: (text: string, maxWords: number) => Promise<string> | string, language: 'en' | 'de' = 'en'): Promise<string> {
   const c = words(text) > maxWords ? textClauses(text) : undefined
-  if (!c) return safeShortenPlain(text, maxWords, model)
+  if (!c) return safeShortenPlain(text, maxWords, model, language)
   if (!c.rest || c.words >= maxWords) return text // no room beside the text: no model call; fit splits it
-  const short = await safeShortenPlain(c.rest, maxWords - c.words, model), all = join(c, short)
+  const short = await safeShortenPlain(c.rest, maxWords - c.words, model, language), all = join(c, short)
   return words(all) <= maxWords && keepsAction(c.rest, short) ? all : text
 }
-async function safeShortenPlain(text: string, maxWords: number, model: (text: string, maxWords: number) => Promise<string> | string): Promise<string> {
+async function safeShortenPlain(text: string, maxWords: number, model: (text: string, maxWords: number) => Promise<string> | string, language: 'en' | 'de'): Promise<string> {
   const m = (await model(text, maxWords)).trim()
   if (m && words(m) <= maxWords) {
-    const why = preservesFacts(text, m) ? readsAsSentences(text, m) : 'changed a fact'
+    const why = preservesFacts(text, m) ? readsAsSentences(text, m, language) : 'changed a fact'
     if (!why) return m
     console.warn(`fit: shortener reply rejected (${why}), using deterministic shortening:`, JSON.stringify(text), '→', JSON.stringify(m))
   }
-  return shortenSentences(text, maxWords, 'fit')
+  return shortenSentences(text, maxWords, 'fit', language)
 }
 /**
  * shortenDeterministic under the sentence guard (DESC-028): its shortening when that still reads as sentences (readsAsSentences),
  * else the text unshortened — the caller then treats it as text that does not fit. fit's fallback and 06-voice's overrun shortening.
  */
-export function shortenSentences(text: string, maxWords: number, step = 'voice'): string {
+export function shortenSentences(text: string, maxWords: number, step = 'voice', language: 'en' | 'de' = 'en'): string {
   const d = shortenDeterministic(text, maxWords)
-  const why = d === text ? undefined : readsAsSentences(text, d)
+  const why = d === text ? undefined : sentenceProblem(text, d, language)
   if (why) console.warn(`${step}: deterministic shortening rejected (${why}), keeping the text unshortened:`, JSON.stringify(text), '→', JSON.stringify(d))
   return why ? text : d
 }
@@ -302,7 +313,7 @@ export async function fitDescriptions(ctx: Ctx) {
   const shots = JSON.parse(await readFile(`${ctx.work}/described.json`, 'utf8')) as Described[]
   const gaps = JSON.parse(await readFile(`${ctx.work}/gaps.json`, 'utf8')) as Gap[]
   const { shortenWithNovaLite } = await import('../prompts')
-  const cues = await fit(shots, gaps, (t, n) => safeShorten(t, n, (t, n) => shortenWithNovaLite(t, n, ctx.language)))
+  const cues = await fit(shots, gaps, (t, n) => safeShorten(t, n, (t, n) => shortenWithNovaLite(t, n, ctx.language), ctx.language), ctx.language)
   const json = JSON.stringify(cues, null, 2)
   await writeFile(`${ctx.work}/cues.json`, json)
   await writeFile(`${ctx.work}/cues.fit.json`, json) // the edit step (05b) always starts from this copy, so re-running it is idempotent (DESC-018)
