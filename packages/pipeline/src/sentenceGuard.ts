@@ -29,6 +29,38 @@ export function readsAsSentences(original: string, shortened: string): string | 
   return undefined
 }
 
+/**
+ * The same question for the edit pass (05b-edit, DESC-028), whose edits may add words from `sources` (the shot descriptions the cue may
+ * absorb and the cue texts — applyEdits' allowed list) and reorder them, so there is no in-order check and verbs are found in the edit's
+ * own text. g9 shot 26: fit's "A scaled creature with horns and bloodied wing stares." was edited into "Scaled creature, horns, bloodied
+ * wing, stares." and both raters failed it. The checks, in order:
+ * 1. no new list comma — a comma or semicolon follows a word that has one in a source, or comes before a joining word (then, and,
+ *    while, as, who, which …) or an -ing word ("…over the fire, then pours broth.", "walks, holding a staff");
+ * 2. a verb — when the cue's original text has a verb (originalVerbs), the edit has one;
+ * 3. no verbless sentence, unless all its content words come from sentences of the sources that have none ("Snowy mountains.").
+ */
+export function editReadsAsSentences(original: string, edited: string, sources: readonly string[]): string | undefined {
+  const ws = words(edited), src = sources.map(words)
+  const commaIn = new Set(src.flatMap((w) => w.filter((x) => /[,;:]\W*$/.test(x.raw)).map((x) => x.bare)))
+  for (const [k, w] of ws.entries()) {
+    if (!/[,;]\W*$/.test(w.raw) || commaIn.has(w.bare)) continue
+    const next = ws[k + 1]?.bare ?? ''
+    if (!JOINERS.has(next) && !/ing$/.test(next)) return `new list comma after "${w.bare}"`
+  }
+  if (!verbIndexes(words(original)).size) return undefined
+  const verbs = verbIndexes(ws)
+  if (!verbs.size) return 'no verb'
+  const verbless = new Set(src.flatMap((w) => { const v = verbIndexes(w); return sentencesOf(w.map((x, i) => ({ ...x, i }))).filter((s) => !s.some((x) => v.has(x.i))).flatMap((s) => contentWords(s.map((x) => x.raw).join(' ')).map(stem)) }))
+  for (const s of sentencesOf(ws.map((x, i) => ({ ...x, i })))) {
+    if (s.some((x) => verbs.has(x.i))) continue
+    const text = s.map((x) => x.raw).join(' ')
+    if (!contentWords(text).every((w) => verbless.has(stem(w)))) return `verbless sentence: "${text}"`
+  }
+  return undefined
+}
+/** Words that may follow a comma the sources did not have: they open a clause, not the next item of a list. */
+const JOINERS = new Set(['and', 'then', 'while', 'as', 'but', 'who', 'which', 'when', 'before', 'after', 'until', 'where', 'whose'])
+
 /** The shortening's content words, by stem, are a subsequence of the original's (same order; nothing new). */
 export function inOrder(original: string, shortened: string): boolean {
   const orig = contentWords(original).map(stem)

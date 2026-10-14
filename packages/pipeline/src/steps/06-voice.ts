@@ -3,7 +3,7 @@ import { execa } from 'execa'
 import { readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { z } from 'zod'
 import type { Ctx } from './index'
-import { byStart, capExtended, introducesNew, leadText, shortenDeterministic, TAIL_SILENCE_MS, textClauses, type FitCue } from './05-fit'
+import { byStart, capExtended, introducesNew, leadText, shortenDeterministic, shortenSentences, TAIL_SILENCE_MS, textClauses, type FitCue } from './05-fit'
 import type { Shot } from './02-shots'
 import { cueAudioFile, probeDurationMs } from '../cues'
 import { meter, pollyUsd } from '../cost'
@@ -87,7 +87,8 @@ const words = (t: string) => t.trim().split(/\s+/).filter(Boolean).length
  * 2. A placed cue's limit is min(limitMs, start of the next placed cue in cues.json − NEXT_CUE_SPACING_MS): fit's start times are
  *    fixed by now, so a clip longer than fit's estimate must not run into the next cue of the same gap. A clip whose speech ends past
  *    the limit, or whose file ends past limit + OVERRUN_TOLERANCE_MS or the next placed cue's start (decision 0009; the speech from
- *    ffmpeg silencedetect, stored in the sidecar, else duration − TAIL_SILENCE_MS), is shortened deterministically to max(3, ⌊words × (limit − startMs) / durationMs⌋) words and
+ *    ffmpeg silencedetect, stored in the sidecar, else duration − TAIL_SILENCE_MS), is shortened deterministically (shortenSentences: unchanged when the shortening would lose every verb or become a
+ *    noun list, DESC-028) to max(3, ⌊words × (limit − startMs) / durationMs⌋) words and
  *    synthesized once more (the shortening keeps on-screen text only beside at least half of the action's words). Still over and the
  *    text has on-screen text beside other words (human, 2026-10-10): split — the rest, shortened to fit, stays in this slot, and the
  *    text clause becomes its own extended cue TEXT_LEAD_MS before it (fit's leadText: never before the shot start from shots.json —
@@ -187,7 +188,7 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
     const overruns = (start: number) => limit !== undefined && (start + speechMs > limit || start + durationMs > Math.min(limit + OVERRUN_TOLERANCE_MS, next ? next.startMs : Infinity))
     if (limit !== undefined && overruns(c.startMs)) {
       const maxWords = Math.max(3, Math.floor((words(text) * (limit - c.startMs)) / durationMs))
-      const shorter = shortenDeterministic(text, maxWords)
+      const shorter = shortenSentences(text, maxWords) // DESC-028: a shortening with none of the verbs is no shortening
       if (shorter !== text) { await setAside(i); aside = { text, durationMs, speechMs }; text = shorter; ({ durationMs, speechMs } = await synth(i, text)) }
       const tc = overruns(c.startMs) ? textClauses(text) : undefined
       if (tc?.rest) {
@@ -196,7 +197,7 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
         const clause = (await capExtended(tc.clause, shortenDeterministic)).text
         texts.push({ ...rest, endMs: c.startMs + 100, text: clause, extended: true, wordCount: words(clause) })
         console.log(`voice: cue ${i} at ${c.startMs} ms: on-screen text split into its own extended cue: ${JSON.stringify(clause)}`)
-        text = shortenDeterministic(tc.rest, fitWords)
+        text = shortenSentences(tc.rest, fitWords)
         ;({ durationMs, speechMs } = await synth(i, text))
         const prevEnd = Math.max(shotStart.get(c.shotIndex) ?? c.startMs, ...kept.filter((k) => !k.extended).map((k) => k.endMs)) // every kept clip's measured end: one may run past this cue's start (within tolerance)
         const lead = leadText(c.startMs, prevEnd, (later) => !overruns(later))

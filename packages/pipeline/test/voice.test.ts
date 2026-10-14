@@ -22,7 +22,9 @@ const SNOW_SHORT = 'Snow falls on the hills.' // shortenDeterministic(SNOW, 3)
 const STREET = 'Night. A man in a long dark coat walks slowly along the wet street, past the old bakery, the closed bank and the bright cinema, while snow falls on the quiet rooftops.' // 32 words
 const STREET_SHORT = 'Night. A man in a dark coat walks along the street, past the bakery, the closed bank and the cinema, while snow falls on the quiet rooftops.' // shortenDeterministic(STREET, 28): 27 words
 const STREET_CAPPED = 'Night. A man in a dark coat walks along the street, past the bakery, the closed bank and the cinema.' // capExtended(STREET_SHORT): 20 words
+const SPEAR = 'Snowy mountains. A lone figure stares left, holding a spear.' // shortenDeterministic(SPEAR, 3) is "Snowy mountains.": no verb (DESC-028)
 const DURATIONS: Record<string, number> = {
+  [SPEAR]: 4500,
   'Smoke rises.': 1200, 'Snow falls.': 1100, 'She waits.': 1300, 'Words appear: North.': 1700,
   [LONG]: 4000, [SHORT]: 1900, [MID]: 3000, [NIGHT]: 5000, [NIGHT_SHORT]: 2500, [SNOW]: 6000, [SNOW_SHORT]: 2600,
   [STREET]: 11200, [STREET_SHORT]: 10400, [STREET_CAPPED]: 7800,
@@ -110,13 +112,14 @@ describe('voice', () => {
     expect((await readCues()).map((c) => [c.startMs, c.endMs, c.text, c.extended])).toEqual([[1000, 2900, SHORT, false], [3500, 4700, 'Smoke rises.', false], [9000, 10700, 'Words appear: North.', true]])
   })
   it('a second overrun becomes extended when the text introduces something new', async () => {
-    // 10000 + 5000 > 12200 → maxWords = floor(12 × 2000 / 5000) = 4 → NIGHT_SHORT; 10000 + 2500 still > 12200
+    // 10000 + 5000 > 12200 → maxWords = floor(12 × 2000 / 5000) = 4 → NIGHT_SHORT, which drops "waits" (no verb, DESC-028): not
+    // voiced; NIGHT still overruns and introduces something new → extended, whole, with no second call
     await writeCues([cue(10000, NIGHT, 12000)])
     const f = fakes()
     await voice(ctx(), f)
-    expect(f.synthesize).toHaveBeenCalledTimes(2)
+    expect(f.synthesize).toHaveBeenCalledTimes(1)
     const [c] = await readCues()
-    expect(c).toEqual({ startMs: 10000, endMs: 12500, text: NIGHT_SHORT, extended: true, wordCount: 3, shotIndex: 0 })
+    expect(c).toEqual({ startMs: 10000, endMs: 15000, text: NIGHT, extended: true, wordCount: 12, shotIndex: 0 })
     expect(c).not.toHaveProperty('limitMs')
   })
   it('an overrun turned extended and capped re-voices once more and bills all three calls', async () => {
@@ -132,6 +135,15 @@ describe('voice', () => {
     expect(JSON.parse(await readFile(`${work}/${cueSidecarFile(0)}`, 'utf8'))).toMatchObject({ text: STREET_CAPPED, ssml: cueSsml(STREET_CAPPED), durationMs: 7800 })
     // Each of the three calls is billed exactly once: the two discarded clips and the kept one.
     expect(costUsd).toBeCloseTo(pollyUsd(STREET.length + STREET_SHORT.length + STREET_CAPPED.length), 12)
+  })
+  it('DESC-028: an overrun shortening that keeps none of the verbs is not voiced; the cue takes the existing path (here: dropped)', async () => {
+    // 20000 + 4500 > 22200 → maxWords = max(3, floor(10 × 2000 / 4500)) = 4 → "Snowy mountains." (no verb): rejected, no second call;
+    // not new information, "stares" is not a plot event → dropped
+    await writeCues([cue(1000, 'Smoke rises.', 5000), cue(20000, SPEAR, 22000), cue(30000, 'She waits.', 34000)])
+    const f = fakes()
+    await voice(ctx(), f)
+    expect(f.synthesize.mock.calls.map((c) => c[0])).toEqual(['Smoke rises.', SPEAR, 'She waits.'])
+    expect((await readCues()).map((c) => c.text)).toEqual(['Smoke rises.', 'She waits.'])
   })
   it('a second overrun is dropped otherwise', async () => {
     // middle cue: 20000 + 6000 > 22200 → maxWords = max(3, floor(9 × 2000 / 6000)) = 3 → SNOW_SHORT; 20000 + 2600 still > 22200 → dropped
@@ -193,14 +205,14 @@ describe('clip duration', () => {
   })
   // Human decision 2026-10-10 (M4): r2 cue 0 ran past the next cue; the shortening could not keep the text beside the action.
   it('an overrun whose on-screen text does not fit beside the action keeps the action within its limit and the text as its own extended cue', async () => {
-    const SHOT0 = 'Snowy mountains. A lone figure walks left, carrying a spear. Words appear: SINTEL.'
+    const SHOT0 = 'Snow falls. A lone figure walks left, carrying a spear. Words appear: SINTEL.' // DESC-028: "Snowy mountains." (r2's first sentence) has no verb and is no longer a shortening
     await writeCues([{ ...cue(0, SHOT0, 16720), shotIndex: 0 }, { ...cue(2000, 'Smoke rises.', 16720), shotIndex: 1 }])
     const synthesize = vi.fn(async (text: string) => new TextEncoder().encode(text))
     const measureMs = vi.fn(async (file: string) => (await readFile(file, 'utf8')).split(/\s+/).length * 560)
     await voice(ctx(), { synthesize, measureMs })
     const out = await readCues()
     // no shots.json here: the text cue cannot lead (it may not start before the cue), so the action moves 400 ms later
-    expect(out.map((c) => [c.startMs, c.extended, c.text, c.shotIndex])).toEqual([[0, true, 'Words appear: SINTEL.', 0], [400, false, 'Snowy mountains.', 0], [2000, false, 'Smoke rises.', 1]])
+    expect(out.map((c) => [c.startMs, c.extended, c.text, c.shotIndex])).toEqual([[0, true, 'Words appear: SINTEL.', 0], [400, false, 'Snow falls.', 0], [2000, false, 'Smoke rises.', 1]])
     expect(out[1]!.endMs).toBeLessThanOrEqual(2000 - 150 + OVERRUN_TOLERANCE_MS) // the action stays within its limit
     expect(out[0]).not.toHaveProperty('limitMs')
     expect(out[0]!.endMs).toBe(3 * 560) // the text cue's own clip
@@ -212,12 +224,12 @@ describe('clip duration', () => {
     expect(await files()).toEqual(['cue_0.json', 'cue_0.mp3', 'cue_1.json', 'cue_1.mp3', 'cue_2.json', 'cue_2.mp3'])
   })
   it('a split text cue leads its action by 400 ms when the shot started earlier, and stale moving_ files are removed', async () => {
-    const SHOT0 = 'Snowy mountains. A lone figure walks left, carrying a spear. Words appear: SINTEL.'
+    const SHOT0 = 'Snow falls. A lone figure walks left, carrying a spear. Words appear: SINTEL.' // DESC-028: "Snowy mountains." (r2's first sentence) has no verb and is no longer a shortening
     await writeFile(`${work}/shots.json`, JSON.stringify([{ index: 0, startMs: 0, endMs: 3000 }]))
     await writeFile(`${work}/moving_cue_7.mp3`, 'stale')
     await writeCues([{ ...cue(1000, SHOT0, 3500), shotIndex: 0 }])
     await voice(ctx(), { synthesize: async (t) => new TextEncoder().encode(t), measureMs: async (f) => (await readFile(f, 'utf8')).split(/\s+/).length * 560 })
-    expect((await readCues()).map((c) => [c.startMs, c.extended, c.text])).toEqual([[600, true, 'Words appear: SINTEL.'], [1000, false, 'Snowy mountains.']])
+    expect((await readCues()).map((c) => [c.startMs, c.extended, c.text])).toEqual([[600, true, 'Words appear: SINTEL.'], [1000, false, 'Snow falls.']])
     expect((await readdir(work)).filter((f) => f.startsWith('moving_'))).toEqual([])
   })
 })
@@ -240,9 +252,9 @@ describe('voice: on-screen text and pauses after measured clips (DESC-020 follow
   })
   it('a text cue split in voice is placed after every kept clip\'s measured end, including one that ends at this cue\'s start', async () => {
     // 'Smoke rises.' from 0 measures 1200 ms (speech 1000 ms = its limit): kept, its file ending at the next cue's start, 1200 (decision 0009)
-    const SHOT0 = 'Snowy mountains. A lone figure walks left, carrying a spear. Words appear: SINTEL.'
+    const SHOT0 = 'Snow falls. A lone figure walks left, carrying a spear. Words appear: SINTEL.' // DESC-028: "Snowy mountains." (r2's first sentence) has no verb and is no longer a shortening
     const out = await run([{ ...cue(0, 'Smoke rises.', 1050), shotIndex: 0 }, { ...cue(1200, SHOT0, 5000), shotIndex: 1 }], { synthesize: perWord.synthesize, measureMs: async (f) => { const t = await readFile(f, 'utf8'); return t === 'Smoke rises.' ? 1200 : t.split(/\s+/).length * 560 }, measureSpeechMs: async (f) => ((await readFile(f, 'utf8')) === 'Smoke rises.' ? 1000 : undefined) })
-    expect(out.map((c) => [c.startMs, c.extended, c.text])).toEqual([[0, false, 'Smoke rises.'], [1200, true, 'Words appear: SINTEL.'], [1600, false, 'Snowy mountains.']])
+    expect(out.map((c) => [c.startMs, c.extended, c.text])).toEqual([[0, false, 'Smoke rises.'], [1200, true, 'Words appear: SINTEL.'], [1600, false, 'Snow falls.']])
   })
   it('a cue starting at or after the title\'s end (probe.json) is not voiced: no Polly call, no clip, not in cues.json (so not mixed)', async () => {
     await writeFile(`${work}/probe.json`, JSON.stringify({ format: { duration: '3.000' } }))
@@ -278,9 +290,9 @@ describe('voice: on-screen text and pauses after measured clips (DESC-020 follow
     expect(await files()).toEqual(['cue_0.json', 'cue_0.mp3', 'cue_1.json', 'cue_1.mp3', 'cue_2.json', 'cue_2.mp3'])
     expect(await readFile(`${work}/cue_2.mp3`, 'utf8')).toBe('A figure falls.')
     // a text cue split in voice from the previous cue counts too
-    const SHOT0 = 'Snowy mountains. A lone figure walks left, carrying a spear. Words appear: SINTEL.'
+    const SHOT0 = 'Snow falls. A lone figure walks left, carrying a spear. Words appear: SINTEL.' // DESC-028: "Snowy mountains." (r2's first sentence) has no verb and is no longer a shortening
     const two = await run([{ ...cue(0, SHOT0, 3000), shotIndex: 0 }, { ...cue(5604, 'Snowy mountains. A figure walks, falls. Words appear: SINTEL.', 16720), shotIndex: 1 }])
-    expect(two.map((c) => [c.startMs, c.extended, c.text])).toEqual([[0, true, 'Words appear: SINTEL.'], [400, false, 'Snowy mountains.'], [5604, false, 'Snowy mountains. A figure walks, falls.']])
+    expect(two.map((c) => [c.startMs, c.extended, c.text])).toEqual([[0, true, 'Words appear: SINTEL.'], [400, false, 'Snow falls.'], [5604, false, 'Snowy mountains. A figure walks, falls.']])
   })
 })
 

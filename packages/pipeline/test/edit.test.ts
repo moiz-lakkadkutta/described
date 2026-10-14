@@ -181,6 +181,18 @@ describe('edit (scene-level context pass)', () => {
     expect(applyEdits(r2cues, shots, [{ cue: 2, text: 'Darkness. A faint fire glows in the stone pit.' }], big).applied).toHaveLength(1) // articles and "in" are free
   })
 
+  // DESC-028: sintel-90-210-g9 cue 20 (shot 26) — both Gate C raters failed the edit "Scaled creature, horns, bloodied wing, stares."
+  it('rejects an edit that turns a sentence into a list of nouns; the cue keeps its fit text', () => {
+    const fit26 = 'A scaled creature with horns and bloodied wing stares.'
+    const g9: FitCue[] = [{ startMs: 111617, endMs: 115000, text: fit26, extended: false, wordCount: 9, shotIndex: 26, limitMs: 116000 }]
+    const g9shots: Described[] = [{ index: 26, startMs: 110000, endMs: 114000, description: 'A scaled creature with horns and bloodied wing stares as a gloved hand reaches toward it.', sameAsPrev: false, tokens: 0, outputTokens: 0 }]
+    const r = applyEdits(g9, g9shots, [{ cue: 0, text: 'Scaled creature, horns, bloodied wing, stares.' }], [25])
+    expect(r.rejected).toEqual([{ i: 0, text: 'Scaled creature, horns, bloodied wing, stares.', reason: 'not a sentence: new list comma after "creature"' }])
+    expect(r.applied).toEqual([])
+    expect(r.cues[0]!.text).toBe(fit26)
+    expect(applyEdits(g9, g9shots, [{ cue: 0, text: 'A scaled creature with horns and bloodied wing stares as a gloved hand reaches toward it.' }], [25]).applied).toHaveLength(1)
+  })
+
   it('matches inflections through one Porter stem per word and nothing else', () => {
     expect(unfaithfulWords('The man stirs the pot, then pours broth.', ['Red-haired girl watches man stir pot over fire.', 'Old man pours broth.'])).toEqual([])
     expect(unfaithfulWords('Sparks drifting. The figure falling.', ['Faint red sparks drift downward.', 'A figure walks, falls.'])).toEqual([])

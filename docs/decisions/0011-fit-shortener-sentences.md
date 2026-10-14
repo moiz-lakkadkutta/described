@@ -40,7 +40,16 @@ verb) is no longer placed; shot 27 "Red-haired woman smiles. Scaly beast roars."
 central pyramid." is rejected and placed whole in the next gap ("Dense city under hazy sky, central pyramid structure.", 4.3 s
 later); later cues move with it (shot 17 "She turns." becomes the whole description, shot 21 drops out and 22 comes in).
 
-## Not covered
+## The edit pass and 06-voice (same PR, second commit)
 
-The edit pass (05b) produced g9 shot 26 and has its own guards; 06-voice's overrun shortening calls `shortenDeterministic` directly.
-Neither is changed here.
+- **Edit pass (05b, 0006).** `applyEdits` rejects an edit that fails `editReadsAsSentences(cue text, edit, allowed)` with the
+  reason `not a sentence: …`; the cue keeps its fit text. Edits may add words from the allowed descriptions and reorder them, so
+  there is no in-order check, and verbs are found in the edit's own text. A comma the sources did not have is allowed only before a
+  joining word (then, and, while, as, who, which …) or an -ing word ("…over the fire, then pours broth."). The deterministic repeat
+  guard (`dropRepeatedLeads`, #44) is unchanged. Replay of g9's recorded edits: cue 20 "Scaled creature, horns, bloodied wing,
+  stares." is rejected and stays "A scaled creature with horns and bloodied wing stares."; the other two edits still apply.
+- **06-voice.** The overrun shortening (and the shortening of the action beside split-off on-screen text) uses `shortenSentences`:
+  `shortenDeterministic` under `readsAsSentences`, or the text unshortened. The cue then follows voice's existing path: extended
+  when it introduces something new, an event pause, or dropped. "Night. A rooftop. A man waits by the chimney, watching the street."
+  is no longer voiced as "Night. A rooftop." in its slot; it becomes an extended cue, whole. The recorded voice shortenings of
+  sintel-90-150-r2, tears-of-steel-40-100, sintel-90-210 and g9 all still pass the check.

@@ -285,9 +285,16 @@ async function safeShortenPlain(text: string, maxWords: number, model: (text: st
     if (!why) return m
     console.warn(`fit: shortener reply rejected (${why}), using deterministic shortening:`, JSON.stringify(text), '→', JSON.stringify(m))
   }
+  return shortenSentences(text, maxWords, 'fit')
+}
+/**
+ * shortenDeterministic under the sentence guard (DESC-028): its shortening when that still reads as sentences (readsAsSentences),
+ * else the text unshortened — the caller then treats it as text that does not fit. fit's fallback and 06-voice's overrun shortening.
+ */
+export function shortenSentences(text: string, maxWords: number, step = 'voice'): string {
   const d = shortenDeterministic(text, maxWords)
   const why = d === text ? undefined : readsAsSentences(text, d)
-  if (why) console.warn(`fit: deterministic shortening rejected (${why}), keeping the text unshortened:`, JSON.stringify(text), '→', JSON.stringify(d))
+  if (why) console.warn(`${step}: deterministic shortening rejected (${why}), keeping the text unshortened:`, JSON.stringify(text), '→', JSON.stringify(d))
   return why ? text : d
 }
 

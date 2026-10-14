@@ -182,9 +182,10 @@ describe('voice: a cue dropped for overrun with a plot event (DESC-020)', () => 
     expect(JSON.parse(await readFile(`${work}/cue_0.json`, 'utf8'))).toMatchObject({ text: out[0]!.text, durationMs: 4800 })
   })
   it('a setting-only dropped shot stays dropped (voice)', async () => {
-    // 'Tent interior. Fire glows.' into 1.05 s: the slot shortening keeps "Tent interior." and that fits (speech 1200 − 150 ms tail, decision 0009); 'Tent glows.' into 0.5 s cannot be shortened and is not an event
+    // 'Tent interior. Fire glows.' into 1.05 s: the slot shortening "Tent interior." would fit but has no verb (DESC-028), so the cue is not
+    // shortened, still overruns and is not an event ("glows" is light): dropped; 'Tent glows.' into 0.5 s cannot be shortened and is not an event
     const out = await run([cue(0, 'Old man pours broth.', 5000), cue(10_000, 'Red-haired woman smiles.', 11_000), cue(20_000, 'Tent interior. Fire glows.', 21_050), cue(30_000, 'Tent glows.', 30_500)])
-    expect(out.map((c) => c.text)).toEqual(['Old man pours broth.', 'Tent interior.'])
+    expect(out.map((c) => c.text)).toEqual(['Old man pours broth.'])
   })
   // PR #29 review H1: after the on-screen text is split off, the pause voices the rest (said once), at the action start
   it('a dropped event whose on-screen text was split off voices the rest in its own pause, after the text cue\'s lead', async () => {

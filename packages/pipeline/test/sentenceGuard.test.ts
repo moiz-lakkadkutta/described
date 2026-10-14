@@ -1,4 +1,4 @@
-import { inOrder, originalVerbs, readsAsSentences } from '../src/sentenceGuard'
+import { editReadsAsSentences, inOrder, originalVerbs, readsAsSentences } from '../src/sentenceGuard'
 import { fit, safeShorten } from '../src/steps/05-fit'
 import type { Described } from '../src/steps/04-describe'
 
@@ -84,5 +84,26 @@ describe('safeShorten with the sentence guard (DESC-028)', () => {
     const shot: Described = { index: 14, startMs: 60000, endMs: 63000, description: CITY, sameAsPrev: false, tokens: 0, outputTokens: 0 }
     const cues = await fit([shot], [{ startMs: 61119, endMs: 62829 + 300 }], (t, n) => safeShorten(t, n, () => 'City, central pyramid.'))
     expect(cues.map((c) => c.text)).not.toContain('City, central pyramid.')
+  })
+})
+
+describe('editReadsAsSentences (the edit pass: words may be added and reordered)', () => {
+  const FIT26 = 'A scaled creature with horns and bloodied wing stares.' // g9 cue 20: fit's text, which the edit pass turned into a list
+  it('rejects the g9 edit of shot 26 and a verbless list', () => {
+    expect(editReadsAsSentences(FIT26, 'Scaled creature, horns, bloodied wing, stares.', [CREATURE, FIT26])).toBe('new list comma after "creature"')
+    expect(editReadsAsSentences(FIT26, 'A scaled creature with horns.', [CREATURE, FIT26])).toBe('no verb')
+    expect(editReadsAsSentences(FIT26, 'Scaled creature. Gloved hand reaches toward it.', [CREATURE, FIT26])).toBe('verbless sentence: "Scaled creature."')
+  })
+  it('accepts folds, reworded sentences and a comma before a joining word or an -ing word', () => {
+    const allowed = ['Red-haired girl watches man stir pot over fire.', 'Old man pours broth.']
+    expect(editReadsAsSentences('Old man pours broth.', 'The man stirs a pot over the fire, then pours broth.', allowed)).toBeUndefined()
+    expect(editReadsAsSentences(FIT26, 'A gloved hand reaches toward a scaled creature, which stares.', [CREATURE, FIT26])).toBeUndefined()
+    expect(editReadsAsSentences('A figure walks, falls. Logo fades.', 'A figure walks, falls.', ['A figure walks, falls. Logo fades.'])).toBeUndefined() // a comma the source had
+    expect(editReadsAsSentences('A figure walks.', 'A figure walks, holding a staff.', ['A figure walks.', 'A figure leans forward, holding a staff.'])).toBeUndefined()
+  })
+  it('lets a verbless sentence stay when the sources had it verbless', () => {
+    expect(editReadsAsSentences('Snowy mountains. A figure walks.', 'Snowy mountains. The figure walks left.', ['Snowy mountains. A figure walks left.'])).toBeUndefined()
+    expect(editReadsAsSentences(CITY, 'A dense city under a hazy sky.', [CITY])).toBeUndefined()
+    expect(editReadsAsSentences(CITY, 'City, central pyramid.', [CITY])).toBe('new list comma after "city"')
   })
 })

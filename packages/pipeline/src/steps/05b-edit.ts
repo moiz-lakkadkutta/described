@@ -7,6 +7,7 @@ import { textClauses, type FitCue } from './05-fit'
 import { NEXT_CUE_SPACING_MS } from './06-voice'
 import { sentences, stripDarkness, textSpans } from '../textClause'
 import { contentWords, stem } from '../contentWords'
+import { editReadsAsSentences } from '../sentenceGuard'
 import { editRequest, editModelId, shortenEditWithNovaLite, stripFence, type EditConverse, type EditCueInput, bedrockEditSend } from '../prompts'
 import { meter } from '../cost'
 
@@ -26,7 +27,8 @@ export const FIT_CUES_FILE = 'cues.fit.json'
  * Every edit passes a deterministic guard before it replaces the original (applyEdits): index known and unedited so far, one line,
  * not an on-screen text cue, the on-screen text clauses of the original kept verbatim and in order (none added), no content word
  * outside the shot descriptions between the previous action cue and this cue's shot plus the two cues' own text (faithful), no fact
- * of the original lost unless the previous cue said it (keeps facts), and within the cue's budget — checked last, so an over-budget
+ * of the original lost unless the previous cue said it (keeps facts), still sentences (../sentenceGuard editReadsAsSentences: no
+ * noun list, a verb kept — DESC-028), and within the cue's budget — checked last, so an over-budget
  * edit that would fail anyway costs no shortening call. An unreadable reply, or a failed call, keeps every original cue (the step is
  * an improvement, never a dependency).
  * Reads cues.fit.json (cues.json when an older work dir has none), writes cues.json (same length and order) and edit.json (what
@@ -342,6 +344,8 @@ export function applyEdits(cues: readonly FitCue[], shots: readonly Described[],
     if (bad.length) { reject(`not in any shot description: ${bad.join(', ')}`); continue }
     const lost = droppedFacts(c.text, text, previous)
     if (lost.length) { reject(`drops a fact: ${lost.join(', ')}`); continue }
+    const fragment = editReadsAsSentences(c.text, text, allowed) // DESC-028: g9 shot 26 "Scaled creature, horns, bloodied wing, stares."
+    if (fragment) { reject(`not a sentence: ${fragment}`); continue }
     if (wordCount(text) > budgets[i]!) { reject(`over budget (${wordCount(text)} > ${budgets[i]} words)`); continue }
     out[i] = { ...c, text, wordCount: wordCount(text) }
     applied.push({ i, from: c.text, to: text })
