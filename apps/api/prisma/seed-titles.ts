@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
+import { Glossary } from '@described/contracts'
 
 /**
  * The catalogue (DESC-010): one entry per title in prisma/titles.json — what `POST /admin/titles` takes, plus where the
@@ -18,6 +19,13 @@ export const TitleSeed = z.object({
   voice: z.enum(['Joanna', 'Matthew', 'Vicki', 'Daniel']).default('Joanna'),
   sourceS3Key: z.string().regex(/^sources\/[\w.-]+\.mp4$/),
   source: z.object({ film: z.string(), url: z.string().url().startsWith('https://download.blender.org/', 'sources are official Blender downloads'), segment: z.string().regex(/^\d+:\d\d–\d+:\d\d$/) }),
+  /**
+   * The title's people and places (DESC-029, docs/decisions/0012-characters-and-scenes.md). Read by the pipeline from this file
+   * (packages/pipeline/src/glossary.ts), not stored by the API: no screen or route shows them, and the pipeline needs them for a CLI
+   * run without a database. Validated here so `pnpm titles:seed` and its test catch a malformed entry.
+   */
+  characters: Glossary.shape.characters,
+  settings: Glossary.shape.settings,
 })
 export type TitleSeed = z.infer<typeof TitleSeed>
 
