@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { capExtended, EXTENDED_WORDS, fit, textClauses, TEXT_LEAD_MS, introducesNew, LATE_MS, preservesFacts, safeShorten, shortenDeterministic, WPS } from '../src/steps/05-fit'
+import { capExtended, CLIP_OVERHEAD_MS, estimateClipMs, EXTENDED_WORDS, LEAD_BREAK_MS, LEAD_SILENCE_MS, TAIL_SILENCE_MS, fit, textClauses, TEXT_LEAD_MS, introducesNew, LATE_MS, preservesFacts, safeShorten, shortenDeterministic, WPS } from '../src/steps/05-fit'
 import type { Described } from '../src/steps/04-describe'
 import { mezzanineArgs } from '../src/steps/01-probe'
 import { shotsFromCuts, sceneFilter } from '../src/steps/02-shots'
@@ -62,8 +62,8 @@ describe('fit', () => {
   })
   it('shortens to fit', async () => {
     const long = 'Night. A rooftop. A tall man in an olive coat and a burgundy scarf leans over the railing and looks down at the empty street below.'
-    const cues = await fit([{ index: 0, startMs: 8000, endMs: 12000, description: long, sameAsPrev: false, tokens: 0, outputTokens: 0 }], gaps, shorten)
-    expect(cues[0]!.wordCount).toBeLessThanOrEqual(4) // 1.5 s gap → 4 words
+    const cues = await fit([{ index: 0, startMs: 8000, endMs: 12000, description: long, sameAsPrev: false, tokens: 0, outputTokens: 0 }], [{ startMs: 8000, endMs: 9950 }], shorten)
+    expect(cues[0]!.wordCount).toBeLessThanOrEqual(4) // 1.95 s gap − CLIP_OVERHEAD_MS → 4 words
   })
   it('marks extended when there is no gap and the shot introduces new information', async () => {
     const cues = await fit([{ index: 0, startMs: 20000, endMs: 24000, description: 'Words appear: Berlin, 1989.', sameAsPrev: false, tokens: 0, outputTokens: 0 }], gaps, shorten)
@@ -109,7 +109,7 @@ describe('fit', () => {
     for (const c of placed) { const s = described.find((d) => d.index === c.shotIndex)!; expect(c.startMs).toBeGreaterThanOrEqual(s.startMs); expect(c.startMs).toBeLessThanOrEqual(s.endMs + LATE_MS) }
     // planner's fit-replay (Gate C plan D1): first placed cue per shot
     const first = (i: number) => placed.find((c) => c.shotIndex === i)?.startMs
-    expect([0, 1, 2, 3, 4, 8, 9].map(first)).toEqual([0, 8000, 12575, 19509, 33170, 50869, 56125])
+    expect([0, 1, 2, 3, 4, 8, 9].map(first)).toEqual([0, 8000, 12725, 19509, 33170, 50869, 56125]) // 12725: shot 1's estimate carries CLIP_OVERHEAD_MS (decision 0009), 150 ms more than the plan's 300
   })
   it('allows a start exactly LATE_MS after the shot ends', async () => {
     expect((await fit([shot(0, 0, 1000, 'Snow falls on the hills.')], [{ startMs: 2000, endMs: 5000 }], shorten)).map((c) => c.startMs)).toEqual([2000])
@@ -151,9 +151,38 @@ describe('fit', () => {
   })
   it('rejects a shortening that changes a fact and places the deterministic one', async () => {
     const model = vi.fn(() => 'Dragon spreads bloodied wings, roars.')
-    const cues = await fit([shot(26, 0, 3000, 'The dragon spreads its bloodied wing, then roars.')], [{ startMs: 0, endMs: 2300 }], (t, n) => safeShorten(t, n, model))
+    const cues = await fit([shot(26, 0, 3000, 'The dragon spreads its bloodied wing, then roars.')], [{ startMs: 0, endMs: 2750 }], (t, n) => safeShorten(t, n, model)) // 2.75 s − CLIP_OVERHEAD_MS → 6 words
     expect(model).toHaveBeenCalledWith('The dragon spreads its bloodied wing, then roars.', 6)
     expect(cues.map((c) => c.text)).toEqual(['The dragon spreads its bloodied wing.'])
+  })
+})
+describe('clip estimate (decision 0009)', () => {
+  /** sintel-90-210-g8: measured Joanna clips (cue_N.json durationMs; "Figure leans forward." from its 231 ms overrun past 16720 ms at 15271 ms). */
+  const measured: Array<[string, number]> = [['Man pours liquid.', 1512], ['Bearded man speaks.', 1560], ['Figure leans forward.', 1680], ['Bearded man holds staff.', 1800], ['Red-haired girl accepts bowl.', 2016]]
+  const sh = (index: number, startMs: number, endMs: number, description: string): Described => ({ index, startMs, endMs, description, sameAsPrev: false, tokens: 0, outputTokens: 0 })
+  it('the fixed overhead is the lead-in break, the silence before the first word and the tail', () => {
+    expect(CLIP_OVERHEAD_MS).toBe(LEAD_BREAK_MS + LEAD_SILENCE_MS + TAIL_SILENCE_MS)
+    expect(LEAD_BREAK_MS).toBe(150) // cueSsml's <break time="150ms"/>
+  })
+  it('estimates short clips within 150 ms of their measured length, and never under the shortest 3-word clip', () => {
+    for (const [t, ms] of measured) expect(Math.abs(estimateClipMs(t.split(' ').length) - ms)).toBeLessThanOrEqual(150)
+    expect(estimateClipMs(3)).toBeGreaterThanOrEqual(1512)
+  })
+  it('a placed cue ends at start + the estimate', async () => {
+    const [c] = await fit([sh(0, 0, 4000, 'Man pours liquid.')], [{ startMs: 0, endMs: 3000 }], shorten)
+    expect(c).toMatchObject({ startMs: 0, endMs: estimateClipMs(3), extended: false })
+  })
+  it('g8 shot 9: a 3-word cue is not placed in a 1320 ms gap', async () => {
+    const cues = await fit([sh(9, 41000, 44000, 'Tent. Figures sit.')], [{ startMs: 41630, endMs: 42950 }], shorten)
+    expect(cues.filter((c) => !c.extended)).toEqual([])
+  })
+  it('g8 shot 3: a 3-word cue is not placed in the 1449 ms left of its gap', async () => {
+    const cues = await fit([sh(3, 15271, 19333, 'Figure leans forward.')], [{ startMs: 0, endMs: 16720 }, { startMs: 19509, endMs: 21209 }], shorten)
+    expect(cues.find((c) => !c.extended && c.startMs < 16720)).toBeUndefined()
+  })
+  it('a 3-word cue still fits a gap with room for its estimate', async () => {
+    const cues = await fit([sh(0, 0, 3000, 'Man pours liquid.')], [{ startMs: 0, endMs: estimateClipMs(3) }], shorten)
+    expect(cues).toMatchObject([{ extended: false, text: 'Man pours liquid.' }])
   })
 })
 describe('shortening', () => {
@@ -263,13 +292,13 @@ describe('on-screen text clause', () => {
     const shot = (description: string, index = 0, startMs = 0): Described => ({ index, startMs, endMs: startMs + 2000, description, sameAsPrev: false, tokens: 0, outputTokens: 0 })
     const TEXT = 'A girl runs. Words appear: "The Hunt for the Dragon".' // a 7-word text clause, 3 words of room
     expect(shortenDeterministic(TEXT, 3)).toBe(TEXT) // nothing to remove: fit() decides
-    const cues = await fit([shot(TEXT)], [{ startMs: 0, endMs: 1300 }], (t, n) => safeShorten(t, n, () => 'Girl runs.'))
-    expect(cues).toEqual([ // no room to lead or to delay the action inside a 1.3 s gap: both start at the gap start
+    const cues = await fit([shot(TEXT)], [{ startMs: 0, endMs: 1750 }], (t, n) => safeShorten(t, n, () => 'Girl runs.'))
+    expect(cues).toEqual([ // no room to lead or to delay the action inside a 1.75 s gap (3 words): both start at the gap start
       { startMs: 0, endMs: 100, text: 'Words appear: "The Hunt for the Dragon".', extended: true, wordCount: 7, shotIndex: 0 },
-      expect.objectContaining({ startMs: 0, text: 'A girl runs.', extended: false, limitMs: 1300 }),
+      expect.objectContaining({ startMs: 0, text: 'A girl runs.', extended: false, limitMs: 1750 }),
     ])
     // the text fits but not beside any of the action: still split, the action shortened
-    const two = await fit([shot(SHOT0), shot('Smoke rises.', 1, 3000)], [{ startMs: 0, endMs: 1500 }, { startMs: 3000, endMs: 6000 }], (t, n) => safeShorten(t, n, () => 'Mountains walk.'))
+    const two = await fit([shot(SHOT0), shot('Smoke rises.', 1, 3000)], [{ startMs: 0, endMs: 1950 }, { startMs: 3000, endMs: 6000 }], (t, n) => safeShorten(t, n, () => 'Mountains walk.'))
     expect(two.map((c) => [c.startMs, c.extended, c.text])).toEqual([[0, true, 'Words appear: SINTEL.'], [400, false, 'Snowy mountains.'], [3000, false, 'Smoke rises.']])
   })
   // PR #25 round 2, M2 (reviewer's repro)
@@ -294,7 +323,7 @@ describe('on-screen text clause', () => {
     // the action starts with the shot: the text cue may not start earlier, so the action moves 400 ms later
     expect(await at([shot(0, 4000)], [{ startMs: 0, endMs: 2000 }])).toEqual([[0, true], [400, false]])
     // nor before the previous cue ends
-    expect(await at([shot(0, 1000, 'Snow falls.', 0), shot(1000, 4000, TEXT, 1)], [{ startMs: 0, endMs: 4000 }])).toEqual([[0, false], [1050, true], [1450, false]])
+    expect(await at([shot(0, 1000, 'Snow falls.', 0), shot(1000, 4000, TEXT, 1)], [{ startMs: 0, endMs: 4000 }])).toEqual([[0, false], [1200, true], [1600, false]]) // 'Snow falls.' ends at its estimate, 1200 ms
     // two extended cues on one start: the text cue first
     const both = await fit([shot(0, 1000, 'Night. A rooftop.', 0), shot(0, 1000, 'Words appear: North.', 1)], [], (t) => t)
     expect(both.map((c) => c.text)).toEqual(['Words appear: North.', 'Night. A rooftop.'])

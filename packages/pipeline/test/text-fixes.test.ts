@@ -144,9 +144,9 @@ describe('PR #37 review round 1', () => {
   })
   it('B3: fit places the action on the plain track and the text as its own pause', async () => {
     const shot = (description: string): Described => ({ index: 0, startMs: 0, endMs: 3000, description, sameAsPrev: false, tokens: 0, outputTokens: 0 })
-    const exit = await fit([shot('A soldier in grey armour grabs the rifle as a sign reads "EXIT".')], [{ startMs: 0, endMs: 3200 }], (t, n) => safeShorten(t, n, (x) => x))
+    const exit = await fit([shot('A soldier in grey armour grabs the rifle as a sign reads "EXIT".')], [{ startMs: 0, endMs: 3650 }], (t, n) => safeShorten(t, n, (x) => x))
     expect(exit.map((c) => [c.extended, c.text])).toEqual([[true, 'A sign reads "EXIT".'], [false, 'A soldier in grey armour grabs the rifle.']])
-    const tech = await fit([shot('A technician types as monitors: SYSTEM ONLINE.')], [{ startMs: 0, endMs: 1500 }], (t, n) => safeShorten(t, n, (x) => x))
+    const tech = await fit([shot('A technician types as monitors: SYSTEM ONLINE.')], [{ startMs: 0, endMs: 1950 }], (t, n) => safeShorten(t, n, (x) => x))
     expect(tech.map((c) => [c.extended, c.text])).toEqual([[true, 'Monitors: SYSTEM ONLINE.'], [false, 'A technician types.']])
   })
   it('B3: plotEvents still finds the action beside a carrier clause', () => {
@@ -168,7 +168,12 @@ describe('PR #37 review round 1', () => {
     expect(stripDarkness('Darkness...')).toBe('Darkness...')
   })
   it('the describe prompt asks for "dim" when the scene is visible but dim', () => {
-    expect(describeSystemPrompt({ maxWords: 8, knownNames: [], language: 'en' })).toMatch(/visible but dim, say dim/)
+    expect(describeSystemPrompt({ maxWords: 8, knownNames: [], language: 'en' })).toMatch(/visible but dim, say dim\./)
+  })
+  it('decision 0009: the darkness rule gives no example sentence to copy (g8 shot 2 voiced "A dim room. A fire glows." verbatim)', () => {
+    const rule = describeSystemPrompt({ maxWords: 8, knownNames: [], language: 'en' }).split('\n').find((l) => l.includes('Darkness.'))!
+    expect(rule).toBe('- Write only "Darkness." when the frames are black and nothing can be made out. If anything is visible, even dimly, describe it and do not write "Darkness."; if the scene is visible but dim, say dim.')
+    expect(rule).not.toMatch(/e\.g\.|fire glows/i)
   })
   it('S1: the edit step reads the shot descriptions without the "Darkness." prefix', async () => {
     const shots: Described[] = [
@@ -200,7 +205,7 @@ describe('PR #37 review round 2', () => {
     expect(textClauses(WANTED)).toMatchObject({ clause: 'Words appear: "WANTED".', rest: 'A soldier tears down the poster. He runs.' })
     expect(textSpans(WANTED)[0]!.body).toBe('WANTED')
     const shot: Described = { index: 0, startMs: 0, endMs: 3000, description: WANTED, sameAsPrev: false, tokens: 0, outputTokens: 0 }
-    const cues = await fit([shot], [{ startMs: 0, endMs: 3200 }], (t, n) => safeShorten(t, n, (x) => x))
+    const cues = await fit([shot], [{ startMs: 0, endMs: 3650 }], (t, n) => safeShorten(t, n, (x) => x))
     expect(cues.map((c) => [c.extended, c.text])).toEqual([[true, 'Words appear: "WANTED".'], [false, 'A soldier tears down the poster. He runs.']])
     for (const c of cues) expect(c.text).not.toMatch(/^Reads\b/)
   })

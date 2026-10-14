@@ -122,3 +122,5 @@ the raters flagged two of those as plot events lost — 8 "accepts bowl", 24 "kn
 Reports: the session scratchpad `eval-1010b/rater1.md`, `rater2.md`.
 
 **Prompt changed 2026-10-14** (docs/decisions/0008-text-and-darkness.md): on-screen text from signs and headlines also takes "Words appear:", and "Darkness." only when nothing can be made out. Gate C must be re-checked with the new prompt.
+
+**"Fits" clarified 2026-10-14** (docs/decisions/0009-gate-c-fits.md, after the 69.0 % re-check `sintel-90-210-g8`): a placed cue's speech (trailing silence trimmed) ends by its limit, and its clip file by limit + 200 ms and before the next dialogue word.
