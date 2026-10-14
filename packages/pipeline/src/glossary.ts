@@ -72,8 +72,10 @@ export const PLACE_NOUNS = new Set(['room', 'tent', 'hut', 'interior', 'house', 
 /** Time words a scene change may carry ("Night.", "40 YEARS LATER"). */
 export const TIME_WORDS = new Set(['night', 'day', 'dawn', 'dusk', 'morning', 'evening', 'later', 'years', 'nacht', 'tag', 'später'].map(stem))
 
+/** Stems of the place words of a phrase: its content words without light and size words. */
+export const placeWordStems = (t: string) => new Set(contentWords(t).filter((w) => !PLACE_FILLER.has(w)).map(stem))
 /** Stems of a setting's place words: its name and look, without light and size words. */
-export const settingStems = (s: Pick<Setting, 'name' | 'look'>) => new Set(contentWords(`${s.name} ${s.look}`).filter((w) => !PLACE_FILLER.has(w)).map(stem))
+export const settingStems = (s: Pick<Setting, 'name' | 'look'>) => placeWordStems(`${s.name} ${s.look}`)
 /** Stems of every glossary setting's place words. */
 export const glossarySettingStems = (g: Glossary) => new Set(g.settings.flatMap((s) => [...settingStems(s)]))
 /** Stems of the place words in `text` (PLACE_NOUNS, plus the glossary's setting words when given), on-screen text left out. */

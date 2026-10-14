@@ -21,7 +21,7 @@ const span = (s: { shots: number[] }) => `${s.shots[0]}–${s.shots.at(-1)}`
 describe('scene grouping (DESC-029, 04c-scenes)', () => {
   it('the deterministic grouping splits on a change of place, not on cuts between people (Sintel r2, Tears of Steel)', () => {
     expect(fallbackScenes(sintel, gSintel)).toEqual([{ firstShot: 0, lastShot: 1, setting: 'the snowy mountains' }, { firstShot: 2, lastShot: 14, setting: 'the tent' }])
-    expect(fallbackScenes(tos, gTos).map((g) => [g.firstShot, g.lastShot, g.setting])).toEqual([[0, 1, 'the canal bridge'], [2, 7, 'the lab'], [8, 8, 'the ruined city'], [9, 15, 'the hideout']])
+    expect(fallbackScenes(tos, gTos).map((g) => [g.firstShot, g.lastShot, g.setting])).toEqual([[0, 1, 'the canal bridge'], [2, 7, 'the lab'], [8, 8, 'the smoking city'], [9, 15, 'the hideout']])
     // without a glossary: place nouns only, labels from the descriptions' own words
     expect(fallbackScenes(sintel, EMPTY_GLOSSARY).map((g) => [g.firstShot, g.lastShot, g.setting])).toEqual(NO_GLOSSARY)
   })
@@ -58,7 +58,7 @@ describe('scene grouping (DESC-029, 04c-scenes)', () => {
     expect(sceneOf(r.scenes, 10)?.id).toBe(2)
   })
   it('marks a return to an earlier, not adjacent place', async () => {
-    const r = await sceneGroups(tos, gTos, 'en', toolReply([{ firstShot: 0, lastShot: 1, setting: 'the canal bridge' }, { firstShot: 2, lastShot: 7, setting: 'the lab' }, { firstShot: 8, lastShot: 8, setting: 'the ruined city' }, { firstShot: 9, lastShot: 11, setting: 'the hideout' }, { firstShot: 12, lastShot: 12, setting: 'the ruined city' }, { firstShot: 13, lastShot: 15, setting: 'the hideout' }]))
+    const r = await sceneGroups(tos, gTos, 'en', toolReply([{ firstShot: 0, lastShot: 1, setting: 'the canal bridge' }, { firstShot: 2, lastShot: 7, setting: 'the lab' }, { firstShot: 8, lastShot: 8, setting: 'the smoking city' }, { firstShot: 9, lastShot: 11, setting: 'the hideout' }, { firstShot: 12, lastShot: 12, setting: 'the smoking city' }, { firstShot: 13, lastShot: 15, setting: 'the hideout' }]))
     expect(r.scenes.map((s) => [span(s), s.returning])).toEqual([['0–1', false], ['2–7', false], ['8–8', false], ['9–11', false], ['12–12', true], ['13–15', true]])
   })
   it('falls back to the deterministic grouping when the reply is invalid, or both calls fail', async () => {

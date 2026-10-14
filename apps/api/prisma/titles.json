@@ -98,7 +98,7 @@
     "settings": [
       { "name": "the canal bridge", "look": "a bridge over a tree-lined canal between old brick houses", "firstAtS": 0 },
       { "name": "the lab", "look": "a cluttered lab of glowing consoles, holograms and screens", "firstAtS": 7.1 },
-      { "name": "the ruined city", "look": "a grey, smoking city of old rooftops and spires under a huge dark machine", "firstAtS": 29.9 },
+      { "name": "the smoking city", "look": "a grey, smoking city of old rooftops and spires under a huge dark machine", "firstAtS": 29.9 },
       { "name": "the hideout", "look": "a dim room high above the city, lit by candles, opening onto a balcony of stone balusters", "firstAtS": 34.1 }
     ]
   }
