@@ -52,6 +52,8 @@ describe('describeSystemPrompt', () => {
     const ed = loadGlossary('elephants-dream-0-60')
     const plain = describeSystemPrompt({ maxWords: 8, knownNames: [], language: 'en' })
     expect(describeSystemPrompt({ maxWords: 8, knownNames: [], language: 'en', people: '' })).toBe(plain)
+    // pinned to main's prompt at e02cf2b (the 0009 prompt Gate C is re-checked against): no glossary, no change
+    expect(describeSystemPrompt({ maxWords: 8, knownNames: ['Sintel'], language: 'en' })).toBe(readFileSync(new URL('./fixtures/describe-prompt-main-e02cf2b.txt', import.meta.url), 'utf8'))
     expect(plain).toContain('use one stable visible descriptor (e.g. "the woman in the red coat")')
     const t = describeSystemPrompt({ maxWords: 8, knownNames: allowedNames(ed, 40_000), language: 'en', people: peopleAndPlaces(ed, 40_000) })
     expect(t).toContain('refer to a listed person by their look from the list')

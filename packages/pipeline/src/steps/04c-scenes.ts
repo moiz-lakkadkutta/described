@@ -40,10 +40,28 @@ export interface Group { firstShot: number; lastShot: number; setting: string }
 export const SCENES_FILE = 'scenes.json'
 
 export async function groupScenes(ctx: Ctx, send: EditConverse = bedrockEditSend) {
-  const shots = JSON.parse(await readFile(`${ctx.work}/described.json`, 'utf8')) as Described[]
+  const described = await readFile(`${ctx.work}/described.json`, 'utf8')
+  const shots = JSON.parse(described) as Described[]
   const report = await sceneGroups(shots, glossaryFor(ctx), ctx.language, send, { cacheDir: `${ctx.work}/cache/scenes`, signal: ctx.signal })
   console.log(`scenes: ${report.scenes.length} scenes (${report.source}${report.reason ? `: ${report.reason}` : ''}), ${report.scenes.map((s) => `${s.shots[0]}–${s.shots.at(-1)} ${JSON.stringify(s.setting)}`).join('; ')}`)
-  await writeFile(`${ctx.work}/${SCENES_FILE}`, JSON.stringify(report, null, 2))
+  await writeFile(`${ctx.work}/${SCENES_FILE}`, JSON.stringify({ describedHash: describedHash(described), ...report }, null, 2))
+}
+
+/** sha256 of described.json as written: scenes.json records the descriptions it grouped, so fit can tell a stale one. */
+export const describedHash = (text: string) => createHash('sha256').update(text).digest('hex')
+
+/**
+ * The scenes for fit (DESC-029): scenes.json when it was grouped from the described.json now in the work dir; otherwise (missing, or
+ * stale after a describe re-run) the scene step runs first — so `--from fit` behaves like the worker's fit job, which always runs it.
+ */
+export async function freshScenes(ctx: Ctx, group: (ctx: Ctx) => Promise<void> = (c) => groupScenes(c)): Promise<Scene[] | undefined> {
+  const described = await readFile(`${ctx.work}/described.json`, 'utf8').catch(() => undefined)
+  if (described === undefined) return readScenes(ctx.work)
+  const file = await readFile(`${ctx.work}/${SCENES_FILE}`, 'utf8').then((t) => JSON.parse(t) as ScenesReport & { describedHash?: string }, () => undefined)
+  if (file?.describedHash === describedHash(described)) return file.scenes
+  console.log(`scenes: ${file ? 'scenes.json is stale (described.json changed)' : 'no scenes.json'}; grouping scenes before fit`)
+  await group(ctx)
+  return readScenes(ctx.work)
 }
 
 /** {work}/scenes.json's scenes, or undefined when the step has not run (an older work dir): fit and edit then work as before. */

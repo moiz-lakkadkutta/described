@@ -9,8 +9,8 @@ export { Glossary, nameRevealed, type Character, type Setting } from '@described
 /**
  * A title's people and places (DESC-029, docs/decisions/0012-characters-and-scenes.md), as the pipeline uses them: the describe
  * prompt block (peopleAndPlaces), the scene step's setting words, fit's setting statements and the edit pass's grounding guard
- * (nameEvidence). Written by an editor in apps/api/prisma/titles.json; a video with no entry (`pnpm describe` on your own file) has an
- * empty glossary and every step behaves as before.
+ * (nameEvidence). Written by an editor in apps/api/prisma/titles.json. A video with no entry (`pnpm describe` on your own file) has an
+ * empty glossary: no name is ever voiced and no look is suggested, but scene build-up (04c-scenes, fit, the edit pass) works the same.
  */
 export const EMPTY_GLOSSARY: Glossary = { characters: [], settings: [] }
 
@@ -18,12 +18,21 @@ export const EMPTY_GLOSSARY: Glossary = { characters: [], settings: [] }
 export const DEFAULT_GLOSSARY_FILE = new URL('../../../apps/api/prisma/titles.json', import.meta.url)
 
 const Entry = z.object({ slug: z.string() }).merge(Glossary)
-/** The glossary for `slug` from `file` (titles.json), or EMPTY_GLOSSARY when the file or the slug is missing. A malformed entry throws. */
+const warned = new Set<string>()
+/**
+ * The glossary for `slug` from `file` (titles.json): the entry with that slug, else the entry whose slug the requested one extends —
+ * an evaluation copy such as `sintel-90-210-g10` (pnpm gate-c) reads `sintel-90-210`'s — else EMPTY_GLOSSARY, with a loud warning
+ * once per slug (no name will be voiced). A malformed entry throws.
+ */
 export function loadGlossary(slug: string, file: string | URL = process.env.GLOSSARY_FILE ?? DEFAULT_GLOSSARY_FILE): Glossary {
   let raw: unknown
-  try { raw = JSON.parse(readFileSync(file, 'utf8')) } catch { return EMPTY_GLOSSARY }
-  const hit = Array.isArray(raw) ? raw.find((t) => t && typeof t === 'object' && (t as { slug?: unknown }).slug === slug) : undefined
-  if (!hit) return EMPTY_GLOSSARY
+  try { raw = JSON.parse(readFileSync(file, 'utf8')) } catch { raw = undefined }
+  const entries = Array.isArray(raw) ? raw.filter((t): t is { slug: string } => !!t && typeof t === 'object' && typeof (t as { slug?: unknown }).slug === 'string') : []
+  const hit = entries.find((t) => t.slug === slug) ?? entries.filter((t) => slug.startsWith(`${t.slug}-`)).sort((a, b) => b.slug.length - a.slug.length)[0]
+  if (!hit) {
+    if (!warned.has(slug)) { warned.add(slug); console.warn(`glossary: WARNING no people-and-places entry for "${slug}" in ${String(file)}: no name will be voiced and no look suggested (scenes still work). Set GLOSSARY_FILE or add the title to titles.json.`) }
+    return EMPTY_GLOSSARY
+  }
   const { characters, settings } = Entry.parse(hit)
   return { characters, settings }
 }
@@ -41,21 +50,91 @@ export function allowedNames(g: Glossary, atMs: number, spoken: readonly string[
   return out
 }
 
-/** "a thin young man with short dark hair, in a pale green shirt" → "the thin young man": the head of a look, for a short reference. */
+/**
+ * The fallback short reference when a character has no `short`: the look's head, cut before "with / in / wearing …" but never at a
+ * comma ("a huge, round grey rabbit with long ears" → "the huge round grey rabbit", not "the huge").
+ */
 export function shortLook(look: string): string {
-  const head = look.split(/[,;]|\s(?:with|in|wearing|holding|carrying|at|behind|on)\s/u)[0]!.trim()
+  const head = look.split(';')[0]!.replace(/,/g, '').split(/\s(?:with|in|wearing|holding|carrying|at|behind|on|aiming)\s/u)[0]!.trim()
   return head.replace(/^(?:a|an|the)\s+/iu, 'the ')
+}
+/** What a cue says in place of a name it may not use: the editor's `short` ("the big grey rabbit"), else shortLook. */
+export const shortOf = (c: Pick<Character, 'look'> & { short?: string }) => c.short?.trim() || shortLook(c.look)
+
+/** Nouns of a person or animal a description refers to someone by. Plural phrases ("two figures") are not one character. */
+export const KIND = new Set(['man', 'woman', 'girl', 'boy', 'figure', 'person', 'soldier', 'scientist', 'technician', 'llama', 'rabbit', 'bunny', 'bird', 'fox', 'creature', 'animal', 'sniper', 'dragon'])
+const GENERIC = new Set(['figure', 'person', 'creature', 'animal'])
+const SAME_KIND: Record<string, string[]> = { woman: ['woman', 'girl'], girl: ['woman', 'girl'], man: ['man', 'boy', 'soldier', 'scientist', 'technician', 'sniper'], soldier: ['man', 'soldier', 'sniper'], rabbit: ['rabbit', 'bunny'], bunny: ['rabbit', 'bunny'] }
+const DETERMINERS = new Set(['a', 'an', 'the', 'another', 'other', 'same', 'one'])
+const PLURAL_COUNT = /^(?:two|three|four|several|many|some)$/
+
+/** A person or animal phrase and its clause: up to three modifiers before the noun, an "in …" phrase after it ("man in a dark jacket"). */
+export interface Mention { phrase: string; clause: string }
+/** The person/animal noun phrases of a text, on-screen text left out; plural phrases skipped. */
+export function mentionsIn(text: string): Mention[] {
+  const plain = textSpans(text).reduceRight((t, s) => t.slice(0, s.start) + ' ' + t.slice(s.end), text).toLowerCase()
+  return plain.split(/[.!?;,…]+/u).flatMap((clause) => {
+    const ws = clause.replace(/[^\p{L}\s'-]/gu, ' ').split(/\s+/).filter(Boolean)
+    const out: Mention[] = []
+    ws.forEach((w, i) => {
+      if (!KIND.has(w)) return
+      const before: string[] = []
+      for (let k = i - 1; k >= 0 && before.length < 3; k--) {
+        const x = ws[k]!
+        if (PLURAL_COUNT.test(x)) return
+        if (DETERMINERS.has(x)) break
+        if (/s$/.test(x) && !/ss$/.test(x) && k === i - 1 && !/(?:ous|less)$/.test(x)) break // "glows man": a verb, not an adjective
+        if (['and', 'with', 'of', 'in', 'on', 'at', 'to', 'from', 'by', 'as', 'while', 'then'].includes(x)) break
+        before.unshift(x)
+      }
+      const after: string[] = []
+      if (['in', 'wearing'].includes(ws[i + 1] ?? '')) for (let k = i + 1; k < ws.length && after.length < 5; k++) { if (k > i + 2 && /s$/.test(ws[k]!) && !/ss$/.test(ws[k]!) && after.length >= 2) break; after.push(ws[k]!) }
+      out.push({ phrase: [...before, w, ...after].join(' '), clause: ws.join(' ') })
+    })
+    return out
+  })
+}
+/** The phrases only (the evaluation's descriptor list). */
+export const mentions = (text: string) => mentionsIn(text).map((m) => m.phrase)
+
+/**
+ * The character a phrase refers to: one of the same kind of noun (a generic noun — figure, person, creature — fits any), the one whose
+ * look shares the most of the phrase's words; on a tie, the most of its clause's words ("man in dark jacket aims rifle": the man with
+ * the rifle). undefined when still tied, or when no look word is shared and the kind fits more than one.
+ */
+export function assign(phrase: string, g: Glossary, clause = ''): string | undefined {
+  const ws = phrase.split(' '), head = ws.find((w) => KIND.has(w))!
+  const kind = (c: Character) => contentWords(c.look).find((w) => KIND.has(w)) ?? shortLook(c.look).split(' ').at(-1)!
+  const fits = g.characters.filter((c) => GENERIC.has(head) || (SAME_KIND[kind(c)] ?? [kind(c)]).includes(head))
+  if (fits.length === 1 && !GENERIC.has(head)) return fits[0]!.name
+  const lookOf = (c: Character) => new Set(contentWords(c.look).map(stem))
+  const overlap = (c: Character, words: string[]) => words.filter((w) => w !== head && lookOf(c).has(stem(w))).length
+  const phraseWords = contentWords(phrase), clauseWords = contentWords(clause)
+  const scored = fits.map((c) => ({ c, n: overlap(c, phraseWords) + (GENERIC.has(head) && lookOf(c).has(stem(head)) ? 1 : 0), m: overlap(c, clauseWords) }))
+    .sort((a, b) => b.n - a.n || b.m - a.m)
+  const [first, second] = scored
+  if (!first || (first.n === 0 && first.m === 0)) return undefined
+  if (second && second.n === first.n && second.m === first.m) return undefined
+  return first.c.name
+}
+
+/** The characters the texts show, by look (mentions given to a character by assign): what a cue's shot descriptions may name. */
+export function matchedCharacters(texts: readonly string[], g: Glossary): Set<string> {
+  const out = new Set<string>()
+  for (const t of texts) for (const m of mentionsIn(t)) { const who = assign(m.phrase, g, m.clause); if (who) out.add(who) }
+  return out
 }
 
 /**
- * The describe prompt's block (DESC-029): people by look always, with name and role only once revealed at `atMs`; places by name and
- * look. Phrased "when one of them is visible" so a listed look is not given to an unlisted extra. Empty string for an empty glossary.
+ * The describe prompt's block (DESC-029): people by look always, and a name once revealed at `atMs` — bound to the look: "call them
+ * Thom" only for a figure matching Thom's look, never for another man in a dark jacket. No roles (they are story, not what is seen).
+ * Places by name and look. Phrased "when one of them is visible" so a listed look is not given to an unlisted extra. '' when empty.
  */
 export function peopleAndPlaces(g: Glossary, atMs: number): string {
   if (isEmpty(g)) return ''
   const lines = ['People and places in this film. Use these words when one of them is visible; never give a listed look or name to anyone or anything else:']
   for (const c of g.characters) {
-    if (isProperName(c) && nameRevealed(c, atMs)) lines.push(`- ${c.name}: ${c.look}; ${c.role}. Call them ${c.name}.`)
+    if (isProperName(c) && nameRevealed(c, atMs)) lines.push(`- ${c.look}: only if the person visible matches this look, call them ${c.name} (the first time: "${shortOf(c)}, ${c.name}"); never give this name to anyone else.`)
     else lines.push(`- ${c.look} (not named yet: describe by this look, never by a name)`)
   }
   for (const s of g.settings) lines.push(`- Place: ${s.name}, ${s.look}`)
@@ -86,7 +165,7 @@ export function placeStems(text: string, extra: ReadonlySet<string> = new Set())
 
 /** Where a name in a cue comes from (edit.json evidence, like the SDH speaker evidence of #39 / decision 0008). */
 export type NameSource = { name: string; source: 'glossary'; revealedAtS: number; evidence: string } | { name: string; source: 'dialogue'; at: number }
-export interface NameCheck { names: NameSource[]; premature: string[]; invented: string[] }
+export interface NameCheck { names: NameSource[]; premature: string[]; invented: string[]; /** revealed glossary names whose character the shot descriptions do not show (binding) */ unbound: string[] }
 /** Capitalised words that are not names in a description (sentence openers are skipped anyway; these appear mid-sentence). */
 const NOT_A_NAME = new Set(['I', 'TV', 'OK'])
 
@@ -95,9 +174,12 @@ const NOT_A_NAME = new Set(['I', 'TV', 'OK'])
  * the dialogue has said by then (`spoken`: knownNames with when each was first heard; source dialogue). A glossary name not revealed
  * and not spoken is premature; any other capitalised word that is not the first of a sentence (and not on-screen text) is invented.
  * On-screen text is never checked: "Words appear: SINTEL." shows the film's name, it does not name a figure.
+ * Binding (`shots`: the descriptions of the cue's shots): a revealed glossary name counts only when those descriptions show that
+ * character by look (matchedCharacters) or the cue itself does; otherwise it is `unbound` ("Thom" on the sniper's shot).
  */
-export function nameEvidence(text: string, atMs: number, g: Glossary, spoken: readonly { name: string; at: number }[] = []): NameCheck {
-  const out: NameCheck = { names: [], premature: [], invented: [] }
+export function nameEvidence(text: string, atMs: number, g: Glossary, spoken: readonly { name: string; at: number }[] = [], shots?: readonly string[]): NameCheck {
+  const out: NameCheck = { names: [], premature: [], invented: [], unbound: [] }
+  const shown = shots ? matchedCharacters([...shots, text], g) : undefined
   let plain = textSpans(text).reduceRight((t, s) => t.slice(0, s.start) + ' '.repeat(s.end - s.start) + t.slice(s.end), text)
   const said = (n: string) => spoken.find((s) => s.name === n)
   const add = (n: NameSource) => { if (!out.names.some((x) => x.name === n.name)) out.names.push(n) }
@@ -106,7 +188,8 @@ export function nameEvidence(text: string, atMs: number, g: Glossary, spoken: re
     if (!re.test(plain)) continue
     plain = plain.replace(re, (m) => ' '.repeat(m.length))
     const heard = said(c.name)
-    if (nameRevealed(c, atMs)) add({ name: c.name, source: 'glossary', revealedAtS: c.revealedAtS!, evidence: c.nameEvidence })
+    if (nameRevealed(c, atMs) && shown && !shown.has(c.name)) { if (!out.unbound.includes(c.name)) out.unbound.push(c.name) }
+    else if (nameRevealed(c, atMs)) add({ name: c.name, source: 'glossary', revealedAtS: c.revealedAtS!, evidence: c.nameEvidence })
     else if (heard && heard.at * 1000 <= atMs) add({ name: c.name, source: 'dialogue', at: heard.at })
     else if (!out.premature.includes(c.name)) out.premature.push(c.name)
   }
@@ -123,12 +206,18 @@ export function nameEvidence(text: string, atMs: number, g: Glossary, spoken: re
 }
 
 /**
- * Replaces a name the cue may not use with the character's short look ("Emo blinks." → "The thin young man blinks."), or with
- * "someone" for a name that is in no glossary. Capitalised at a sentence start.
+ * Replaces a name the cue may not use with the character's short reference ("Emo blinks." → "The thin young man blinks."), or with
+ * "someone" for a name that is in no glossary. Capitalised at a sentence start. Never inside on-screen text: "Words appear: Big Buck
+ * Bunny." is quoted verbatim (decision 0008).
  */
 export function withoutName(text: string, name: string, g: Glossary): string {
   const c = g.characters.find((x) => x.name === name)
-  const by = c ? shortLook(c.look) : 'someone'
+  const by = c ? shortOf(c) : 'someone'
   const re = new RegExp(`(^|[.!?]\\s+|\\s|[("“])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}])`, 'gu')
-  return text.replace(re, (_, pre: string) => pre + (/^$|[.!?]\s+$/u.test(pre) ? by[0]!.toUpperCase() + by.slice(1) : by))
+  const swap = (piece: string, opensSentence: boolean) => piece.replace(re, (_, pre: string, off: number) => pre + ((off === 0 && /^\s*$/u.test(pre) && opensSentence) || /[.!?]\s+$/u.test(pre) ? by[0]!.toUpperCase() + by.slice(1) : by))
+  const spans = textSpans(text)
+  const ends = (k: number) => /[.!?…]["'”’)\]]*\s*$/u.test(text.slice(0, k)) // the text before position k ends a sentence
+  let out = '', at = 0
+  for (const sp of spans) { out += swap(text.slice(at, sp.start), at === 0 || ends(at)) + text.slice(sp.start, sp.end); at = sp.end }
+  return out + swap(text.slice(at), at === 0 || ends(at))
 }

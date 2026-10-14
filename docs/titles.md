@@ -8,12 +8,12 @@ rows. The rows live in `apps/api/prisma/titles.json` (`pnpm titles:seed` upserts
 tracks and status). Every film is CC-BY, and its credit sentence (`attribution`) is shown on the Title screen and under Settings → About &
 licenses (`GET /about`), as CC-BY requires in-app.
 
-**People and places (DESC-029).** Each entry also carries `characters[]` (name, look, role, `revealedAtS` in segment seconds,
+**People and places (DESC-029).** Each entry also carries `characters[]` (name, look, short, role, `revealedAtS` in segment seconds,
 `nameEvidence`) and `settings[]` (name, look, `firstAtS`), written from evidence only — the captions, the films' official subtitles,
 the synopsis and the frames — in a director's voice inside the guardrails of
 [decision 0012](decisions/0012-characters-and-scenes.md): only what a sighted viewer can see or has been told by that point; no name
-or role before it is revealed (Emo 25.1 s; Thom −17 s and Celia −15 s, named before the segment starts; Sintel 367 s, after it;
-Proog, Koro, the shaman and Big Buck Bunny never in their segment). The pipeline reads them from this file (describe prompt, scene
+before it is revealed inside the segment, and only for a figure with that look; no role is ever voiced (Emo 25.1 s; Thom 2.2 s;
+Celia, Sintel, Proog, Koro, the shaman and Big Buck Bunny never inside their segment). Every look was checked against frames. The pipeline reads them from this file (describe prompt, scene
 step, fit, edit pass and its grounding guard); the API does not store them. Baseline before the change:
 [docs/eval/character-scene-baseline.md](eval/character-scene-baseline.md).
 

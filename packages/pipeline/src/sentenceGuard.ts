@@ -28,6 +28,7 @@ export function readsAsSentences(original: string, shortened: string, language: 
   return endsMidPhrase(orig, aligned) ?? onlySubjects(shortened, [original])
 }
 
+const SUBJECT_PRONOUNS = new Set(['he', 'she', 'it', 'they', 'er', 'sie', 'es'])
 /**
  * Check 2a (DESC-029, every language): one source sentence per clause. A clause of the shortening (cut at , ; : . ! ? … and before "and")
  * takes its content words from one sentence of the original. "Tent interior. Fire glows." → "Tent glows." keeps every word in order
@@ -36,9 +37,12 @@ export function readsAsSentences(original: string, shortened: string, language: 
  */
 function joinsSentences(orig: readonly Word[], aligned: ReadonlyArray<Word & { at: number }>): string | undefined {
   let clause: Array<Word & { at: number }> = []
+  /** A sentence that opens with a subject pronoun refers back to the one before: "Old man sits. He holds a staff." → "Old man holds a staff." */
+  const opensWithPronoun = (sentence: number) => SUBJECT_PRONOUNS.has(orig.find((w) => w.sentence === sentence)?.bare ?? '')
   const check = () => {
-    const from = new Set(clause.filter((a) => a.at >= 0 && !STOP.has(a.bare)).map((a) => orig[a.at]!.sentence))
-    return from.size > 1 ? `joins two sentences: "${clause.map((a) => a.raw).join(' ')}"` : undefined
+    const from = [...new Set(clause.filter((a) => a.at >= 0 && !STOP.has(a.bare)).map((a) => orig[a.at]!.sentence))].sort((a, b) => a - b)
+    const ok = from.length <= 1 || from.slice(1).every((s, k) => s === from[k]! + 1 && opensWithPronoun(s))
+    return ok ? undefined : `joins two sentences: "${clause.map((a) => a.raw).join(' ')}"`
   }
   for (const a of aligned) {
     if (a.bare === 'and' && clause.length) { const why = check(); if (why) return why; clause = [] }

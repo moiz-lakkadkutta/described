@@ -84,14 +84,21 @@ describe('fit with scenes (DESC-029)', () => {
     const tight = await fit(shots.slice(0, 1), [{ startMs: 0, endMs: room(6) }], shortenDeterministic, 'en', { scenes: scenes.slice(0, 1) })
     expect(tight.map((c) => [c.text, c.extended, c.scene ?? false])).toEqual([['The lab.', true, true], ['A man types at a console.', false, false]])
   })
-  it('scene pauses: only where no cue states the place, at most one per 20 s, never inside an earlier shot\'s cue, never after the scene', () => {
-    const cue = (shotIndex: number, startMs: number, text: string): FitCue => ({ startMs, endMs: startMs + 2000, text, extended: false, wordCount: 3, shotIndex })
-    const scenes = [scene(0, [0], 0, 10_000, 'the lab'), scene(1, [1], 10_000, 20_000, 'the street'), scene(2, [2], 20_000, 45_000, 'the bridge'), scene(3, [3], 45_000, 46_000, 'the roof')]
-    const cues = [cue(0, 0, 'The lab hums.'), cue(1, 9000, 'A woman runs.'), cue(2, 44_500, 'A man waits.'), cue(3, 45_500, 'A man jumps.')]
-    const p = scenePauses(scenes, cues, EMPTY_GLOSSARY)
-    expect(p.map((c) => [c.text, c.startMs, c.shotIndex, c.scene])).toEqual([['The street.', 10_000, 1, true]]) // the bridge is < 20 s later; the roof starts after its scene ended
-    expect(SCENE_PAUSE_SPACING_MS).toBe(20_000)
-    expect(scenePauses([scene(0, [0], 0, 10_000, 'the lab')], [cue(0, 0, 'A man types.')], EMPTY_GLOSSARY)[0]).toMatchObject({ extended: true, text: 'The lab.', wordCount: 2 })
+  it('scene pauses: only where no cue states the place, at most one per title-minute, never inside an earlier shot\'s cue, never after the scene', () => {
+    const cue = (shotIndex: number, startMs: number, text: string, extra: Partial<FitCue> = {}): FitCue => ({ startMs, endMs: startMs + 2000, text, extended: false, wordCount: 3, shotIndex, ...extra })
+    const scenes = [scene(0, [0], 0, 10_000, 'the lab'), scene(1, [1], 10_000, 20_000, 'the street'), scene(2, [2], 20_000, 75_000, 'the bridge'), scene(3, [3], 75_000, 76_000, 'the roof')]
+    const cues = [cue(0, 0, 'The lab hums.'), cue(1, 9000, 'A woman runs.'), cue(2, 74_500, 'A man waits.'), cue(3, 75_500, 'A man jumps.')]
+    const pauses = (cs: FitCue[]) => cs.filter((c) => c.scene).map((c) => [c.text, c.startMs, c.shotIndex])
+    expect(pauses(scenePauses(scenes, cues, EMPTY_GLOSSARY))).toEqual([['The street.', 10_000, 1]]) // the bridge is < 60 s later; the roof starts after its scene ended
+    expect(SCENE_PAUSE_SPACING_MS).toBe(60_000)
+    expect(scenePauses([scene(0, [0], 0, 10_000, 'the lab')], [cue(0, 0, 'A man types.')], EMPTY_GLOSSARY).find((c) => c.scene)).toMatchObject({ extended: true, text: 'The lab.', wordCount: 2 })
     expect(fit([sh(0, 0, 3000, 'A man types.')], [{ startMs: 0, endMs: 2900 }], shortenDeterministic, 'en', { scenes: [scene(0, [0], 0, 3000, 'the lab')], scenePauses: false })).resolves.toEqual([expect.objectContaining({ extended: false })])
+  })
+  it('one pause, not two: an event pause at the scene\'s start says the place first; a separate scene pause sorts before another pause', async () => {
+    const event: FitCue = { startMs: 0, endMs: 100, text: 'A woman kneels beside the fire.', extended: true, wordCount: 6, shotIndex: 0, event: true }
+    const merged = scenePauses([scene(0, [0], 0, 10_000, 'the lab')], [event], EMPTY_GLOSSARY)
+    expect(merged).toEqual([{ ...event, text: 'The lab. A woman kneels beside the fire.', wordCount: 8, scene: true }])
+    const shots = [sh(0, 0, 3000, 'A woman kneels beside the fire.')] // no gap: fit makes it an event pause, and the place joins it
+    expect((await fit(shots, [], shortenDeterministic, 'en', { scenes: [scene(0, [0], 0, 3000, 'the lab')] })).map((c) => c.text)).toEqual(['The lab. A woman kneels beside the fire.'])
   })
 })

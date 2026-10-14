@@ -1,5 +1,6 @@
 import { contentWords, stem } from './contentWords'
-import { nameEvidence, PLACE_NOUNS, placeWordStems, settingStems, shortLook, TIME_WORDS, type Glossary } from './glossary'
+import { assign, mentionsIn, nameEvidence, PLACE_NOUNS, placeWordStems, settingStems, TIME_WORDS, type Glossary } from './glossary'
+export { assign, mentions } from './glossary'
 import { settingLead } from './sceneSetting'
 import { textSpans } from './textClause'
 import { textClauses } from './steps/05-fit'
@@ -21,53 +22,9 @@ export interface EvalCue { startMs: number; text: string; extended?: boolean }
 export interface AnnotatedScene { startS: number; setting: string; change?: 'place' | 'time' }
 export interface EvalInput { cues: readonly EvalCue[]; glossary: Glossary; spoken?: readonly { name: string; at: number }[]; scenes: readonly AnnotatedScene[] }
 
-/** Nouns of a person or animal a description refers to someone by. Plural phrases ("two figures") are not one character and are skipped. */
-const KIND = new Set(['man', 'woman', 'girl', 'boy', 'figure', 'person', 'soldier', 'scientist', 'technician', 'llama', 'rabbit', 'bunny', 'bird', 'fox', 'creature', 'animal', 'sniper'])
-const GENERIC = new Set(['figure', 'person', 'creature', 'animal'])
-const SAME_KIND: Record<string, string[]> = { woman: ['woman', 'girl'], girl: ['woman', 'girl'], man: ['man', 'boy', 'soldier', 'scientist', 'technician', 'sniper'], soldier: ['man', 'soldier', 'sniper'], rabbit: ['rabbit', 'bunny'], bunny: ['rabbit', 'bunny'] }
 const DETERMINERS = new Set(['a', 'an', 'the', 'another', 'other', 'same', 'one'])
 /** Where-nouns for "states the place" (PLACE_NOUNS without objects that sit in a place: a pit, a hole, a fence, the sky, snow). */
 const NOT_WHERE = new Set(['pit', 'hole', 'fence', 'sky', 'snow', 'stream', 'tower', 'roof', 'platform', 'river', 'lake'].map(stem))
-
-export interface Mention { cueMs: number; phrase: string; character?: string }
-/** The person/animal noun phrases of a cue ("bearded man", "red-haired girl", "lone figure"), with up to three words before the noun. */
-export function mentions(text: string): string[] {
-  const plain = textSpans(text).reduceRight((t, s) => t.slice(0, s.start) + ' ' + t.slice(s.end), text).toLowerCase()
-  return plain.split(/[.!?;,…]+/u).flatMap(clauseMentions)
-}
-/** One clause's phrases: up to three modifiers before the noun, and an "in …" phrase after it ("man in a dark jacket"; not "with …", mostly a body part: "with wide eyes"). */
-function clauseMentions(clause: string): string[] {
-  const ws = clause.replace(/[^\p{L}\s'-]/gu, ' ').split(/\s+/).filter(Boolean)
-  const out: string[] = []
-  ws.forEach((w, i) => {
-    if (!KIND.has(w)) return
-    const before: string[] = []
-    for (let k = i - 1; k >= 0 && before.length < 3; k--) {
-      const x = ws[k]!
-      if (DETERMINERS.has(x) || /^(?:two|three|four|several|many|some)$/.test(x)) { if (/^(?:two|three|four|several|many|some)$/.test(x)) return; break }
-      if (/s$/.test(x) && !/ss$/.test(x) && k === i - 1 && !/(?:ous|less)$/.test(x)) break // "glows man": a verb, not an adjective
-      if (['and', 'with', 'of', 'in', 'on', 'at', 'to', 'from', 'by', 'as', 'while', 'then'].includes(x)) break
-      before.unshift(x)
-    }
-    const after: string[] = []
-    if (['in', 'wearing'].includes(ws[i + 1] ?? '')) for (let k = i + 1; k < ws.length && after.length < 5; k++) { if (k > i + 2 && /s$/.test(ws[k]!) && !/ss$/.test(ws[k]!) && after.length >= 2) break; after.push(ws[k]!) }
-    out.push([...before, w, ...after].join(' '))
-  })
-  return out
-}
-
-/** The character a phrase refers to: same kind of noun (a generic one fits all), most look words shared; undefined when tied or none. */
-export function assign(phrase: string, g: Glossary): string | undefined {
-  const ws = phrase.split(' '), head = ws.find((w) => KIND.has(w))!
-  /** A character's kind: the first person or animal noun of its look ("a huge, round grey rabbit …" → rabbit). */
-  const kinds = (c: Glossary['characters'][number]) => contentWords(c.look).find((w) => KIND.has(w)) ?? shortLook(c.look).split(' ').at(-1)!
-  const fits = g.characters.filter((c) => GENERIC.has(head) || (SAME_KIND[kinds(c)] ?? [kinds(c)]).includes(head))
-  if (fits.length === 1 && !GENERIC.has(head)) return fits[0]!.name
-  const score = (c: Glossary['characters'][number]) => { const look = new Set(contentWords(c.look).map(stem)); return contentWords(ws.filter((w) => w !== head).join(' ')).filter((w) => look.has(stem(w))).length + (GENERIC.has(head) && look.has(stem(head)) ? 1 : 0) }
-  const scored = fits.map((c) => ({ c, n: score(c) })).sort((a, b) => b.n - a.n)
-  if (!scored.length || scored[0]!.n === 0 || (scored[1] && scored[1].n === scored[0]!.n)) return fits.length === 1 && scored[0]!.n > 0 ? fits[0]!.name : undefined
-  return scored[0]!.c.name
-}
 
 /** Does a cue say where we are: the annotated place's name words or look nouns in a short verbless setting sentence, or a where-noun. */
 export function statesWhere(text: string, setting: string, g: Glossary): boolean {
@@ -111,8 +68,8 @@ export function evaluateContext({ cues, glossary: g, spoken = [], scenes }: Eval
     r.inventedNames.push(...check.invented.map((name) => ({ atS: at, name })))
     r.prematureNames.push(...check.premature.map((name) => ({ atS: at, name })))
     for (const n of check.names) { r.namesUsed.push({ atS: at, name: n.name, source: n.source }); const k = g.characters.find((x) => x.name === n.name)?.name; if (k && !r.descriptors[k]!.includes(`(name) ${k}`)) r.descriptors[k]!.push(`(name) ${k}`) }
-    for (const p of mentions(c.text)) {
-      const who = assign(p, g)
+    for (const { phrase: p, clause } of mentionsIn(c.text)) {
+      const who = assign(p, g, clause)
       const d = p.split(' ').filter((w) => !DETERMINERS.has(w)).join(' ')
       if (who) { if (!r.descriptors[who]!.includes(d)) r.descriptors[who]!.push(d) } else if (!r.unassigned.includes(d)) r.unassigned.push(d)
     }

@@ -336,7 +336,7 @@ export function sceneRules(scene: EditInput['scene'], people: EditInput['people'
       ? `8. These cues continue one scene, set in ${JSON.stringify(scene.setting)}; an earlier cue already said where it is. Do not say the place again.`
       : `8. These cues are one scene, set in ${JSON.stringify(scene.setting)}${scene.looks ? ` (${scene.looks})` : ''}. If no cue says where we are, say it briefly at the start of the first cue that carries action, in the words of the setting, when the words fit; ${scene.returning ? `this scene returns to an earlier place, so it may open "Back in ${scene.setting.replace(/^(?:the|a|an)\s+/i, 'the ')}". ` : ''}Never say the place twice in the scene.`)
   }
-  if (people?.length) out.push('9. People: refer to a person listed under people by their look. Use a name only in a cue whose mayName lists it; the first time, say the look and the name ("the bald old man, Proog"). Never name anyone else, and never use a name before mayName allows it.')
+  if (people?.length) out.push('9. People: refer to a person listed under people by their look. Use a name only in a cue whose mayName lists it; the first time, say the look and the name ("the bald old man, Proog"). Never name anyone else, never use a name before mayName allows it, and never give a name to a figure whose description does not match that person\'s look. A person\'s background says what matters in the story, to choose what to keep; never use its words.')
   if (scene || people?.length) out.push(`${people?.length ? 10 : 9}. Voice: guide the listener through the story as a film's describer would: connect the cues ("Back in the lab, the man…", "then"), choose what matters to the story, and match the film's tone. Never say what anyone thinks, wants or feels, never hint at what happens later, and say nothing that is not visible in the cues and their missedJustBefore.`)
   return out
 }
@@ -357,8 +357,8 @@ export interface EditInput {
   heard?: string
   /** DESC-029: the scene these cues belong to (04c-scenes): its place, the glossary look of that place, whether it returns to an earlier place, and whether an earlier cue already said where it is. */
   scene?: { setting: string; looks?: string; returning: boolean; placeAlreadySaid: boolean }
-  /** DESC-029: the title's people (glossary): the look always; the name and role only once revealed (namedFrom: segment seconds). */
-  people?: readonly { look: string; name?: string; role?: string; namedFrom?: number }[]
+  /** DESC-029: the title's people (glossary): the look always; the name once revealed (namedFrom: segment seconds), and its story role as background only. */
+  people?: readonly { look: string; name?: string; namedFrom?: number; background?: string }[]
 }
 
 /**

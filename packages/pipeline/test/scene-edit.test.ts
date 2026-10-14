@@ -18,9 +18,9 @@ const ED = loadGlossary('elephants-dream-0-60')
 const at = (start: number, text: string, speaker: string): Word => ({ start, end: start + 0.4, text, speaker })
 const edWords = [at(21.0, 'safe.', 'spk_0'), at(25.07, 'Emo,', 'spk_0'), at(26.39, 'Emo.', 'spk_1'), at(29.06, "What's", 'spk_1'), at(29.5, 'that.', 'spk_1')]
 const sh = (index: number, startMs: number, endMs: number, description: string): Described => ({ index, startMs, endMs, description, sameAsPrev: false, tokens: 0, outputTokens: 0 })
-const edShots = [sh(0, 32_000, 38_000, 'Cables around glowing panels. Two figures lie on platform.'), sh(1, 38_000, 44_000, 'The bald man in the coat stands, then steps forward as the other figure crawls.'), sh(2, 44_000, 50_000, 'Man blinks, turns head.')]
+const edShots = [sh(0, 32_000, 38_000, 'Cables around glowing panels. Two figures lie on platform.'), sh(1, 38_000, 44_000, 'The bald man in the coat stands, then steps forward as the other figure crawls.'), sh(2, 44_000, 50_000, 'Thin young man blinks, turns head.')]
 const cue = (shotIndex: number, startMs: number, text: string, extra: Partial<FitCue> = {}): FitCue => ({ startMs, endMs: startMs + 2000, text, extended: false, wordCount: text.split(/\s+/).length, shotIndex, limitMs: startMs + 5500, ...extra })
-const edCues = [cue(0, 32_900, 'Cables around glowing panels. Two figures lie on platform.'), cue(1, 38_600, 'The bald man in the coat stands, then steps forward as the other figure crawls.'), cue(2, 44_700, 'Man blinks, turns head.')]
+const edCues = [cue(0, 32_900, 'Cables around glowing panels. Two figures lie on platform.'), cue(1, 38_600, 'The bald man in the coat stands, then steps forward as the other figure crawls.'), cue(2, 44_700, 'Thin young man blinks, turns head.')]
 const edScenes: Scene[] = [{ id: 0, shots: [0, 1, 2], startMs: 32_000, endMs: 50_000, setting: 'the white chamber', settingName: 'the white chamber', returning: false, evidence: [{ word: 'chamber', source: 'glossary', setting: 'the white chamber' }] }]
 const guard: EditGuard = { glossary: ED, spoken: spokenNames(edWords, 'en'), scenes: edScenes }
 
@@ -44,46 +44,71 @@ describe('edit pass with scenes and a glossary (DESC-029)', () => {
     expect(sent).toHaveLength(1)
     const input = JSON.parse((sent[0]!.messages![0]!.content![0] as { text: string }).text.replace(/^Input:\n/, '').replace(/\n\nUse the emit_edits tool[\s\S]*$/, ''))
     expect(input.scene).toEqual({ setting: 'the white chamber', looks: expect.stringContaining('cables'), returning: false, placeAlreadySaid: false })
-    expect(input.people).toEqual([{ look: 'a bald old man with a long nose, in a long brown coat and a red tie' }, { look: expect.stringContaining('thin young man'), name: 'Emo', role: expect.any(String), namedFrom: 25.1 }])
+    expect(input.people).toEqual([{ look: 'a bald old man with a long nose, in a long brown coat and a red tie' }, { look: expect.stringContaining('thin young man'), name: 'Emo', namedFrom: 25.1, background: expect.any(String) }])
     expect(input.cues.map((c: { mayName?: string[] }) => c.mayName)).toEqual([['Emo'], ['Emo'], ['Emo']])
     expect((sent[0]!.system![0] as { text: string }).text).toMatch(/8\. These cues are one scene, set in "the white chamber"[\s\S]*9\. People:[\s\S]*10\. Voice: guide the listener/)
   })
-  it('the guard accepts a revealed name and the glossary look; rejects a name before it is revealed and an invented one', () => {
+  it('the guard accepts a revealed name on a shot that shows that person, and the look; rejects a premature, unbound or invented name', () => {
     const budgets = editBudgets(edCues).map((b) => b + 10)
-    const ok = applyEdits(edCues, edShots, [{ cue: 2, text: 'Emo blinks, turns his head.' }], budgets, [0, 3], 'en', guard)
-    expect(ok.rejected).toEqual([{ i: 2, text: 'Emo blinks, turns his head.', reason: 'not in any shot description: his' }]) // "his" is still a fact to trace
-    expect(applyEdits(edCues, edShots, [{ cue: 2, text: 'Emo blinks, turns head.' }], budgets, [0, 3], 'en', guard).applied).toHaveLength(1)
-    expect(applyEdits(edCues, edShots, [{ cue: 2, text: 'The thin young man blinks, turns head.' }], budgets, [0, 3], 'en', guard).applied).toHaveLength(1) // the glossary look
-    expect(applyEdits(edCues, edShots, [{ cue: 1, text: 'Proog stands, then steps forward as the other figure crawls.' }], budgets, [0, 3], 'en', guard).rejected[0]!.reason).toBe('name not revealed or in no glossary or dialogue: Proog')
-    expect(applyEdits(edCues, edShots, [{ cue: 2, text: 'Man blinks, turns head toward Jack.' }], budgets, [0, 3], 'en', guard).rejected[0]!.reason).toMatch(/^name not revealed or in no glossary or dialogue: Jack/)
-    const early = [cue(0, 10_000, 'Man blinks, turns head.')]
-    expect(applyEdits(early, edShots.slice(2).map((s) => ({ ...s, index: 0 })), [{ cue: 0, text: 'Emo blinks, turns head.' }], [20], [0, 1], 'en', guard).rejected[0]!.reason).toBe('name not revealed or in no glossary or dialogue: Emo')
+    const edit = (i: number, text: string) => applyEdits(edCues, edShots, [{ cue: i, text }], budgets, [0, 3], 'en', guard)
+    expect(edit(2, 'Emo blinks, turns his head.').rejected).toEqual([{ i: 2, text: 'Emo blinks, turns his head.', reason: 'not in any shot description: his' }]) // "his" is still a fact to trace
+    expect(edit(2, 'Emo blinks, turns head.').applied).toHaveLength(1) // shot 2 shows the thin young man
+    expect(edit(2, 'The thin young man in a pale green shirt blinks, turns head.').applied).toHaveLength(1) // his look: shot 2 shows him
+    expect(edit(1, 'The bald man in the coat stands, then steps forward as the other figure, Emo, crawls.').rejected[0]!.reason).toMatch(/^name not revealed, not shown in its shots/) // shot 1 never shows him by look
+    expect(edit(1, 'The bald man in the coat stands, then steps forward as the thin young man crawls.').rejected[0]!.reason).toMatch(/not in any shot description: thin, young/) // nor his look
+    expect(edit(1, 'Proog stands, then steps forward as the other figure crawls.').rejected[0]!.reason).toMatch(/: Proog$/)
+    expect(edit(2, 'Thin young man blinks, turns head toward Jack.').rejected[0]!.reason).toMatch(/: Jack$/)
+    const early = [cue(0, 10_000, 'Thin young man blinks, turns head.')]
+    expect(applyEdits(early, edShots.slice(2).map((x) => ({ ...x, index: 0 })), [{ cue: 0, text: 'Emo blinks, turns head.' }], [20], [0, 1], 'en', guard).rejected[0]!.reason).toMatch(/: Emo$/)
+    for (const c of ED.characters) expect(edit(2, `Thin young man blinks, turns head, ${c.role.split(' ').slice(-2).join(' ')}.`).applied).toHaveLength(0) // a role is never words in a cue
+  })
+  it('a proper noun a missed shot\'s description says is grounded there (folded into the next cue)', () => {
+    const shots = [sh(0, 0, 3000, 'A man waits.'), sh(1, 3000, 6000, 'Words appear: CAMP. A man walks past the Eiffel Tower.'), sh(2, 6000, 9000, 'A man sits.')]
+    const cues = [cue(0, 100, 'A man waits.'), cue(2, 6100, 'A man sits.')]
+    const g: EditGuard = { glossary: EMPTY_GLOSSARY, spoken: [] }
+    const r = applyEdits(cues, shots, [{ cue: 1, text: 'A man walks past the Eiffel Tower, then sits.' }], [20, 20], [0, 2], 'en', g)
+    expect(r.rejected).toEqual([])
+    expect(applyEdits(cues, shots, [{ cue: 1, text: 'A man walks past the Louvre, then sits.' }], [20, 20], [0, 2], 'en', g).rejected[0]!.reason).toMatch(/: Louvre$/)
+  })
+  it('Tears of Steel probe: on the sniper\'s shot, Thom, the bridge and the sniper\'s look on him are all rejected', () => {
+    const tos = loadGlossary('tears-of-steel-40-100')
+    const shots = fixture<Described[]>('tears-of-steel-40-100.described.json'), fitCues = fixture<FitCue[]>('tears-of-steel-40-100.cues.fit.json')
+    const scenes = finishScenes(fallbackScenes(shots, tos), shots, tos)
+    const g: EditGuard = { glossary: tos, spoken: [], scenes }
+    const i = fitCues.findIndex((c) => c.shotIndex === 11) // "Man in dark jacket aims rifle from balcony."
+    const budgets = fitCues.map(() => 30)
+    const reason = (text: string) => applyEdits(fitCues, shots, [{ cue: i, text }], budgets, [0, fitCues.length], 'en', g).rejected[0]?.reason
+    expect(reason('Thom argues in a dark padded jacket beside the canal bridge.')).toMatch(/^name not revealed, not shown in its shots.*: Thom$/)
+    expect(reason('Thom aims rifle from balcony.')).toMatch(/: Thom$/)
+    expect(reason('Man in dark jacket aims rifle beside the canal bridge.')).toMatch(/not in any shot description:.*canal, bridge/) // another scene's place
+    expect(reason('The man in a dark padded jacket aims a scoped rifle from the balcony.')).toBeUndefined() // the sniper's own look, on his shot
   })
   it('the guard rejects an edit that says the scene\'s place again once a cue has said it', () => {
     const budgets = editBudgets(edCues).map((b) => b + 10)
     const stated = [cue(0, 32_900, 'The white chamber. Two figures lie on platform.'), edCues[1]!, edCues[2]!]
     expect(applyEdits(stated, edShots, [{ cue: 2, text: 'In the white chamber, man blinks, turns head.' }], budgets, [0, 3], 'en', guard).rejected[0]!.reason).toBe('says the scene\'s place again')
   })
-  it('unfaithfulWords: glossary looks and places count as evidence, names only once revealed', () => {
-    const gate = (atMs: number) => ({ glossary: ED, atMs, spoken: guard.spoken })
-    expect(unfaithfulWords('The thin young man blinks.', ['Man blinks.'], gate(10_000))).toEqual([])
-    expect(unfaithfulWords('Emo blinks.', ['Man blinks.'], gate(10_000))).toEqual(['emo'])
-    expect(unfaithfulWords('Emo blinks.', ['Man blinks.'], gate(30_000))).toEqual([])
-    expect(unfaithfulWords('Proog points.', ['Man points.'], gate(50_000))).toEqual(['proog'])
-    expect(unfaithfulWords('The white chamber hums.', ['Man hums.'], gate(50_000))).toEqual([])
+  it('unfaithfulWords: a look only where the shots show that person, a place only in its scene, a name only once revealed, never a role', () => {
+    const gate = (atMs: number, shots: string[] = ['Thin young man blinks.'], extra: string[] = []) => ({ glossary: ED, atMs, spoken: guard.spoken, shots, extra })
+    expect(unfaithfulWords('The thin young man in a pale green shirt blinks.', ['Thin young man blinks.'], gate(10_000))).toEqual([])
+    expect(unfaithfulWords('The man in a pale green shirt blinks.', ['Man blinks.'], gate(10_000, ['Man blinks.']))).toEqual(['pale', 'green', 'shirt']) // no shot shows which man
+    expect(unfaithfulWords('Emo blinks.', ['Thin young man blinks.'], gate(10_000))).toEqual(['emo'])
+    expect(unfaithfulWords('Emo blinks.', ['Thin young man blinks.'], gate(30_000))).toEqual([])
+    expect(unfaithfulWords('Proog points.', ['Man points.'], gate(50_000, ['Man points.']))).toEqual(['proog'])
+    expect(unfaithfulWords('The white chamber hums.', ['Man hums.'], gate(50_000, ['Man hums.']))).toEqual(['white', 'chamber']) // no scene given
+    expect(unfaithfulWords('The white chamber hums.', ['Man hums.'], gate(50_000, ['Man hums.'], ['the white chamber']))).toEqual([])
+    expect(unfaithfulWords('The thin young man, leading, blinks.', ['Thin young man blinks.'], gate(30_000))).toEqual(['leading']) // a role word
     expect(unfaithfulWords('The thin young man blinks.', ['Man blinks.'])).toEqual(['thin', 'young']) // without a gate, as before
   })
   it('grounding pass: a glossary name used before it is revealed becomes the look; every cue records its evidence', async () => {
-    const early = [cue(0, 10_000, 'Proog stands on the platform.'), cue(1, 30_000, 'Emo crawls on the platform.')]
-    const shots = [sh(0, 9000, 12_000, 'Proog stands on the platform.'), sh(1, 29_000, 32_000, 'Emo crawls on the platform.')]
-    const scenes: Scene[] = [{ ...edScenes[0]!, shots: [0, 1], startMs: 9000, endMs: 32_000 }]
+    const early = [cue(0, 10_000, 'Proog stands on the platform.'), cue(1, 30_000, 'The thin young man, Emo, crawls on the platform.'), cue(2, 40_000, 'Emo stands on the platform.')]
+    const shots = [sh(0, 9000, 12_000, 'Proog stands on the platform.'), sh(1, 29_000, 32_000, 'The thin young man, Emo, crawls on the platform.'), sh(2, 39_000, 42_000, 'Emo stands on the platform.')]
+    const scenes: Scene[] = [{ ...edScenes[0]!, shots: [0, 1, 2], startMs: 9000, endMs: 42_000 }]
     const r = await editScene(early, shots, edWords, 'en', toolReply([]), undefined, noShorten, { scenes, glossary: ED })
-    expect(r.cues.map((c) => c.text)).toEqual(['The bald old man stands on the platform.', 'Emo crawls on the platform.'])
-    expect(r.applied).toEqual([{ i: 0, from: 'Proog stands on the platform.', to: 'The bald old man stands on the platform.', by: 'name' }])
-    expect(r.evidence).toEqual([
-      { i: 0, names: [], setting: { scene: 0, words: [{ word: 'platform', source: 'description', shot: 0 }] } },
-      { i: 1, names: [{ name: 'Emo', source: 'glossary', revealedAtS: 25.1, evidence: expect.stringContaining('c3') }], setting: { scene: 0, words: [{ word: 'platform', source: 'description', shot: 0 }] } },
-    ])
+    // Proog: not revealed; Emo at 40 s: revealed, but nothing in shot 2 shows which figure he is (binding) — both become the short reference
+    expect(r.cues.map((c) => c.text)).toEqual(['The bald old man stands on the platform.', 'The thin young man, Emo, crawls on the platform.', 'The thin young man stands on the platform.'])
+    expect(r.applied).toEqual([{ i: 0, from: 'Proog stands on the platform.', to: 'The bald old man stands on the platform.', by: 'name' }, { i: 2, from: 'Emo stands on the platform.', to: 'The thin young man stands on the platform.', by: 'name' }])
+    expect(r.evidence[1]).toEqual({ i: 1, names: [{ name: 'Emo', source: 'glossary', revealedAtS: 25.1, evidence: expect.stringContaining('c3') }], setting: { scene: 0, words: [{ word: 'platform', source: 'description', shot: 0 }] } })
     expect(cueEvidence(0, cue(0, 40_000, 'A man named Jack waits.'), shots, guard)).toMatchObject({ unbacked: ['Jack'] })
   })
   it('without scenes or a glossary the request carries no scene, people or mayName, and no rules 8–10', () => {

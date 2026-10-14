@@ -23,7 +23,8 @@ pnpm eval-context --slug sintel-90-150-r2 --before ../../docs/eval/published-cue
 - **Invented names**: a capitalised word that is not the first of a sentence, not on-screen text, and backed by no glossary name or
   dialogue name. **Names before revealedAtS**: a glossary name voiced before its `revealedAtS` and before the dialogue says it.
 - **Descriptors per character**: person or animal noun phrases (up to three words before the noun, and an "in …" phrase after it),
-  given to the character of that kind whose look shares the most words; a name counts as one descriptor. Plural phrases ("two
+  given to the character of that kind whose look shares the most words (ties broken by the words of its clause: "man in dark jacket
+  aims rifle" is the man with the rifle); a name counts as one descriptor. The pipeline's name binding uses the same matching. Plural phrases ("two
   figures") are skipped. A phrase that fits no character, or two equally, is listed as **unassigned** — "figure" and "man" in a title
   with two men cannot be told apart, which is itself the inconsistency being measured. Heuristic: Tears of Steel's "woman" (the
   55.7 s rifle shot) is counted for Celia, the only woman listed, though it is probably someone else.
@@ -40,13 +41,13 @@ pnpm eval-context --slug sintel-90-150-r2 --before ../../docs/eval/published-cue
 |---|---|---|---|---|---|
 | sintel-90-150-r2 | 0 / 0 | Sintel 3 (lone figure / figure / red-haired girl), Shaman 2 (bearded man / old man) | 1 of 2 (the tent: no) | 0 of 1 | 0 |
 | big-buck-bunny-0-60 | 0 / 0 | rabbit 1 (+ "dark figure", "figure" unassigned), bird 1 | 0 of 2 (sky, then a mossy mound) | 0 of 1 | 0 |
-| elephants-dream-0-60 | 0 / 0 | Proog 2 (bald man in coat / bald man), Emo 0 (+ "figure", "man" unassigned) | 1 of 1 (two scenes have no cue) | 1 of 2 | 0 |
+| elephants-dream-0-60 | 0 / 0 | Proog 2 (bald man in coat / bald man), Emo 0 (+ "figure", "man" unassigned) | 1 of 1 (the title cards have no description cue) | 1 of 1 | 0 |
 | caminandes-35-95 | 0 / 0 | Koro 3 (tan llama / brown llama / llama) + "orange fox", "fox" (the same llama) | 1 of 2 | 1 of 1 ("Night.") | 3 |
-| tears-of-steel-40-100 | 0 / 0 | Thom 0, Celia 1, man in glasses 1 (+ "man in dark jacket", "man", "figure" unassigned) | 3 of 4 (the lab: no) | 2 of 3 | 0 |
-| **All five** | **0 / 0** | | **6 of 11 scenes with a cue (55 %)** | **4 of 8 (50 %)** | **3** |
+| tears-of-steel-40-100 | 0 / 0 | Thom 0, Celia 1, man in glasses 1, the sniper 1 ("man in dark jacket" — the bridge's "man in a dark jacket" is Thom's descriptor too, left unassigned) (+ "man", "figure" unassigned) | 3 of 4 (the lab: no) | 2 of 3 | 0 |
+| **All five** | **0 / 0** | | **6 of 11 scenes with a cue (55 %)** | **4 of 7 (57 %)** | **3** |
 
-No names are voiced at all (0 grounded names: Emo after 25.1 s and Thom / Celia were all knowable). Targets (decision 0012): 0 / 0
-names (hard gate), Emo, Thom and Celia voiced; one descriptor (+ name) per character; ≥ 90 % of scenes stating their place in the
+No names are voiced at all (0 grounded names, though Emo after 25.1 s and Thom after 2.2 s were said inside their segments). Targets
+(decision 0012): 0 / 0 names (hard gate), Emo and Thom voiced on shots that show them; one descriptor (+ name) per character; ≥ 90 % of scenes stating their place in the
 first cue; every change of place or time signalled; 0 repeats.
 
 ## Script output
@@ -97,10 +98,10 @@ Scenes (annotated): 0 s the meadow — 5 cue(s), first states place: false, repe
 | Descriptors: Emo | 0 |
 | Unassigned person phrases | figure / man |
 | Scenes whose first cue states the place | 1 of 1 |
-| Scene / time changes signalled | 1 of 2 |
+| Scene / time changes signalled | 1 of 1 |
 | Setting repeated within a scene | 0 |
 
-Scenes (annotated): 0 s the tiled wall — 0 cue(s), first states place: no cue, repeats: 0; 11 s the dark tunnels — 0 cue(s), first states place: no cue, change signalled: false, repeats: 0; 32.9 s the white chamber — 5 cue(s), first states place: true, change signalled: true, repeats: 0
+Scenes (annotated): 0 s the tiled wall — 0 cue(s), first states place: no cue, repeats: 0; 27 s the white chamber — 5 cue(s), first states place: true, change signalled: true, repeats: 0
 
 ### caminandes-35-95
 
@@ -129,7 +130,7 @@ Scenes (annotated): 0 s the high plain — 12 cue(s), first states place: true, 
 | Descriptors: Thom | 0 |
 | Descriptors: Celia | 1: woman |
 | Descriptors: the man in glasses | 1: man in glasses |
-| Descriptors: the sniper | 0 |
+| Descriptors: the sniper | 1: man in dark jacket |
 | Unassigned person phrases | man in dark jacket / man / figure |
 | Scenes whose first cue states the place | 3 of 4 |
 | Scene / time changes signalled | 2 of 3 |

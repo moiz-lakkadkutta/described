@@ -108,6 +108,7 @@ describe('one source sentence per clause (DESC-029)', () => {
     expect(readsAsSentences('Dark room. Fire burns.', 'Room burns.')).toMatch(/^joins two sentences/)
     expect(readsAsSentences('Snowy mountains. A lone figure walks left, carrying a spear.', 'Mountains walk left.')).toMatch(/^joins two sentences/)
     expect(readsAsSentences('Bearded man holds ornate staff. Red-haired woman watches.', 'Bearded man watches.')).toMatch(/^joins two sentences/)
+    expect(readsAsSentences('Old man sits. A woman enters. He holds a staff.', 'Old man holds a staff.')).toMatch(/^joins two sentences/) // the pronoun sentence is not the next one
     expect(readsAsSentences('Ein Zelt. Feuer brennt.', 'Zelt brennt.', 'de')).toMatch(/^joins two sentences/) // language-independent
   })
   it('accepts whole sentences kept or dropped, words dropped inside one sentence, and two sentences joined by "and"', () => {
@@ -117,6 +118,7 @@ describe('one source sentence per clause (DESC-029)', () => {
       ['Bearded man holds ornate staff. Red-haired woman watches.', 'Bearded man holds staff.'],
       ['Red-haired woman stares intently forward.', 'Red-haired woman stares forward.'], ['A figure walks, falls. Logo fades.', 'A figure walks, falls.'],
       ['Girl runs. Dragon follows.', 'The girl runs and the dragon follows.'],
+      ['Old man sits. He holds a staff.', 'Old man holds a staff.'], // a pronoun subject refers back: the join keeps the fact
     ]) expect(readsAsSentences(o!, s!), s).toBeUndefined()
   })
   it('safeShorten: "Tent glows." falls back to the deterministic shortening', async () => {

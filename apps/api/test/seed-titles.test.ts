@@ -26,17 +26,18 @@ describe('prisma/titles.json (the catalogue, DESC-010)', () => {
       for (const c of t.characters) {
         expect(c.nameEvidence.length, c.name).toBeGreaterThan(10)
         if (c.revealedAtS !== null) expect(c.nameEvidence, c.name).toMatch(/\d/) // a time or a caption number
+        if (c.revealedAtS !== null) expect(c.revealedAtS, c.name).toBeGreaterThanOrEqual(0) // revealed inside the segment only (0012)
         expect(c.look, c.name).not.toContain(c.name) // the look is how to refer to them before the name
       }
       for (const s of t.settings) if (s.firstAtS !== undefined) { expect(s.firstAtS).toBeGreaterThanOrEqual(0); expect(s.firstAtS).toBeLessThan(60) }
     }
     const named = (slug: string) => Object.fromEntries(titles.find((t) => t.slug === slug)!.characters.map((c) => [c.name, c.revealedAtS]))
     expect(named('elephants-dream-0-60')).toEqual({ Proog: null, Emo: 25.1 }) // "Emo," at 25.07 s; Proog never said in the segment
-    expect(named('tears-of-steel-40-100')).toMatchObject({ Thom: -17, Celia: -15 }) // named before the segment starts (film 0:23, 0:25)
-    expect(named('sintel-90-150-r2').Sintel).toBe(367) // film 7:37, after the segment
+    expect(named('tears-of-steel-40-100')).toMatchObject({ Thom: 2.2, Celia: null }) // "Whatever, Thom." inside the segment; Celia only before it starts
+    expect(named('sintel-90-150-r2').Sintel).toBeNull() // film 7:37, after the segment
   })
   it('rejects a malformed character (no evidence, a revealedAtS that is not a number or null)', () => {
-    const c = { name: 'Emo', look: 'a thin young man', role: 'the young man', revealedAtS: 25.1, nameEvidence: 'Caption c3 "Emo," 25.07 s' }
+    const c = { name: 'Emo', look: 'a thin young man', short: 'the thin young man', role: 'the young man', revealedAtS: 25.1, nameEvidence: 'Caption c3 "Emo," 25.07 s' }
     expect(TitleSeed.parse({ ...sintel, characters: [c] }).characters).toEqual([c])
     expect(() => TitleSeed.parse({ ...sintel, characters: [{ ...c, nameEvidence: '' }] })).toThrow()
     expect(() => TitleSeed.parse({ ...sintel, characters: [{ ...c, revealedAtS: undefined }] })).toThrow()

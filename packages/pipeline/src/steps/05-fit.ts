@@ -7,7 +7,7 @@ import { eventSpaced, newWords, plotEvents } from '../plotEvent'
 import { midPhrase, readsAsSentences } from '../sentenceGuard'
 import { EMPTY_GLOSSARY, glossaryFor, type Glossary } from '../glossary'
 import { sceneLine, sceneStems, settingLead, statesPlace } from '../sceneSetting'
-import { readScenes, sceneOf, type Scene } from './04c-scenes'
+import { freshScenes, sceneOf, type Scene } from './04c-scenes'
 
 /**
  * endMs: fit's estimate (estimateClipMs: words / WPS + CLIP_OVERHEAD_MS) until 06-voice measures the Polly clip and rewrites it as startMs + clip duration (DESC-013).
@@ -137,35 +137,41 @@ export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, max
       if (capped) events.push({ cue: { ...pause(), ...capped, event: true }, verbs: verbs.length, fresh: newWords(s.description, previous) })
     }
     const all = [...out, ...capEvents(events)]
-    return [...all, ...(opts.scenes && opts.scenePauses !== false ? scenePauses(opts.scenes, all, glossary) : [])].sort(byStart)
+    return (opts.scenes && opts.scenePauses !== false ? scenePauses(opts.scenes, all, glossary) : all).sort(byStart)
   }
   return work()
 }
 
 /** fit's scene inputs (DESC-029): the scene step's scenes (04c-scenes, scenes.json) and the title's glossary; scenePauses: false skips the scene pauses. */
 export interface FitOptions { scenes?: readonly Scene[]; glossary?: Glossary; scenePauses?: boolean }
-/** Scene pauses are at least this far apart (one per scene change at most; Extended mode only, so the plain AD track is unchanged). */
-export const SCENE_PAUSE_SPACING_MS = 20_000
+/** Scene pauses are at least this far apart: at most one per title-minute (Extended mode only, so the plain AD track is unchanged). */
+export const SCENE_PAUSE_SPACING_MS = 60_000
 /**
  * Extended mode only (DESC-029, amends 0007): a scene where no cue says where we are gets one short pause with its place ("The white
  * chamber.", "Back in the tent."), at the scene's start but never inside an earlier shot's placed cue, at most one per
  * SCENE_PAUSE_SPACING_MS, and only while the scene is still on screen. Its words are the scene's grounded label (04c-scenes).
+ * One pause, not two: when an event or other pause of the scene already starts there, the place is said first in that pause (when it
+ * stays within EXTENDED_WORDS) instead of a pause of its own; a scene pause on the same start as another pause sorts first (byStart).
+ * Returns `cues` with the pauses added or merged.
  */
 export function scenePauses(scenes: readonly Scene[], cues: readonly FitCue[], g: Glossary): FitCue[] {
-  const added: FitCue[] = []
+  const out = cues.map((c) => ({ ...c }))
   let last = -Infinity
   for (const sc of scenes) {
     const line = sceneLine(sc)
     if (!line) continue
     const stems = sceneStems(sc, g)
-    if (cues.some((c) => sc.shots.includes(c.shotIndex) && statesPlace(c.text, stems))) continue
-    const startMs = Math.max(sc.startMs, ...cues.filter((x) => !x.extended && x.shotIndex < sc.shots[0]!).map((x) => x.endMs))
+    if (out.some((c) => sc.shots.includes(c.shotIndex) && statesPlace(c.text, stems))) continue
+    const startMs = Math.max(sc.startMs, ...out.filter((x) => !x.extended && x.shotIndex < sc.shots[0]!).map((x) => x.endMs))
     if (startMs >= sc.endMs || startMs - last < SCENE_PAUSE_SPACING_MS) continue
     last = startMs
-    added.push({ startMs, endMs: startMs + 100, text: line, extended: true, wordCount: words(line), shotIndex: sc.shots[0]!, scene: true })
+    const same = out.find((c) => c.extended && !textOnly(c) && c.startMs === startMs && sc.shots.includes(c.shotIndex))
+    if (same && words(same.text) + words(line) <= EXTENDED_WORDS) { same.text = `${line} ${same.text}`; same.wordCount = words(same.text); same.scene = true; continue }
+    out.push({ startMs, endMs: startMs + 100, text: line, extended: true, wordCount: words(line), shotIndex: sc.shots[0]!, scene: true })
   }
-  return added
+  return out
 }
+const textOnly = (c: FitCue) => textClauses(c.text)?.rest === ''
 
 /** A shot fit could not place whose description carries a new plot event: the extended cue it would become, and how much is new in it. */
 export interface EventCandidate { cue: FitCue; verbs: number; fresh: number }
@@ -191,9 +197,9 @@ export function leadText(actionStart: number, earliest: number, fits: (laterStar
   const textStart = Math.min(earliest, actionStart), later = textStart + TEXT_LEAD_MS
   return { textStart, actionStart: later > actionStart && fits(later) ? later : actionStart }
 }
-/** Cue order: by start; on one start, an on-screen text cue first, then other extended cues, then placed ones. */
+/** Cue order: by start; on one start, an on-screen text cue first, then a scene pause (the place before what happens there), then other extended cues, then placed ones. */
 export const byStart = (a: FitCue, b: FitCue) => a.startMs - b.startMs || rank(a) - rank(b)
-const rank = (c: FitCue) => (!c.extended ? 2 : textClauses(c.text)?.rest === '' ? 0 : 1)
+const rank = (c: FitCue) => (!c.extended ? 3 : textClauses(c.text)?.rest === '' ? 0 : c.scene && !c.event ? 1 : 2)
 const words = (t: string) => t.trim().split(/\s+/).filter(Boolean).length
 const extended = (s: Described): FitCue => ({ startMs: s.startMs, endMs: s.startMs + 100, text: s.description, extended: true, wordCount: words(s.description), shotIndex: s.index })
 /** Extended cues pause the film, so they keep the 25-word budget (PLAN §4.2); longer text is shortened like any other. */
@@ -396,7 +402,7 @@ export async function fitDescriptions(ctx: Ctx) {
   const shots = JSON.parse(await readFile(`${ctx.work}/described.json`, 'utf8')) as Described[]
   const gaps = JSON.parse(await readFile(`${ctx.work}/gaps.json`, 'utf8')) as Gap[]
   const { shortenWithNovaLite } = await import('../prompts')
-  const scenes = await readScenes(ctx.work) // DESC-029: absent in a work dir from before the scene step; fit then works as before
+  const scenes = await freshScenes(ctx) // DESC-029: groups scenes first when scenes.json is missing or stale (`--from fit`), as the worker does
   const cues = await fit(shots, gaps, (t, n) => safeShorten(t, n, (t, n) => shortenWithNovaLite(t, n, ctx.language), ctx.language), ctx.language, { scenes, glossary: glossaryFor(ctx) })
   const json = JSON.stringify(cues, null, 2)
   await writeFile(`${ctx.work}/cues.json`, json)

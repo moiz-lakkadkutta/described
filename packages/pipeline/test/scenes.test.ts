@@ -3,11 +3,12 @@ import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ConverseCommandInput } from '@aws-sdk/client-bedrock-runtime'
-import { checkScenes, fallbackScenes, groupScenes, groundLabel, readScenes, replyGroups, sceneGroups, sceneOf, type Group } from '../src/steps/04c-scenes'
+import { checkScenes, fallbackScenes, freshScenes, groupScenes, groundLabel, readScenes, replyGroups, sceneGroups, sceneOf, type Group } from '../src/steps/04c-scenes'
 import { scenesRequest, SCENES_TOOL_SCHEMA } from '../src/scenePrompt'
 import { EMPTY_GLOSSARY, loadGlossary } from '../src/glossary'
 import type { EditConverse } from '../src/prompts'
 import type { Described } from '../src/steps/04-describe'
+import type { Ctx } from '../src/steps'
 
 const fixture = (f: string) => JSON.parse(readFileSync(new URL(`./fixtures/${f}`, import.meta.url), 'utf8')) as Described[]
 const sintel = fixture('sintel-90-150-r2.described.json'), tos = fixture('tears-of-steel-40-100.described.json')
@@ -89,6 +90,19 @@ describe('scene grouping (DESC-029, 04c-scenes)', () => {
     const text = (req.messages?.[0]?.content?.[0] as { text: string }).text
     expect(text).toContain('"places":[{"name":"the snowy mountains"')
     expect(req.system?.[0]).toMatchObject({ text: expect.stringContaining('taken only from the descriptions of that scene\'s shots or from the names of the listed places') })
+  })
+  it('freshScenes (fit, `--from fit`): groups scenes when scenes.json is missing or was grouped from another described.json', async () => {
+    const work = await mkdtemp(join(tmpdir(), 'scenes-fresh-'))
+    await writeFile(`${work}/described.json`, JSON.stringify(sintel))
+    const ctx = { slug: 'sintel-90-150-r2', source: '', language: 'en' as const, voice: 'Joanna', work, glossary: gSintel }
+    let runs = 0
+    const group = async (c: Ctx) => { runs++; await groupScenes(c, fails) }
+    expect((await freshScenes(ctx, group))!.map(span)).toEqual(['0–1', '2–14'])
+    await freshScenes(ctx, group)
+    expect(runs).toBe(1) // fresh: reused
+    await writeFile(`${work}/described.json`, JSON.stringify(sintel.slice(0, 2))) // describe re-ran
+    expect((await freshScenes(ctx, group))!.map(span)).toEqual(['0–1'])
+    expect(runs).toBe(2)
   })
   it('groupScenes writes scenes.json and readScenes reads it back', async () => {
     const work = await mkdtemp(join(tmpdir(), 'scenes-work-'))
