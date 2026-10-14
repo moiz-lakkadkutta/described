@@ -40,8 +40,19 @@ tense; a missed verb only makes check 3 more lenient.
 **Extended cues.** `capExtended` (fit and 06-voice) uses a shortening or its cut to 25 words only when it passes the same checks; when
 neither does, there is no extended cue (dropped). A text within 25 words is unchanged.
 
-**Sweep** (PR review): every recorded description's deterministic shortenings (96 descriptions, 123 shortenings). The first version of
-check 3 rejected 22; this one rejects 6, each a bare subject ("The woman with red hair.", "A scaled creature with horns.", "A dark.").
+**Mid-phrase cuts** (round-2 review). `shortenDeterministic` cut clauses at every comma, including the one between stacked
+adjectives, so a cut could end "…bowl; a pale.", "…revealing a faint.", "…toward a wounded.", "…in sunlit.". Now a clause piece that
+ends on article/possessive/preposition + one word + comma, where that word is a listed adjective or -ed word or the next word is
+another modifier (hyphenated or adjective-like), is joined to the next piece (`midPhrase`, shared). In English, `readsAsSentences`
+also rejects a sentence that ends on an article, possessive or preposition, or mid-phrase in the same sense. "Snow falls on the
+hills." (before ", drifting") and "…walks left across snow." (before ", mountains loom") are not mid-phrase. When the shortener drops
+a word between "a"/"an" and the next word, the article follows the new word ("An old bearded man" → "A bearded man").
+
+**Sweep** (every recorded description's deterministic shortenings, 96 descriptions). The first version of check 3 rejected 22 of 123;
+the fail-open version 6. After the mid-phrase change the shortener no longer produces the 8 mid-phrase cuts (114 shortenings), and 5
+are rejected, each a bare subject ("The woman with red hair.", "A woman with red hair.", "A scaled creature with horns.").
+
+Known gap: "Tent glows." (Nova Lite, from "Tent interior. Fire glows.") passes, though it gives the tent the fire's verb; a follow-up.
 
 ## Replay (recorded fit inputs, no AWS call)
 

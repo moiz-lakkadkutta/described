@@ -167,6 +167,45 @@ describe('extended cues (capExtended)', () => {
 })
 describe('sweep finds (PR #52 review re-run)', () => {
   it('a comma between leading adjectives does not end a clause: "A dark." is only a subject', () => {
-    expect(readsAsSentences('A dark, complex airship floats over a misty city, viewed through a circular window, its lights glowing faintly.', 'A dark.')).toBe('no verb')
+    expect(readsAsSentences('A dark, complex airship floats over a misty city, viewed through a circular window, its lights glowing faintly.', 'A dark.')).toBe('ends mid-phrase: "dark"')
+  })
+})
+
+// PR #52 round-2 review: the clause cut split stacked adjectives ("a pale, veiled face") and left a sentence ending mid-noun-phrase
+describe('cuts that end mid-phrase', () => {
+  const TERRACOTTA = 'Two hands hold a terracotta bowl; a pale, veiled face slowly rises within the milky liquid, eyes opening.'
+  const REDDISH = 'Two hands hold a reddish-brown bowl; a pale, veiled face slowly rises within its milky liquid.'
+  const FAINT = 'Two hands hold a red bowl; mist swirls inside, revealing a faint, shifting face beneath the surface.'
+  const WOUNDED = 'A hand reaches toward a wounded, scaly creature on stone steps.'
+  const SUNLIT = 'Red-haired woman in brown clothes lifts wooden plank in sunlit, rubble-strewn alley between stone buildings.'
+  const SUNLIT2 = 'A woman with red hair lifts a wooden plank in a sunlit, rubble-strewn alley between stone buildings.'
+  const DIM = 'Two glowing wireframe figures, one orange, one blue, clash in a dim, debris-filled industrial space.'
+  it('the deterministic shortener never cuts between stacked adjectives', () => {
+    for (const n of [6, 7, 8, 9, 10]) expect(shortenDeterministic(TERRACOTTA, n), String(n)).toBe('Two hands hold a terracotta bowl.')
+    for (const n of [6, 7, 8]) expect(shortenDeterministic(REDDISH, n)).toBe('Two hands hold a reddish-brown bowl.')
+    expect(shortenDeterministic(FAINT, 10)).toBe('Two hands hold a red bowl; mist swirls inside.')
+    for (const t of [TERRACOTTA, REDDISH, FAINT, WOUNDED, SUNLIT, SUNLIT2, DIM]) for (let n = 3; n < 20; n++) {
+      expect(shortenDeterministic(t, n), `${t} @${n}`).not.toMatch(/\b(a|an|the|in|toward|revealing a) (pale|faint|dim|sunlit|wounded)\.$/)
+    }
+  })
+  it('readsAsSentences rejects a sentence that ends mid-phrase', () => {
+    expect(readsAsSentences(TERRACOTTA, 'Two hands hold a terracotta bowl; a pale.')).toBe('ends mid-phrase: "pale"')
+    expect(readsAsSentences(FAINT, 'Two hands hold a red bowl; mist swirls inside, revealing a faint.')).toBe('ends mid-phrase: "faint"')
+    expect(readsAsSentences(WOUNDED, 'A hand reaches toward a wounded.')).toBe('ends mid-phrase: "wounded"')
+    expect(readsAsSentences(SUNLIT, 'Red-haired woman in brown clothes lifts plank in sunlit.')).toBe('ends mid-phrase: "sunlit"')
+    expect(readsAsSentences(SUNLIT2, 'A woman with red hair lifts a plank in a sunlit.')).toBe('ends mid-phrase: "sunlit"')
+    expect(readsAsSentences(DIM, 'Two glowing wireframe figures clash in a dim.')).toBe('ends mid-phrase: "dim"')
+    expect(readsAsSentences(WOUNDED, 'A hand reaches toward a.')).toBe('ends mid-phrase: "a"')
+  })
+  it('a noun before a comma is not mid-phrase', () => {
+    expect(readsAsSentences('Snow falls on the hills, drifting past the cabin.', 'Snow falls on the hills.')).toBeUndefined()
+    expect(readsAsSentences('A man walks past the bakery, the closed bank and the cinema.', 'A man walks past the bakery.')).toBeUndefined()
+    expect(readsAsSentences(TERRACOTTA, 'Two hands hold a terracotta bowl.')).toBeUndefined()
+    expect(readsAsSentences('Words appear: SINTEL. A lone figure walks left across snow, mountains loom behind.'.slice(22), 'A lone figure walks left across snow.')).toBeUndefined() // sintel-90-210 A2 shot 0
+    expect(readsAsSentences('She hands the cup to her.', 'She hands the cup to her.')).toBeUndefined()
+  })
+  it('"a" / "an" follow the next word after a word is dropped', () => {
+    expect(shortenDeterministic('An old bearded man leans on a large oak staff.', 7)).toBe('A bearded man leans on an oak staff.')
+    expect(shortenDeterministic('An owl lands on a branch.', 5)).toBe('An owl lands on a branch.') // nothing dropped: untouched
   })
 })

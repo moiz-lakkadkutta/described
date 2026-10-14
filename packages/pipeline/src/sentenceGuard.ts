@@ -21,7 +21,32 @@ export function readsAsSentences(original: string, shortened: string, language: 
   const orig = words(original)
   const aligned = align(orig, words(shortened))
   for (const a of aligned) if (/[,;]\W*$/.test(a.raw) && (a.at < 0 || !/[,;:]\W*$/.test(orig[a.at]!.raw))) return `new list comma after "${a.bare}"`
-  return language === 'de' ? undefined : onlySubjects(shortened, [original])
+  if (language === 'de') return undefined
+  return endsMidPhrase(orig, aligned) ?? onlySubjects(shortened, [original])
+}
+
+/** Articles, possessives and prepositions a sentence cannot end on ("…toward a."); not "her" ("hands the cup to her."). */
+const END_BAD = new Set(['a', 'an', 'the', 'his', 'its', 'their', 'my', 'your', 'our', 'with', 'of', 'in', 'on', 'at', 'by', 'for', 'from', 'into', 'onto', 'toward', 'towards', 'beneath', 'between', 'among', 'under', 'upon', 'within', 'like', 'beside'])
+/**
+ * A clause cut between stacked adjectives (PR #52 round-2 review): `word` came right after an article, possessive or preposition and
+ * before a comma, and is a listed adjective or -ed word, or the next word is another modifier (hyphenated or adjective-like, not -ing)
+ * — "a pale, veiled face", "in sunlit, rubble-strewn alley", "toward a wounded, scaly creature"; not "on the hills, drifting", "past
+ * the bakery, the closed bank", "across snow, mountains loom". Bare words; `word` without its comma. Shared with 05-fit's clause cut.
+ */
+export function midPhrase(prev: string, word: string, next: string): boolean {
+  if (!NOUN_BEFORE.has(prev)) return false
+  if (ADJECTIVES.has(word) || /ed$/.test(word)) return true
+  return /^\p{Ll}[\p{Ll}-]*$/u.test(next) && !/ing$/.test(next) && (next.includes('-') || adjectiveLike(next))
+}
+/** Check 2b (English): a sentence of the shortening ends on an article / possessive / preposition, or mid-phrase (midPhrase). */
+function endsMidPhrase(orig: readonly Word[], aligned: ReadonlyArray<Word & { at: number }>): string | undefined {
+  for (const s of sentencesOf(aligned)) {
+    const last = s.at(-1)!
+    if (END_BAD.has(last.bare)) return `ends mid-phrase: "${last.bare}"`
+    const j = last.at
+    if (j > 0 && /,\W*$/.test(orig[j]!.raw) && midPhrase(orig[j - 1]!.bare, orig[j]!.bare, orig[j + 1]?.bare ?? '')) return `ends mid-phrase: "${last.bare}"`
+  }
+  return undefined
 }
 
 /**

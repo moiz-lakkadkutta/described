@@ -28,7 +28,7 @@ export const FIT_CUES_FILE = 'cues.fit.json'
  * not an on-screen text cue, the on-screen text clauses of the original kept verbatim and in order (none added), no content word
  * outside the shot descriptions between the previous action cue and this cue's shot plus the two cues' own text (faithful), no fact
  * of the original lost unless the previous cue said it (keeps facts), still sentences (../sentenceGuard editReadsAsSentences: no
- * noun list, a verb kept — DESC-028), and within the cue's budget — checked last, so an over-budget
+ * noun list, not only a subject — DESC-028), and within the cue's budget — checked last, so an over-budget
  * edit that would fail anyway costs no shortening call. An unreadable reply, or a failed call, keeps every original cue (the step is
  * an improvement, never a dependency).
  * Reads cues.fit.json (cues.json when an older work dir has none), writes cues.json (same length and order) and edit.json (what

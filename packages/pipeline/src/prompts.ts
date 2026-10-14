@@ -44,7 +44,7 @@ export function wordBudget(shot: Shot, gaps: Gap[]): number {
 const client = () => new BedrockRuntimeClient({ region: process.env.BEDROCK_REGION ?? 'us-east-1' })
 const LITE = () => process.env.NOVA_LITE_MODEL_ID ?? 'amazon.nova-lite-v1:0'
 
-/** The model half of fit's shortening; fit accepts its reply only through safeShorten (no new content words, still sentences with a verb: DESC-028). */
+/** The model half of fit's shortening; fit accepts its reply only through safeShorten (no new content words, still sentences — not a noun list, not only a subject: DESC-028). */
 export async function shortenWithNovaLite(text: string, maxWords: number, language: 'en' | 'de'): Promise<string> {
   const r = await client().send(new ConverseCommand({ modelId: LITE(), system: [{ text: `Shorten audio description to at most ${maxWords} words. Write one or more complete present-tense sentences, each with its verb; never a list of nouns. Remove adjectives first, then clauses. Keep the most plot-relevant fact. ${language === 'de' ? 'German.' : 'English.'} Reply with the sentences only.` }], messages: [{ role: 'user', content: [{ text }] }], inferenceConfig: { maxTokens: 80, temperature: 0 } }), { abortSignal: meter()?.signal })
   meter()?.bedrock(LITE(), r.usage)

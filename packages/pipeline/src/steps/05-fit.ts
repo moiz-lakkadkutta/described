@@ -4,7 +4,7 @@ import type { Described } from './04-describe'
 import type { Gap } from './03-speech'
 import { clauseText, stripDarkness, textSpans, withoutSpans } from '../textClause'
 import { eventSpaced, newWords, plotEvents } from '../plotEvent'
-import { readsAsSentences } from '../sentenceGuard'
+import { midPhrase, readsAsSentences } from '../sentenceGuard'
 
 /**
  * endMs: fit's estimate (estimateClipMs: words / WPS + CLIP_OVERHEAD_MS) until 06-voice measures the Polly clip and rewrites it as startMs + clip duration (DESC-013).
@@ -83,6 +83,7 @@ export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, max
         if (text === undefined) continue
         const prevEnd = Math.max(s.startMs, ...out.filter((x) => !x.extended && x.endMs <= start).map((x) => x.endMs))
         const { textStart, actionStart } = leadText(start, prevEnd, (later) => words(text) <= wordsThatFit(g.endMs - later))
+        // an on-screen text clause is never cut (≤ MAX_TEXT_WORDS); should capExtended give no cue, the clause is used whole
         out.push({ ...extended(s), ...(await capExtended(c.clause, shorten, language)) ?? { text: c.clause, wordCount: words(c.clause) }, startMs: textStart, endMs: textStart + 100 })
         place(g, actionStart, text)
         placed = true
@@ -261,23 +262,44 @@ export function shortenDeterministic(text: string, maxWords: number): string {
 function shortenPlain(text: string, maxWords: number): string {
   if (words(text) <= maxWords) return text
   const w = text.trim().split(/\s+/)
-  const lean = w.filter((x, i) => {
+  const keep = w.map((x, i) => {
     const prev = (w[i - 1] ?? '').toLowerCase(), next = w[i + 1]
     const opensSentence = i === 0 || /[.!?]$/.test(prev)
     if (next === undefined || !/^\p{L}+$/u.test(x) || KEEP_BEFORE.has(prev) || (/^\p{Lu}/u.test(x) && !opensSentence)) return true
     const bare = x.toLowerCase()
     if (ADVERBS.has(bare)) return false
     return !(ADJECTIVES.has(bare) && !((ARTICLES.has(prev) || opensSentence) && verbOrEnd(next)))
-  }).join(' ').replace(/(^|[.!?]\s+)(\p{Ll})/gu, (_, a: string, c: string) => a + c.toUpperCase()) // "Large white rock." → "White rock."
+  })
+  const idx = w.map((_, i) => i).filter((i) => keep[i])
+  // "a" / "an" for the word now after it, only where a dropped word came between ("An old bearded man" → "A bearded man")
+  const lean = idx.map((i, k) => (idx[k + 1] !== undefined && idx[k + 1] !== i + 1 ? fixArticle(w[i]!, w[idx[k + 1]!]!) : w[i]!)).join(' ').replace(/(^|[.!?]\s+)(\p{Ll})/gu, (_, a: string, c: string) => a + c.toUpperCase()) // "Large white rock." → "White rock."
   if (words(lean) <= maxWords) return lean
-  const clauses = lean.split(CLAUSE)
+  const clauses = joinMidPhrase(lean.split(CLAUSE))
   while (clauses.length > 1 && words(clauses.join(' ')) > maxWords) clauses.pop()
   return clauses.join(' ').replace(/[,;]$/, '').replace(/([^.!?])$/, '$1.')
+}
+const bareWord = (x: string | undefined) => (x ?? '').toLowerCase().replace(/[^\p{L}\p{N}'-]/gu, '')
+/** A clause piece that ends between stacked adjectives ("a pale,") is joined to the next piece, so the cut never ends mid-phrase (midPhrase). */
+function joinMidPhrase(pieces: string[]): string[] {
+  const out = [...pieces]
+  for (let k = 0; k < out.length - 1;) {
+    const ws = out[k]!.split(/\s+/), last = ws.at(-1)!, prev = ws.at(-2) ?? out[k - 1]?.split(/\s+/).at(-1)
+    if (/,$/.test(last) && midPhrase(bareWord(prev), bareWord(last), bareWord(out[k + 1]!.split(/\s+/)[0]))) out.splice(k, 2, `${out[k]} ${out[k + 1]}`)
+    else k++
+  }
+  return out
+}
+/** "a" or "an" as the vowel letter of `next` asks (by spelling: "an hour" is left to the describe step). */
+function fixArticle(x: string, next: string): string {
+  if (!/^(a|an)$/i.test(x)) return x
+  const an = /^[aeiou]/i.test(next)
+  const out = an ? 'an' : 'a'
+  return x[0] === x[0]!.toUpperCase() ? out[0]!.toUpperCase() + out.slice(1) : out
 }
 
 /**
  * The model's shortening is used only when it fits, adds no content word (preservesFacts) and still reads as sentences
- * (../sentenceGuard readsAsSentences: content words in order, no new list comma, a verb kept when the original had one — DESC-028);
+ * (../sentenceGuard readsAsSentences: content words in order, no new list comma, no sentence ending mid-phrase, not only a subject — DESC-028);
  * otherwise the deterministic one, under the same sentence guard; when that fails too, the text comes back unshortened, and fit places
  * it only where it fits whole (else the next gap, an extended cue or a drop, as for any text that does not fit). The model never sees
  * an on-screen text clause: it shortens the rest to the words left beside the clause, which is then put back (DESC-017).
