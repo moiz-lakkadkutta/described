@@ -9,6 +9,7 @@ import type { Gap, Word } from './03-speech'
 import { describeSystemPrompt, wordBudget } from '../prompts'
 import { meter } from '../cost'
 import { sentences, stripDarkness, TEXT_LABEL, textSpans } from '../textClause'
+import { newVerifyReport, verifyModelId, verifyReply, writeVerifyReport, type VerifyReport, type VerifyShotInput } from './04b-verify'
 
 /** `tokens` = Converse input tokens (the Prisma `novaTokens` column); `outputTokens` is kept alongside for the docs/aws.md run log. */
 export interface Described extends Shot { description: string; sameAsPrev: boolean; tokens: number; outputTokens: number; stopReason?: string }
@@ -27,6 +28,8 @@ export const DEFAULT_DESCRIBE_MODEL_ID = 'qwen.qwen3-vl-235b-a22b'
  * replies are cached per shot (cachedDescribe), and the "nothing new" dedupe runs afterwards in time order (dedupe).
  * The exception to "no previous description" (DESC-017): a later part of a split camera shot is sent what its earlier parts said and
  * asked only for what is new (describeInParts, buildDescribeRequest) — it is the same picture, so describing it from scratch repeats.
+ * Each reply is then checked against the same frames by one more call (DESC-027, ./04b-verify.ts, docs/decisions/0010-verify-pass.md;
+ * DESCRIBE_VERIFY=0 turns it off) before dedupe; what it changed or kept is in {work}/verify.json.
  */
 export async function describeShots(ctx: Ctx, send: Converse = bedrockConverse(ctx.signal)) {
   const shots = JSON.parse(await readFile(`${ctx.work}/shots.json`, 'utf8')) as Shot[]
@@ -34,12 +37,20 @@ export async function describeShots(ctx: Ctx, send: Converse = bedrockConverse(c
   const words = JSON.parse(await readFile(`${ctx.work}/words.json`, 'utf8').catch(() => '[]')) as Word[]
   const modelId = process.env.DESCRIBE_MODEL_ID ?? DEFAULT_DESCRIBE_MODEL_ID
   const videoMs = await videoDurationMs(`${ctx.work}/mezz.mp4`)
+  const verified = newVerifyReport(verifyModelId(modelId)) // DESC-027: each reply checked against its own frames (04b-verify)
   const replies = await describeInParts(shots, describeConcurrency(), async (s, said) => {
-    const system = describeSystemPrompt({ maxWords: wordBudget(s, gaps), knownNames: knownNames(words, s.startMs, ctx.language), language: ctx.language })
-    return cachedDescribe(ctx.work, modelId, system, await keyframes(ctx.work, s, videoMs), send, said)
+    const maxWords = wordBudget(s, gaps), names = knownNames(words, s.startMs, ctx.language)
+    const system = describeSystemPrompt({ maxWords, knownNames: names, language: ctx.language })
+    return describeAndVerify(ctx.work, modelId, system, await keyframes(ctx.work, s, videoMs), send, said, verified, { index: s.index, language: ctx.language, maxWords, names })
   }, ctx.signal)
-  console.log(`describe: ${shots.length} shots, ${replies.filter((r) => r.cached).length} from cache`)
+  await writeVerifyReport(ctx.work, verified)
+  console.log(`describe: ${shots.length} shots, ${replies.filter((r) => r.cached).length} from cache; verify: ${verified.enabled ? `${verified.shots.filter((v) => v.changed).length} of ${verified.shots.length} changed, ${verified.shots.filter((v) => !v.applied).length} kept by a guard` : 'off'}`)
   await writeFile(`${ctx.work}/described.json`, JSON.stringify(dedupe(shots, replies), null, 2))
+}
+
+/** One shot's reply: described (cachedDescribe), then checked against the same frames (04b-verify), so `said` for a later part is checked text. */
+export async function describeAndVerify(work: string, modelId: string, system: string, frames: Uint8Array[], send: Converse, said: string | undefined, report: VerifyReport, shot: VerifyShotInput): Promise<RawReply> {
+  return verifyReply(work, frames, await cachedDescribe(work, modelId, system, frames, send, said), send, report, shot)
 }
 
 /** Converse via the SDK, aborted with the job's signal; tests inject their own. */
