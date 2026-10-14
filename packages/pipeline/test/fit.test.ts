@@ -212,6 +212,22 @@ describe('shortening', () => {
     expect(preservesFacts('A woman hands a man a cup.', 'Woman hands him cup.')).toBe(false)
     expect(preservesFacts('A woman lifts a cup.', 'She lifts cup.')).toBe(false)
   })
+  // sintel-90-150-r2 shot 9, published 0:41.6: "Tent interior. Fire glows." became "Tent glows." — every word in order, but the tent now glows
+  // (DESC-029). A sentence of the shortening may take its words from one sentence of the original only.
+  it('rejects a shortening that joins words from two sentences into one ("Tent interior. Fire glows." → "Tent glows.")', () => {
+    expect(preservesFacts('Tent interior. Fire glows.', 'Tent glows.')).toBe(false)
+    expect(preservesFacts('Dark room. Fire burns.', 'Room burns.')).toBe(false)
+    expect(preservesFacts('Snowy mountains. A lone figure walks left, carrying a spear.', 'Mountains walk left.')).toBe(false)
+    expect(preservesFacts('Bearded man holds ornate staff. Red-haired woman watches.', 'Bearded man watches.')).toBe(false)
+    // good shortenings still pass: whole sentences kept or dropped, words dropped inside one sentence
+    expect(preservesFacts('Tent interior. Fire glows.', 'Tent interior.')).toBe(true)
+    expect(preservesFacts('Tent interior. Fire glows.', 'Fire glows.')).toBe(true)
+    expect(preservesFacts('Tent interior. Fire glows.', 'Tent. Fire glows.')).toBe(true)
+    expect(preservesFacts('Snowy mountains. A lone figure walks left, carrying a spear.', 'Mountains. A figure walks left.')).toBe(true)
+    expect(preservesFacts('Bearded man holds ornate staff. Red-haired woman watches.', 'Bearded man holds staff.')).toBe(true)
+    expect(preservesFacts('Red-haired woman stares intently forward.', 'Red-haired woman stares forward.')).toBe(true)
+    expect(preservesFacts('A figure walks, falls. Logo fades.', 'A figure walks, falls.')).toBe(true)
+  })
   it('lets a shortening add only a/an/the/and: no direction words', () => {
     expect(preservesFacts('A girl runs from the dragon.', 'Girl runs to dragon.')).toBe(false)
     expect(preservesFacts('A girl runs from the dragon.', 'Girl runs from dragon.')).toBe(true)

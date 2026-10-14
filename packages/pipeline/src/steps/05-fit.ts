@@ -215,20 +215,39 @@ const NEGATIONS = new Set(['not', 'no', 'never', 'without', 'nobody', 'nothing',
 const tokens = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}\s'-]/gu, ' ').split(/\s+/).filter(Boolean)
 
 /**
+ * tokens() of each word of `t`, each with the index of its sentence (a word ending in . ! ? … closes one) and of its clause (also
+ * closed by , ; : and opened by "and"), so "The girl runs and the dragon follows." is two clauses.
+ */
+const sentenceTokens = (t: string) => {
+  let s = 0, c = 0
+  return t.trim().split(/\s+/).filter(Boolean).flatMap((raw) => {
+    if (/^and$/i.test(raw)) c++
+    const out = tokens(raw).map((w) => ({ w, s, c }))
+    if (/[.!?…]["'”’)\]]*$/.test(raw)) { s++; c++ } else if (/[,;:]$/.test(raw)) c++
+    return out
+  })
+}
+
+/**
  * A shortening keeps the facts when its content words appear in the original in the same order (exact tokens, case-insensitive,
- * punctuation stripped — "wing" → "wings" fails, "dog chases cat" → "cat chases dog" fails), only a/an/the/and are added, and every
- * negation of the original survives.
+ * punctuation stripped — "wing" → "wings" fails, "dog chases cat" → "cat chases dog" fails), only a/an/the/and are added, every
+ * negation of the original survives, and each clause of the shortening takes its words from ONE sentence of the original
+ * (DESC-029; a clause ends at , ; : . ! ? or before "and", so two whole sentences may still be joined with "and"): "Tent interior. Fire glows." → "Tent glows." keeps every word in order, but joins the subject of one sentence to the
+ * verb of another, and the tent now glows (sintel-90-150-r2, published 0:41.6). Whole sentences may still be dropped.
  */
 export function preservesFacts(original: string, shortened: string): boolean {
-  const orig = tokens(original), short = tokens(shortened)
-  if (orig.some((w) => NEGATIONS.has(w) && !short.includes(w))) return false
+  const orig = sentenceTokens(original), short = sentenceTokens(shortened)
+  if (orig.some(({ w }) => NEGATIONS.has(w) && !short.some((x) => x.w === w))) return false
+  const from = new Map<number, Set<number>>() // clause of the shortening → sentences of the original its content words came from
   let i = 0
-  for (const w of short) {
-    const at = orig.indexOf(w, i)
-    if (at >= 0) i = at + 1
-    else if (!STOPWORDS.has(w)) return false
+  for (const { w, c } of short) {
+    const at = orig.findIndex((o, k) => k >= i && o.w === w)
+    if (at >= 0) {
+      i = at + 1
+      if (!STOPWORDS.has(w)) from.set(c, (from.get(c) ?? new Set()).add(orig[at]!.s))
+    } else if (!STOPWORDS.has(w)) return false
   }
-  return true
+  return [...from.values()].every((x) => x.size <= 1)
 }
 
 /** Size, shape, age and texture words dropped first. Colours stay (facts the prompt asks for); so do words that are often nouns or facts (giant, full, empty). */
