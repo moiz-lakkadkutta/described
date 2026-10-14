@@ -49,7 +49,12 @@ export interface Deps { boss: Boss; db: Db; run?: (step: JobStep, ctx: Ctx) => P
 
 /** Every step after fit (edit, voice … publish) in order, with validate between package and publish. A retry re-runs edit from cues.fit.json, so the chain is idempotent. */
 const STEPS_AFTER_FIT = STEPS.slice(STEPS.indexOf('fit') + 1)
-export const runJobStep = async (step: JobStep, ctx: Ctx) => { if (step !== 'finish') return runStep(step, ctx); for (const s of STEPS_AFTER_FIT) await runStep(s, ctx) }
+/** The fit job runs the scene step first (DESC-029, 04c-scenes: text only, cached), so a fit retry re-groups from cache. */
+export const runJobStep = async (step: JobStep, ctx: Ctx) => {
+  if (step === 'fit') { await runStep('scenes', ctx); return runStep('fit', ctx) }
+  if (step !== 'finish') return runStep(step, ctx)
+  for (const s of STEPS_AFTER_FIT) await runStep(s, ctx)
+}
 
 /** Creates (idempotent) and updates the queues, then one worker per step and one for the dead letters. */
 export async function registerPipeline(deps: Deps) {

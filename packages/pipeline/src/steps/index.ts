@@ -2,6 +2,7 @@ import { probe } from './01-probe'
 import { detectShots } from './02-shots'
 import { speechMap } from './03-speech'
 import { describeShots } from './04-describe'
+import { groupScenes } from './04c-scenes'
 import { fitDescriptions } from './05-fit'
 import { editCues } from './05b-edit'
 import { voice } from './06-voice'
@@ -15,14 +16,14 @@ import type { Glossary } from '../glossary'
 
 export interface DescribeInput { slug: string; source: string; language: 'en' | 'de'; voice: string; fromStep?: string }
 /** `edit` (05b-edit.ts, DESC-018) revises fit's cue text with scene context before voice; file numbers stay, so --from names are stable. */
-export const STEPS = ['probe', 'shots', 'speech', 'describe', 'fit', 'edit', 'voice', 'mix', 'text', 'package', 'validate', 'publish'] as const
+export const STEPS = ['probe', 'shots', 'speech', 'describe', 'scenes', 'fit', 'edit', 'voice', 'mix', 'text', 'package', 'validate', 'publish'] as const
 export type Step = typeof STEPS[number]
 /** The slug names the work dir and S3 keys, so it is kept to a path-safe alphabet. */
 export const SLUG_RE = /^[a-z0-9-]{1,64}$/
 export const ctxFor = (input: DescribeInput): Ctx => ({ ...input, work: `work/${input.slug}` })
 
 const RUNNERS: Record<Step, (ctx: Ctx) => Promise<void>> = {
-  probe, shots: detectShots, speech: speechMap, describe: (ctx) => describeShots(ctx), fit: fitDescriptions, edit: (ctx) => editCues(ctx),
+  probe, shots: detectShots, speech: speechMap, describe: (ctx) => describeShots(ctx), scenes: (ctx) => groupScenes(ctx), fit: fitDescriptions, edit: (ctx) => editCues(ctx),
   voice: (ctx) => voice(ctx), mix, text: sdh, package: pack, validate: async (ctx) => { await validateWork(ctx.work) }, publish,
 }
 /** One step, in-process. Each step reads/writes work/{slug}/ and overwrites its own outputs, so re-running it is safe. */
