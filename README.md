@@ -1,6 +1,11 @@
 # Described
 
 **Audio description and rich captions for video that has none — on Fire TV.**
+
+- **Why:** most video has no audio description, so blind and low-vision viewers miss what is on screen between the lines.
+- **What:** press Play and narration is already on; Menu → Audio: Original to hear the difference; Extended mode pauses the film when there's more to say.
+- **For whom:** blind and low-vision viewers, and (with rich captions) deaf and hard-of-hearing viewers. Video: TODO(DESC-012) link · screenshots: [docs/screens](docs/screens/README.md).
+
 Qwen3-VL on Amazon Bedrock describes each shot, Nova Lite fits the words into the gaps between dialogue, Polly speaks them,
 ffmpeg ducks the soundtrack, and the narration arrives through the player's own audio-track selection as a second audio
 rendition. Extended mode pauses the film when there's more to say than the gap allows (WCAG 1.2.7). Description is **on by default**.
@@ -67,16 +72,13 @@ and draws captions with its `CueOverlay`. The AD rendition is just another audio
 
 ## Titles
 
-TODO(DESC-010): the five published titles, filled in when the batch on `claude/desc-010` is merged.
-
-| Title | Year | Length | Licence | Source | Extended cues |
+| Title | Year | Published excerpt | Licence | Slug | Description cues |
 |---|---|---|---|---|---|
-| TODO(DESC-010) | | | | | |
+| Sintel (© Blender Foundation) | 2010 | 1:30–2:30 (60 s) | CC-BY 3.0 | `sintel-90-150-r2` | 9, none extended ([RUN-2026-10](docs/device-checks/RUN-2026-10.md)) |
 
-Development and the device run used Sintel 1:30–2:30 (`sintel-90-150-r2`) and 1:30–3:30 (`sintel-90-210`).
-Sintel © Blender Foundation, CC-BY 3.0.
+More titles land with DESC-010. The Gate C evaluation also used Sintel 1:30–3:30 (`sintel-90-210`, 29 shots).
 
-## Run it locally
+## Run it locally (7 steps)
 
 Needs Node ≥ 22, pnpm 9, ffmpeg, Shaka Packager (`packager`) for the pipeline, Android platform tools (`adb`) for the stick,
 and AWS credentials only for pipeline runs (they are paid; see [docs/aws.md](docs/aws.md)).
@@ -86,7 +88,7 @@ vega-media-kit is linked from a sibling checkout (`link:../vega-media-kit` in `p
    ```sh
    git clone https://github.com/moiz-lakkadkutta/vega-media-kit ../vega-media-kit
    pnpm i
-   cp .env.example .env        # set PORT=4100, ADMIN_TOKEN, and the infra outputs (S3_BUCKET_MEDIA, CLOUDFRONT_DOMAIN, …)
+   cp .env.example .env        # set ADMIN_TOKEN (the /admin routes answer 401 without it) and the infra outputs (S3_BUCKET_MEDIA, CLOUDFRONT_DOMAIN, …)
    ```
    Nothing loads `.env` by itself: run `set -a; source .env; set +a` in every terminal you use.
 2. **Postgres.** `pnpm db:up` (Docker, Postgres 16, `docker-compose.yml`), or a local cluster when Docker is not available:
@@ -97,8 +99,8 @@ vega-media-kit is linked from a sibling checkout (`link:../vega-media-kit` in `p
    $PG/createdb -h /tmp -U postgres described
    ```
    Then `pnpm db:migrate`.
-3. **API** — `pnpm api` (Express + Prisma + pg-boss; `GET /health`). The default port is 4000; the device runs used
-   `PORT=4100`, because another project held 4000. The stick must reach this port over the LAN.
+3. **API** — `pnpm api` (Express + Prisma + pg-boss; `GET /health`). It listens on port 4000 (`PORT` in `.env`). If 4000 is taken,
+   set PORT and use the same port in EXPO_PUBLIC_API_URL. The stick must reach this port over the LAN.
 4. **Pipeline worker** (optional) — `pnpm --filter @described/pipeline worker`. Create a title with `POST /admin/titles`
    (header `x-admin-token: $ADMIN_TOKEN`), then `POST /admin/titles/<id>/describe`; the worker marks it published when publish finishes.
    Or run it in-process: `pnpm pipeline describe --title <slug> --source s3://$S3_BUCKET_MEDIA/sources/<file>.mp4 [--lang de] [--from <step>]`
@@ -107,7 +109,7 @@ vega-media-kit is linked from a sibling checkout (`link:../vega-media-kit` in `p
    ```sh
    adb connect <stick-ip>:5555 && adb shell input keyevent KEYCODE_WAKEUP
    cd apps/expo
-   export EXPO_PUBLIC_API_URL=http://<mac-ip>:4100     # BEFORE prebuild: plugins/withLocalApi.js allows cleartext HTTP to this host only
+   export EXPO_PUBLIC_API_URL=http://<mac-ip>:4000     # BEFORE prebuild: plugins/withLocalApi.js allows cleartext HTTP to this host only
    npx expo prebuild --clean --platform android
    git checkout package.json                            # if prebuild rewrote the scripts
    CI=1 npx expo run:android --variant release --no-bundler
@@ -130,7 +132,7 @@ vega-media-kit is linked from a sibling checkout (`link:../vega-media-kit` in `p
 | `apps/vega` | Vega OS entry template (deferred, decision 0004) |
 | `packages/shared-ui` | Every screen, focus, tokens (`src/theme/tokens.ts`), strings; Vega-supported imports only |
 | `packages/contracts` | Zod schemas shared by api and ui (voices, prompt keys, prefs) |
-| `packages/pipeline` | The media + AI pipeline: steps, jobs, prompts, cost table, CLI and worker |
+| `packages/pipeline` | The media and description pipeline (machine-drafted description): steps, jobs, prompts, cost table, CLI and worker |
 | `infra` | AWS CDK: `described-media-<stage>` |
 | `docs` | [PLAN](docs/PLAN.md) · [decisions](docs/decisions) · [device checks](docs/device-checks) · [friction logs](docs/friction/README.md) · [AWS](docs/aws.md) · [feedback](docs/feedback.md) · [feature requests](docs/feature-requests.md) · [screens](docs/screens/README.md) · [platform](docs/platform/fire-os-bindings.md) |
 | `TASKS.md` | Tickets and their state |
@@ -143,8 +145,9 @@ TODO(DESC-011): screenshots from the stick — list and capture recipe in [docs/
 
 - Code: MIT ([LICENSE](LICENSE)).
 - Font: Atkinson Hyperlegible (Braille Institute), SIL Open Font License 1.1, in `apps/expo/assets/fonts`.
-- Films: TODO(DESC-010) — one attribution sentence per published title, as the app's About & licenses screen shows them
-  (`GET /about`). Development used Sintel © Blender Foundation, CC-BY 3.0.
+- Films (one attribution sentence per published title, as the app's About & licenses screen shows them, `GET /about`):
+  - Sintel © Blender Foundation, CC-BY 3.0. Described by Described.
+  - More titles land with DESC-010.
 
 ## What's new since Aug 31, 2026
 

@@ -1,7 +1,7 @@
 # Product feedback — Described
 
 Required by the hackathon. Written as engineers writing to engineers. Every point links to a friction log in
-[docs/friction](friction/README.md), a decision record or a PR. Device: Fire TV Stick AFTSS, Fire OS 7.7.1.6 (Android 9, API 28).
+[docs/friction](friction/README.md), a decision record, a PR or the code. Device: Fire TV Stick AFTSS, Fire OS 7.7.1.6 (Android 9, API 28).
 
 ## 1. Tools, APIs and SDKs used, and why
 
@@ -32,11 +32,13 @@ ffmpeg, Express, Prisma, pg-boss, and our own [`@moizp/vega-media-kit`](https://
 
 - **Bedrock Converse is one shape for every model.** Swapping the describe model from Nova Pro to Qwen3-VL was a model id and an
   image content block; the same request ran through four models for the bake-off (Qwen3-VL 75.9 %, Pegasus 44.8 %, Nova Pro 17.2 %,
-  Nova 2 Lite 3.4 %, [0003](decisions/0003-gate-c.md)). Token usage comes back on every reply, so cost per job is exact (`cost.ts`).
+  Nova 2 Lite 3.4 %, [0003](decisions/0003-gate-c.md)). Token usage comes back on every reply, so cost is metered per call from the token usage in each reply (`cost.ts`; its prices
+  are marked `TODO(price): verify`).
 - **Forced tool use makes Nova Lite's output structured.** `toolConfig` plus `toolChoice: {tool}` returned schema-shaped cues where a
   "JSON only" prompt had not; we use it for rich captions and the edit pass ([friction: Nova Lite JSON](friction/2026-10-01-nova-lite-json-echoes-input.md), update section).
-- **Transcribe word timings are accurate enough to place narration.** On sintel-90-150-r2 no cue overlapped dialogue, and a
-  started job can be resumed by name, so retries do not pay twice (`03-speech.ts`).
+- **Transcribe word timings are accurate enough to place narration.** On the 29-shot rerun of sintel-90-210 both raters found zero
+  timing or dialogue-overlap failures ([0003](decisions/0003-gate-c.md), DESC-017 result), and a started job can be resumed by name,
+  so retries do not pay twice (`03-speech.ts`).
 - **Polly neural + SSML** — a 150 ms lead-in break and the clip length from ffprobe gave cue ends we could trust (DESC-013).
 - **Hardware decode is fast once the stream fits the decoder.** At 1920×818 H.264 High L4.0 the stick used `OMX.MTK.VIDEO.DECODER.AVC`
   with no fallback, and the first frame came in 1.8–2.1 s (device run 2026-10-10, check 4), against 2.9–3.9 s in Gate A.
@@ -91,8 +93,8 @@ AWS
 
 ## 4. Onboarding quality
 
-- Time from zero to first app on device: TODO(human) hours (the first Fire OS deploy was 2026-09-26; the first Gradle build of the
-  sample took 10 min 58 s including SDK/NDK downloads, [log](friction/2026-09-26-sample-hls-disabled.md)).
+- First app on device: day one with the stick (2026-09-26); the sample's first Gradle build alone took 10 min 58 s including
+  SDK/NDK downloads ([log](friction/2026-09-26-sample-hls-disabled.md)).
 - Six of the eighteen friction logs come from that first day with the stick and the multi-TV sample (2026-09-26). In most of them
   the error pointed somewhere other than the cause.
 - AWS onboarding: the Free-plan account had to be upgraded before Transcribe worked, then Bedrock refused calls for about

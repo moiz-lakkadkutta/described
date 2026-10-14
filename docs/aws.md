@@ -60,9 +60,11 @@ Cost is metered per pg-boss job (`Job.costUsd`, `packages/pipeline/src/cost.ts` 
 
 Extended cues add one Polly clip each (decision 0007: at most one added event cue per 30 s). Re-runs from a later step
 (`--from`) reuse the transcript and the describe cache, so they pay only for the steps they re-run.
-TODO(DESC-010): replace the estimates with the measured `costUsd` of the five-title batch.
+Measured so far: Sintel 1:30–2:30 (`sintel-90-150-r2`, 60 s), $0.0499 for the whole pipeline. More titles land with DESC-010,
+and their measured `costUsd` will replace the estimates above.
 
 Cost rule ([0005](decisions/0005-describe-direct-bedrock.md)): no paid Bedrock, Transcribe or Polly run without the human's
 go-ahead; tests use recorded fixtures and mocks.
 
-Dev tooling: Claude Code, Kiro Crew, Amazon Devices Builder Tools MCP.
+Dev tooling: Claude Code.
+<!-- TODO(human): add Kiro Crew / Builder Tools MCP only if actually used -->
