@@ -221,6 +221,20 @@ describe('known names', () => {
     expect(knownNames(said('Hello there Hope. I hope so.'), 99000, 'en')).toEqual([])
     expect(knownNames(said('Run Fast', ['spk_0', 'spk_1']), 99000, 'en')).toEqual([])
   })
+  // elephants-dream-0-60 (test/fixtures/sdh/elephants-dream-0-60.captions.vtt c3, c4, c12): Transcribe wrote "Emo," at 25.1 s, "Emo." at
+  // 26.4 s and "emo, it's not." at 58.4 s. The lowercase token used to be read from the whole title, so "Emo" never reached the prompt.
+  it('a name heard capitalised is not vetoed by a later lowercase transcription (Elephants Dream "Emo" / "emo")', () => {
+    const at = (start: number, text: string, speaker: string): Word => ({ start, end: start + 0.4, text, speaker })
+    const w = [at(20.6, 'everything', 'spk_0'), at(21.0, 'is', 'spk_0'), at(21.4, 'safe.', 'spk_0'), at(25.07, 'Emo,', 'spk_0'), at(26.39, 'Emo.', 'spk_1'),
+      at(29.06, "What's", 'spk_1'), at(29.5, 'that.', 'spk_1'), at(58.41, 'emo,', 'spk_0'), at(58.9, "it's", 'spk_0'), at(59.3, 'not.', 'spk_0')]
+    expect(knownNames(w, 20000, 'en')).toEqual([])
+    for (const ms of [30000, 40000, 58000, 60000]) expect(knownNames(w, ms, 'en'), `${ms}`).toEqual(['Emo'])
+  })
+  it('a name capitalised mid-sentence counts; lowercase vetoes only when heard first or at least as often', () => {
+    expect(knownNames(said('I see Proog there. Where is proog now? Proog waits.'), 99000, 'en')).toEqual(['Proog']) // 2 capitalised, 1 lowercase
+    expect(knownNames(said('Where is proog now? I see Proog there.'), 99000, 'en')).toEqual([]) // lowercase heard first
+    expect(knownNames(said('I see Proog there.'), 99000, 'en')).toEqual(['Proog'])
+  })
   it('finds no names in the sintel-90-150 transcript, and none for a German line said once', () => {
     const t = JSON.parse(readFileSync(new URL('./fixtures/sintel-90-150.transcript.json', import.meta.url), 'utf8'))
     expect(knownNames(wordsFromTranscribe(t), 60000, 'en')).toEqual([])

@@ -202,7 +202,26 @@ const DE_NAME_CUE = new Set(['heiße', 'heisse', 'heißt', 'heisst'])
 export const MIN_MENTIONS = 2
 
 /**
- * Names spoken before beforeMs, in the order first heard, each once. Never a common capitalised word, nor a word also heard lowercase.
+ * Words (lower-cased) whose lowercase transcription vetoes them as names, judged on the words heard so far only: the lowercase form was
+ * heard before the first capitalised one ("hope … Hope"), or at least as often ("Hope. … hope"). A later, rarer lowercase transcription
+ * of a name does not: Elephants Dream has "Emo," at 25.1 s, "Emo." at 26.4 s and "emo, it's not." at 58.4 s (DESC-029; the whole
+ * title's words used to be read here, so that one lowercase token removed "Emo" from every shot).
+ */
+export function lowercaseVeto(heard: readonly string[]): Set<string> {
+  const first = new Map<string, { lower?: number; upper?: number }>(), count = new Map<string, { lower: number; upper: number }>()
+  heard.forEach((t, i) => {
+    const k = t.toLowerCase(), lower = /^\p{Ll}/u.test(t), upper = /^\p{Lu}/u.test(t)
+    if (!lower && !upper) return
+    const f = first.get(k) ?? {}, c = count.get(k) ?? { lower: 0, upper: 0 }
+    if (lower) { f.lower ??= i; c.lower++ } else { f.upper ??= i; c.upper++ }
+    first.set(k, f); count.set(k, c)
+  })
+  return new Set([...count].filter(([k, c]) => c.lower > 0 && (c.lower >= c.upper || first.get(k)!.lower! < (first.get(k)!.upper ?? Infinity))).map(([k]) => k))
+}
+
+/**
+ * Names spoken before beforeMs, in the order first heard, each once. Never a common capitalised word, nor a word vetoed by its lowercase
+ * transcriptions so far (lowercaseVeto).
  * - English: a capitalised word that does not open a sentence or a speaker turn — or that does open one as a call, directly followed
  *   by `,` `!` or `?` ("Sintel, wait.", "Scales!"), when it is also heard capitalised mid-sentence or heard ≥ MIN_MENTIONS times
  *   ("However, …", "Tomorrow, …" open sentences the same way; those and other sentence adverbs are in the common-word list).
@@ -212,8 +231,8 @@ export const MIN_MENTIONS = 2
  */
 export function knownNames(words: Word[], beforeMs: number, language: 'en' | 'de'): string[] {
   const bare = (t: string) => t.replace(/[^\p{L}\p{N}'-]/gu, '').replace(/'s$/i, '')
-  const lower = new Set(words.map((w) => bare(w.text)).filter((t) => /^\p{Ll}/u.test(t)).map((t) => t.toLowerCase()))
   const heard = words.filter((w) => w.end * 1000 <= beforeMs)
+  const vetoed = lowercaseVeto(heard.map((w) => bare(w.text)))
   const mentions = new Map<string, number>()
   for (const w of heard) mentions.set(bare(w.text), (mentions.get(bare(w.text)) ?? 0) + 1)
   const common = language === 'de' ? NOT_NAMES_DE : NOT_NAMES
@@ -224,7 +243,7 @@ export function knownNames(words: Word[], beforeMs: number, language: 'en' | 'de
     const p = heard[i - 1]
     const opens = opensAt(i)
     const t = bare(w.text)
-    if (!/^\p{Lu}\p{Ll}/u.test(t) || common.has(t.toLowerCase()) || NOT_NAMES.has(t.toLowerCase()) || lower.has(t.toLowerCase()) || out.includes(t)) return
+    if (!/^\p{Lu}\p{Ll}/u.test(t) || common.has(t.toLowerCase()) || NOT_NAMES.has(t.toLowerCase()) || vetoed.has(t.toLowerCase()) || out.includes(t)) return
     if (language === 'en') { if (opens && (!/[,!?]$/.test(w.text) || !(midSentence.has(t) || (mentions.get(t) ?? 0) >= MIN_MENTIONS))) return }
     else {
       const low = (x: Word | undefined) => (x?.text ?? '').replace(/[^\p{L}]/gu, '').toLowerCase()
