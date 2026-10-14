@@ -93,17 +93,29 @@ in the app's catalogue. It prints an estimate and asks before it spends anything
    `set -a; source .env; set +a`. It needs `S3_BUCKET_MEDIA`, `CLOUDFRONT_DOMAIN`, `DATABASE_URL` and AWS credentials.
 2. Check the estimate, with nothing spent: `pnpm describe ./film.mp4 --title "My Film" --dry-run`.
 3. Optional: describe one part with `--start 1:30 --end 11:30`. Set the narration language and voice with
-   `--language de --voice Daniel` (default `en`, Joanna). Set the credit with `--license "CC-BY 4.0" --credit "My Film © 2026 Me, CC-BY 4.0."`.
+   `--language de --voice Daniel` (default `en`, Joanna). Set the licence and the credit sentence shown in the app with `--license "CC-BY 4.0" --credit "My Film © 2026 Me, CC-BY 4.0."`
+   (defaults: "All rights reserved", "My Film. Described by Described.").
 4. Run it: `pnpm describe ./film.mp4 --title "My Film"`, then answer `y` (or add `--yes`). It uploads the file (cut first when
    you give a span) to `sources/<slug>.mp4`, creates the Title row, runs every step from probe to publish, and writes the cue,
    rendition and text-track rows with status published.
 5. It prints the measured cost and the stream: `https://$CLOUDFRONT_DOMAIN/published/<slug>/master.m3u8`. The title is on the
    app's Home row at the next `GET /catalog`.
-6. If a step fails, the title stays a draft and the error prints the `pnpm pipeline describe … --from <step>` line that resumes
-   it. To describe a slug again, add `--replace`.
+6. If a step fails, the title is a draft (out of the catalogue) until a run finishes. The error prints what was spent and the
+   `pnpm pipeline describe … --from <step>` line that resumes it. If only the database write fails, the line is `--from validate`,
+   which makes no paid call.
 
-The slug comes from the title (`--slug` overrides it). A slug that already exists is refused unless you add `--replace`, so a
-typo never overwrites a catalogue title. A full-length film waits on DESC-024 (re-check Gate C with the 0008 prompt, TASKS.md).
+Three rules protect titles that already exist:
+- **Slug in use.** The slug comes from the title (`--slug` overrides it). A slug is refused if any of these is true:
+  - a Title row already has it;
+  - another title's source is `sources/<slug>.mp4`;
+  - files are in S3 under that name with no Title row.
+
+  `--replace` describes an existing title again. It sets the title back to draft while its files are rewritten, and keeps its
+  licence and credit unless you pass `--license`/`--credit`. It needs `CLOUDFRONT_DISTRIBUTION_ID`, because segments are cached
+  for a year and the old ones must be invalidated.
+- **Longer than 15 minutes.** Describing more than 15 minutes of film needs `--long` until DESC-024 re-checks the describe
+  prompt on a full-length title (TASKS.md).
+- **Inputs.** An `https://` input must be the video file itself; playlists (`.m3u8`, `.mpd`) are refused.
 
 ### Cost per hour of film
 
