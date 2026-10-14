@@ -135,61 +135,85 @@ export async function editScene(cues: FitCue[], shots: Described[], words: Word[
   }
   // The model's repetition removal is not reliable (sintel-90-150-r2, 2026-10-14: no proposal removed the second "Snowy mountains."),
   // so a lead sentence the viewer has just heard is dropped deterministically, after the model's edits and whether or not a call worked.
+  // A trim of a cue the model already edited is its own entry (from = the model's text), so edit.json shows both steps.
   const deduped = dropRepeatedLeads(report.cues)
   deduped.forEach((c, i) => {
     if (c.text === report.cues[i]!.text) return
-    const prior = report.applied.find((a) => a.i === i)
-    if (prior) prior.to = c.text
-    else report.applied.push({ i, from: report.cues[i]!.text, to: c.text, by: 'repeat' })
+    report.applied.push({ i, from: report.cues[i]!.text, to: c.text, by: 'repeat' })
     report.cues[i] = c
   })
-  report.applied.sort((a, b) => a.i - b.i)
+  report.applied.sort((x, y) => x.i - y.i) // stable: a cue's model edit stays before its trim
   for (const r of report.rejected) console.warn(`edit: rejected edit of cue ${r.i} (${r.reason}):`, JSON.stringify(r.text))
   return report
 }
 
-/** How many earlier action cues (on-screen text cues skipped) the repeat guard compares a cue with. */
-export const REPEAT_LOOKBACK_CUES = 2
-/** …and only those that start at most this long before it: after a longer stretch, re-telling the place helps the viewer. */
+/** The repeat guard compares a cue only with the previous action cue that starts at most this long before it. */
 export const REPEAT_WINDOW_MS = 15_000
 
+/** Words that open a sentence about someone already named: a lead before one is kept, or "He stops." would lose its referent. */
+const PRONOUN_OPENERS = new Set(['he', 'she', 'it', 'they', 'his', 'her', 'its', 'their', 'him', 'them', 'er', 'sie', 'es', 'ihr', 'ihre', 'sein', 'seine'])
+/** Abbreviations whose period is not a sentence end; ../textClause's plain split cuts after them ("Mr." | "Smith walks."). */
+const ABBREVIATION = /(?:^|\s)(?:mr|mrs|ms|dr|st|jr|sr|prof|mt|lt|sgt|capt|gen|col|no|vs|etc|hr|fr|nr|bzw|ca|str)\.$/i
+/** A sentence end: . ! ? … with optional closing quotes or brackets after it. */
+const SENTENCE_END = /[.!?…]["'”’»)\]]*$/
+
+interface Unit { start: number; end: number; text: string; onScreen: boolean }
 /**
- * The deterministic repeat guard (DESC-010 follow-up): every shot is described from scratch, so two shots of one place both open with
- * it ("Snowy mountains. A lone figure walks left." / "Snowy mountains. A figure walks, falls. Logo fades."). A cue's leading sentences
- * are dropped while every content word in them (by stem, ../contentWords) is in the text of the previous REPEAT_LOOKBACK_CUES action
- * cues that start within REPEAT_WINDOW_MS — as heard, so after their own trimming. Only leading sentences (the setting a description
- * opens with; a repeated action later in a cue may be a second one), never an on-screen text clause, never a sentence with no content
- * word, and never the cue's last sentence that is not on-screen text: a cue that has nothing else to say keeps its text. On-screen text
- * cues are neither trimmed nor compared with. The text after the dropped sentences is kept verbatim; timing never changes. Pure: returns copies.
+ * `text` as units with their positions: ../textClause's sentences(), each on-screen text clause its own unit, with a unit that is
+ * three characters or less or ends in an abbreviation joined to the next plain unit ("Mr. Jones sits." stays one sentence).
+ */
+function units(text: string): Unit[] {
+  const spans = textSpans(text)
+  const out: Unit[] = []
+  let at = 0
+  for (const u of sentences(text)) {
+    const start = text.indexOf(u, at)
+    if (start < 0) return [{ start: 0, end: text.length, text, onScreen: false }] // cannot place: one unit, never trimmed
+    at = start + u.length
+    const onScreen = spans.some((s) => s.start <= start && s.end >= at)
+    const prev = out[out.length - 1]
+    if (prev && !prev.onScreen && !onScreen && (prev.text.length <= 3 || ABBREVIATION.test(prev.text))) { prev.end = at; prev.text = text.slice(prev.start, at); continue }
+    out.push({ start, end: at, text: u, onScreen })
+  }
+  return out
+}
+/** Does `earlier` contain every content word of `unit`, by stem, in the same order? */
+const saidIn = (unit: string, earlier: string) => {
+  const want = contentWords(unit).map(stem), have = contentWords(earlier).map(stem)
+  let k = 0
+  for (const w of have) if (k < want.length && w === want[k]) k++
+  return want.length > 0 && k === want.length
+}
+
+/**
+ * The deterministic repeat guard (DESC-010 follow-up, ADR 0006): every shot is described from scratch, so two shots of one place both
+ * open with it ("Snowy mountains. A lone figure walks left." / "Snowy mountains. A figure walks, falls. Logo fades."). A cue's leading
+ * sentences are dropped, in order, while each one is said by ONE sentence of the previous action cue: every content word of it (by stem,
+ * ../contentWords) in that sentence, in the same order. Only the immediately previous action cue (on-screen text cues skipped), and only
+ * when it starts within REPEAT_WINDOW_MS: a cut back to a place after another place keeps the place. The trim stops at the first unit
+ * that is not a whole plain sentence (an on-screen text clause, or a piece cut by a mid-sentence one, which does not end in . ! ? …),
+ * and nothing is dropped when the text left would not open with a capital letter or would open with a pronoun ("He stops."), or when
+ * no plain sentence would be left. The rest of the text is kept verbatim; timing never changes. Pure: returns copies.
  */
 export function dropRepeatedLeads(cues: readonly FitCue[]): FitCue[] {
   const out = cues.map((c) => ({ ...c }))
   out.forEach((c, i) => {
     if (isTextCue(c)) return
-    const heard: string[] = []
-    for (let k = i - 1; k >= 0 && heard.length < REPEAT_LOOKBACK_CUES; k--) {
-      const p = out[k]!
-      if (isTextCue(p)) continue
-      if (c.startMs - p.startMs > REPEAT_WINDOW_MS) break
-      heard.push(p.text)
-    }
-    if (!heard.length) return
-    const known = new Set(heard.flatMap((t) => contentWords(t).map(stem)))
-    const units = sentences(c.text), spans = textSpans(c.text)
-    const isText = (u: string) => spans.some((s) => c.text.slice(s.start, s.end).trim() === u)
-    let lastAction = units.length - 1
-    while (lastAction >= 0 && isText(units[lastAction]!)) lastAction--
+    let k = i - 1
+    while (k >= 0 && isTextCue(out[k]!)) k--
+    if (k < 0 || c.startMs - out[k]!.startMs > REPEAT_WINDOW_MS) return
+    const earlier = units(out[k]!.text).filter((u) => !u.onScreen).map((u) => u.text)
+    const us = units(c.text)
     let drop = 0
-    while (drop < lastAction) {
-      const u = units[drop]!, w = contentWords(u)
-      if (isText(u) || !w.length || !w.every((x) => known.has(stem(x)))) break
+    while (drop < us.length) {
+      const u = us[drop]!
+      if (u.onScreen || !SENTENCE_END.test(u.text) || !earlier.some((e) => saidIn(u.text, e))) break
       drop++
     }
-    if (!drop) return
-    // Cut the original at the first kept sentence, so the rest (spacing, quotes, the on-screen text) stays exactly as it was.
-    let at = 0
-    for (const u of units.slice(0, drop)) at = c.text.indexOf(u, at) + u.length
-    const text = c.text.slice(at).trim()
+    if (!drop || !us.slice(drop).some((u) => !u.onScreen)) return
+    const text = c.text.slice(us[drop]!.start).trim()
+    const first = text.split(/\s+/)[0]!.replace(/[^\p{L}]/gu, '').toLowerCase()
+    if (!/^["'“„«]?\p{Lu}/u.test(text) || PRONOUN_OPENERS.has(first)) return
     out[i] = { ...c, text, wordCount: wordCount(text) }
   })
   return out

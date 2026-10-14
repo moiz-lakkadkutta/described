@@ -77,13 +77,25 @@ count, order, `extended`, `shotIndex` and `limitMs` never change.
 heard "Snowy mountains." in d2 and again in d3): repetition removal had been left to the model, and Nova Lite's only edit of that cue
 dropped the on-screen text clause and was rejected (guard 2). describe's own dedupe (`newSentences`) only covers later parts of one
 split camera shot; shots 0 and 1 are two camera shots, each described from scratch. After the model's edits (and when every call
-failed), a cue's *leading* sentences are dropped while every content word in them (by stem) is in the text, as heard, of the previous
-`REPEAT_LOOKBACK_CUES` = 2 action cues that start within `REPEAT_WINDOW_MS` = 15 s. Never an on-screen text clause, never a sentence
-without a content word, never the cue's last action sentence (a cue with nothing new keeps its text); on-screen text cues are neither
-trimmed nor compared with. Only leading sentences: that is where a description states the place, and a repeated action later in a
-cue may be a second one. Logged in `edit.json` `applied` with `by: "repeat"`. `DESCRIBE_EDIT=0` (the control) skips it with the
-model. On the recorded fit cues of sintel-90-150-r2, sintel-90-210 and tears-of-steel-40-100 it changes exactly one cue:
-r2 cue 1 → "A figure walks, falls. Logo fades. Words appear: SINTEL.".
+failed) the exact rule is:
+- **Compared with**: only the immediately previous action cue (on-screen text cues skipped), as heard (after its own trim), and only
+  when it starts at most `REPEAT_WINDOW_MS` = 15 s before this cue. Not two cues back: "Dark room. Man sits." / "Forest. Woman runs." /
+  "Dark room. Man stands." keeps the third "Dark room.", the only sign of the cut back.
+- **Units**: `sentences()` of `../textClause` (each on-screen text clause its own unit), with a unit of ≤ 3 characters or ending in an
+  abbreviation (Mr., Dr., St., …) joined to the next plain unit.
+- **Dropped**: the cue's leading units, in order, while each one is a whole plain sentence (not on-screen text, ends in . ! ? … with
+  optional closing quotes) and ONE plain sentence of the previous cue contains all of its content words (Porter stem, `contentWords`)
+  in the same order. Words spread over several sentences or cues never count: "The cat chases the dog." after "The dog chases the
+  cat." stays, and so does "A woman walks left." after "A man walks left. A woman runs right.".
+- **Kept whole** when the trim would leave no plain sentence, or the text left would not open with a capital letter (a piece cut by a
+  mid-sentence on-screen text clause) or would open with a pronoun (he, she, it, they, er, sie, es, …: "A forest. He stops." keeps
+  "A forest.").
+- The text after the dropped units is kept verbatim; timing never changes; on-screen text cues are never trimmed.
+
+Each trim is logged in `edit.json` `applied` with `by: "repeat"`, as its own entry after the model's edit of the same cue (from = the
+model's text). `DESCRIBE_EDIT=0` (the control) skips it with the model. On the recorded cues of sintel-90-150-r2 (fit and voiced),
+sintel-90-150, sintel-90-210 and tears-of-steel-40-100 it changes exactly one cue: r2's shot 1 → "A figure walks, falls. Logo fades.
+Words appear: SINTEL.".
 
 ## Model choice (probes on r2, text-only, 45 Converse calls, ≈ $0.013)
 

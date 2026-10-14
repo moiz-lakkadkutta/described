@@ -3,7 +3,7 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ConverseCommandInput } from '@aws-sdk/client-bedrock-runtime'
-import { applyEdits, cleanShortening, dropRepeatedLeads, REPEAT_LOOKBACK_CUES, REPEAT_WINDOW_MS, dialogueTurns, EDIT_CHUNK_CUES, editBudgets, editCues, editScene, factWords, FIT_CUES_FILE, isTextCue, replyEdits, stem, unfaithfulWords } from '../src/steps/05b-edit'
+import { applyEdits, cleanShortening, dropRepeatedLeads, REPEAT_WINDOW_MS, dialogueTurns, EDIT_CHUNK_CUES, editBudgets, editCues, editScene, factWords, FIT_CUES_FILE, isTextCue, replyEdits, stem, unfaithfulWords } from '../src/steps/05b-edit'
 import { editRequest, EDIT_TOOL_SCHEMA, shortenEditRequest, type EditConverse } from '../src/prompts'
 import type { FitCue } from '../src/steps/05-fit'
 import type { Described } from '../src/steps/04-describe'
@@ -450,38 +450,57 @@ describe('deterministic repeat guard (a lead sentence the previous cues already 
     expect(r.applied).toEqual([{ i: 1, from: fit1014[1]!.text, to: 'A figure walks, falls. Logo fades. Words appear: SINTEL.' }])
   })
 
-  it('drops only leading sentences whose every content word was said, never a new fact, the on-screen text or the last action sentence', () => {
-    const cues = [
-      action(0, 'Snowy mountains. A lone figure walks left.', 0),
-      action(5000, 'Snowy mountains. A figure falls. Snowy mountains.', 1), // the trailing repeat is not a lead: kept
-      action(9000, 'Mountains, snowy.', 2), // nothing else to say: kept whole
-      action(12000, 'Snowy peaks. The figure falls again.', 3), // "peaks" is new
-      action(14000, 'Snowy mountains. Words appear: SINTEL.', 4), // only on-screen text would be left: kept
-      action(16000, 'A lone figure walks left. "SINTEL" glows.', 5),
-    ]
-    const r = dropRepeatedLeads(cues)
-    expect(r.map((c) => c.text)).toEqual([
-      'Snowy mountains. A lone figure walks left.',
-      'A figure falls. Snowy mountains.',
-      'Mountains, snowy.',
-      'Snowy peaks. The figure falls again.',
-      'Snowy mountains. Words appear: SINTEL.',
-      'A lone figure walks left. "SINTEL" glows.',
-    ])
-    expect(r[1]!.wordCount).toBe(5)
-    expect(cues[1]!.text).toBe('Snowy mountains. A figure falls. Snowy mountains.') // input untouched
+  /** The second cue's text after the guard, given the cue texts in order (2 s apart). */
+  const after = (...texts: string[]) => dropRepeatedLeads(texts.map((t, i) => action(i * 2000, t, i))).map((c) => c.text)
+
+  it('drops only leading sentences one sentence of the previous cue already said, never a new fact, the on-screen text or the last action sentence', () => {
+    expect(after('Snowy mountains. A lone figure walks left.', 'Snowy mountains. A figure falls. Snowy mountains.')[1]).toBe('A figure falls. Snowy mountains.') // a later repeat is not a lead
+    expect(after('Snowy mountains. A figure falls.', 'Mountains, snowy.')[1]).toBe('Mountains, snowy.') // nothing else to say
+    expect(after('Snowy mountains. A figure falls.', 'Snowy peaks. The figure falls again.')[1]).toBe('Snowy peaks. The figure falls again.') // "peaks" is new
+    expect(after('Snowy mountains. A figure falls.', 'Snowy mountains. Words appear: SINTEL.')[1]).toBe('Snowy mountains. Words appear: SINTEL.') // only on-screen text would be left
+    expect(after('A dark hall. A man sits.', 'A dark hall. "EXIT" glows.')[1]).toBe('"EXIT" glows.')
+    const r = dropRepeatedLeads([action(0, 'Snowy mountains. A lone figure walks left.', 0), action(2000, 'Snowy mountains. A figure falls.', 1)])
+    expect(r[1]).toMatchObject({ text: 'A figure falls.', wordCount: 3 })
   })
 
-  it('looks back REPEAT_LOOKBACK_CUES action cues within REPEAT_WINDOW_MS, skipping on-screen text cues', () => {
-    expect(REPEAT_LOOKBACK_CUES).toBe(2)
+  it('needs ONE earlier sentence with the same content words in the same order, not words spread across sentences or cues', () => {
+    expect(after('A man walks left. A woman runs right.', 'A woman walks left. She stops.')[1]).toBe('A woman walks left. She stops.')
+    expect(after('The dog chases the cat.', 'The cat chases the dog. It hides.')[1]).toBe('The cat chases the dog. It hides.')
+    expect(after('Two men sit. A third man stands.', 'Third man sits. He drinks.')[1]).toBe('Third man sits. He drinks.')
+    expect(after('A red light. A car stops.', 'Red car. It speeds away.')[1]).toBe('Red car. It speeds away.')
+    expect(after('A red light glows. A car stops.', 'Red light. A car speeds away.')[1]).toBe('A car speeds away.') // a subset in order is a repeat
+  })
+
+  it('compares with the immediately previous action cue only, so a cut back to a place keeps the place', () => {
+    expect(after('Dark room. Man sits.', 'Forest. Woman runs.', 'Dark room. Man stands.')[2]).toBe('Dark room. Man stands.')
+    const text: FitCue = { startMs: 1000, endMs: 1100, text: 'Words appear: SINTEL.', extended: true, wordCount: 3, shotIndex: 1 }
+    const r = dropRepeatedLeads([action(0, 'Dark room. A man sits.', 0), text, action(3000, 'Dark room. Fire burns.', 2)])
+    expect(r.map((c) => c.text)).toEqual(['Dark room. A man sits.', 'Words appear: SINTEL.', 'Fire burns.']) // the text cue is skipped, never trimmed
     expect(REPEAT_WINDOW_MS).toBe(15_000)
-    const text: FitCue = { startMs: 4000, endMs: 4100, text: 'Words appear: SINTEL.', extended: true, wordCount: 3, shotIndex: 1 }
-    const near = dropRepeatedLeads([action(0, 'Dark room. A man sits.', 0), text, action(5000, 'A man stands.', 1), action(8000, 'Dark room. Fire burns.', 2)])
-    expect(near[3]!.text).toBe('Fire burns.') // two action cues back, the text cue between does not count
-    expect(near[1]!.text).toBe('Words appear: SINTEL.')
-    const far = dropRepeatedLeads([action(0, 'Dark room. A man sits.', 0), action(3000, 'A man stands.', 1), action(5000, 'A man waves.', 2), action(8000, 'Dark room. Fire burns.', 3)])
-    expect(far[3]!.text).toBe('Dark room. Fire burns.') // three action cues back: the viewer is re-told the place
-    const late = dropRepeatedLeads([action(0, 'Dark room. A man sits.', 0), action(15_001, 'Dark room. Fire burns.', 1)])
-    expect(late[1]!.text).toBe('Dark room. Fire burns.')
+    expect(dropRepeatedLeads([action(0, 'Dark room. A man sits.', 0), action(15_001, 'Dark room. Fire burns.', 1)])[1]!.text).toBe('Dark room. Fire burns.')
+  })
+
+  it('drops only whole sentences: a unit cut by a mid-sentence on-screen text clause stops the trim', () => {
+    expect(after('A soldier grabs the rifle.', 'A soldier grabs the rifle as a sign reads "OPEN". A man enters.')[1]).toBe('A soldier grabs the rifle as a sign reads "OPEN". A man enters.')
+  })
+
+  it('keeps the lead when the first sentence left would open with a pronoun', () => {
+    expect(after('A forest. A man runs.', 'A forest. He stops.')[1]).toBe('A forest. He stops.')
+    expect(after('Ein Wald. Ein Mann rennt.', 'Ein Wald. Er bleibt stehen.')[1]).toBe('Ein Wald. Er bleibt stehen.')
+  })
+
+  it('does not split at an abbreviation', () => {
+    expect(after('Mr. Smith walks.', 'Mr. Jones sits. He waits.')[1]).toBe('Mr. Jones sits. He waits.')
+    expect(after('Mr. Smith walks.', 'Mr. Smith walks. A dog barks.')[1]).toBe('A dog barks.')
+  })
+
+  it('records its trim of a cue the model already edited as a separate repeat entry', async () => {
+    const edited = 'Snowy mountains. The figure walks, falls. Logo fades. Words appear: SINTEL.'
+    const r = await editScene(fit1014, shots, words, 'en', toolReply([{ cue: 1, text: edited }]), undefined, noShorten)
+    expect(r.applied).toEqual([
+      { i: 1, from: fit1014[1]!.text, to: edited },
+      { i: 1, from: edited, to: 'The figure walks, falls. Logo fades. Words appear: SINTEL.', by: 'repeat' },
+    ])
+    expect(r.cues[1]!.text).toBe('The figure walks, falls. Logo fades. Words appear: SINTEL.')
   })
 })
