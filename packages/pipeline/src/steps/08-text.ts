@@ -45,9 +45,18 @@ export function parseMomentary(stderr: string): LoudnessFrame[] {
 /** ffmpeg ebur128 over the first audio stream of `file` (the original soundtrack in mezz.mp4); one decode pass, no output file. */
 export async function momentaryLoudness(file: string, signal?: AbortSignal): Promise<LoudnessFrame[]> {
   const { stderr } = await execa('ffmpeg', ['-hide_banner', '-nostats', '-v', 'verbose', '-i', file, '-map', '0:a:0', '-af', 'ebur128=framelog=verbose', '-f', 'null', '-'], { cancelSignal: signal })
-  return parseMomentary(stderr)
+  return loudnessFrames(stderr, file)
 }
-/** True when some frame whose 400 ms window overlaps [start, end] reaches `floor`. No frames (no audio) → nothing is audible. */
+/**
+ * parseMomentary, but no frames is an error: 01-probe always maps an audio stream into mezz.mp4, so an empty log means the measurement
+ * failed (an ffmpeg log format change, a wrong log level), and treating it as silence would drop every sound without a word.
+ */
+export function loudnessFrames(stderr: string, file: string): LoudnessFrame[] {
+  const frames = parseMomentary(stderr)
+  if (!frames.length) throw new Error(`ebur128: no momentary frames parsed from ${file.split('/').at(-1)}`)
+  return frames
+}
+/** True when some frame whose 400 ms window overlaps [start, end] reaches `floor`. An empty list (only in tests: see loudnessFrames) → nothing is audible. */
 export const audibleFrom = (frames: readonly LoudnessFrame[], floor = AUDIBLE_LUFS) => (start: number, end: number) =>
   frames.some((f) => f.t > start && f.t - 0.4 < end && f.m >= floor)
 
