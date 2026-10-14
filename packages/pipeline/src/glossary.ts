@@ -24,13 +24,13 @@ const warned = new Set<string>()
  * an evaluation copy such as `sintel-90-210-g10` (pnpm gate-c) reads `sintel-90-210`'s — else EMPTY_GLOSSARY, with a loud warning
  * once per slug (no name will be voiced). A malformed entry throws.
  */
-export function loadGlossary(slug: string, file: string | URL = process.env.GLOSSARY_FILE ?? DEFAULT_GLOSSARY_FILE): Glossary {
+export function loadGlossary(slug: string, file: string | URL = process.env.GLOSSARY_FILE ?? DEFAULT_GLOSSARY_FILE, opts: { warn?: boolean } = {}): Glossary {
   let raw: unknown
   try { raw = JSON.parse(readFileSync(file, 'utf8')) } catch { raw = undefined }
   const entries = Array.isArray(raw) ? raw.filter((t): t is { slug: string } => !!t && typeof t === 'object' && typeof (t as { slug?: unknown }).slug === 'string') : []
   const hit = entries.find((t) => t.slug === slug) ?? entries.filter((t) => slug.startsWith(`${t.slug}-`)).sort((a, b) => b.slug.length - a.slug.length)[0]
   if (!hit) {
-    if (!warned.has(slug)) { warned.add(slug); console.warn(`glossary: WARNING no people-and-places entry for "${slug}" in ${String(file)}: no name will be voiced and no look suggested (scenes still work). Set GLOSSARY_FILE or add the title to titles.json.`) }
+    if (opts.warn !== false && !warned.has(slug)) { warned.add(slug); console.warn(`glossary: WARNING no people-and-places entry for "${slug}" in ${String(file)}: no name will be voiced and no look suggested (scenes still work). Set GLOSSARY_FILE or add the title to titles.json.`) }
     return EMPTY_GLOSSARY
   }
   const { characters, settings } = Entry.parse(hit)

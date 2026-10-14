@@ -149,7 +149,8 @@ the new describe prompt.) Per-scene establishing calls to Qwen3-VL (option B of 
 - **Re-run** all five titles from describe (prompt change), and **re-check Gate C** with this prompt (one run covers DESC-024 and
   this; owned by the DESC-024 session). The Gate C segment `sintel-90-210` is not in titles.json, so its glossary is
   `docs/eval/gate-c-glossary.json` (Sintel, the shaman, Scales — named at film 3:48, after the segment — and the snowy mountains, the
-  tent and the town, checked against the run's frames). The run's steps include `scenes`.
+  tent and the town, checked against the run's frames). `pnpm gate-c run` (DESC-030) includes `scenes` in its steps and passes the
+  SOURCE slug's glossary (titles.json, else that file) to every step, so no `GLOSSARY_FILE` is needed.
 - Metrics and baseline: docs/eval/character-scene-baseline.md (`pnpm eval-context`). Hard gates: 0 invented and 0 premature names;
   no misbound name (checked against the frames by the raters). Targets: Emo and Thom voiced (on shots that show them); one descriptor (+ name) per
   character; ≥ 90 % of scenes state their place in their first cue; every change of place or time signalled; 0 repeats; Extended

@@ -42,8 +42,10 @@ pnpm gate-c score ~/gate-c/g10
   after the run; remove them when the clip is no longer needed:
   `aws s3 rm --recursive s3://$S3_BUCKET_MEDIA/work/<slug>/ --profile described-dev`
 - `run <sourceSlug> <evalSlug>` copies `probe.json shots.json gaps.json words.json transcript.json transcript.src mezz.mp4` (plus
-  `described.json` / `cues.fit.json` when `--steps` starts at fit or edit) into `work/<evalSlug>/` — never `cache/`, `frames/` or
-  any cue clip, and the source dir is only read. `--steps` takes consecutive steps from `describe,fit,edit,voice`, never starting
+  `described.json` / `cues.fit.json` when `--steps` starts at scenes, fit or edit, and `scenes.json` when present for fit or edit)
+  into `work/<evalSlug>/` — never `cache/`, `frames/` or any cue clip, and the source dir is only read. The steps run with the
+  SOURCE slug's glossary (titles.json, else `docs/eval/gate-c-glossary.json`; DESC-029). `--steps` takes consecutive steps from
+  `describe,scenes,fit,edit,voice`, never starting
   at voice (06-voice rewrites `cues.json`, so it runs only after edit); anything else (mix, package, publish …) is refused, and
   nothing writes the DB. Every Bedrock model the steps will call (describe, verify, the Nova Lite shortener, edit — from
   `DESCRIBE_MODEL_ID`, `VERIFY_MODEL_ID`, `NOVA_LITE_MODEL_ID`, `EDIT_MODEL_ID`, `DESCRIBE_VERIFY`, `DESCRIBE_EDIT`) must have a price

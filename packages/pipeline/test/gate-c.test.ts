@@ -4,10 +4,10 @@ import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { meter, metered, Meter } from '../src/cost'
-import type { Step } from '../src/steps'
+import type { Ctx, Step } from '../src/steps'
 import type { FitCue } from '../src/steps/05-fit'
 import { buildPackets, limitOf, rubricMd, RUBRIC_TEMPLATE, scoresMd, shotsMd, tc, type PacketData } from '../src/eval/packets'
-import { BASE_INPUTS, CapExceeded, effectiveModels, EVAL_STEPS, parseSteps, pipelineQualitySteps, runGateC, type EvalDeps } from '../src/eval/run'
+import { BASE_INPUTS, CapExceeded, effectiveModels, evalCtx, evalGlossary, EVAL_STEPS, parseSteps, pipelineQualitySteps, runGateC, type EvalDeps } from '../src/eval/run'
 import { defaultCredit, preparePlan, prepareGateC, PREPARE_STEPS, type PrepareDeps } from '../src/eval/prepare'
 import { editModelId, LITE } from '../src/prompts'
 import { verifyModelId } from '../src/steps/04b-verify'
@@ -39,11 +39,11 @@ const snapshot = async (d: string) => {
 }
 const noStep = vi.fn(async () => { throw new Error('a step ran') })
 const deps = (over: Partial<EvalDeps> = {}): EvalDeps => ({ runStep: noStep, metered, meter, log: () => {}, ...over })
-const opts = (o: Partial<Parameters<typeof runGateC>[0]> = {}) => ({ workRoot: root, sourceSlug: 'src-clip', evalSlug: 'eval-1', steps: parseSteps('describe,fit,edit,voice'), cap: 0.3, language: 'en' as const, voice: 'Joanna', ...o })
+const opts = (o: Partial<Parameters<typeof runGateC>[0]> = {}) => ({ workRoot: root, sourceSlug: 'src-clip', evalSlug: 'eval-1', steps: parseSteps('describe,scenes,fit,edit,voice'), cap: 0.3, language: 'en' as const, voice: 'Joanna', ...o })
 
 describe('gate-c parseSteps', () => {
   it('takes consecutive evaluation steps in order', () => {
-    expect(parseSteps('describe,fit,edit,voice')).toEqual(['describe', 'fit', 'edit', 'voice'])
+    expect(parseSteps('describe,scenes,fit,edit,voice')).toEqual(['describe', 'scenes', 'fit', 'edit', 'voice'])
     expect(parseSteps(' fit , edit ')).toEqual(['fit', 'edit'])
   })
   it('refuses publish and every other non-evaluation step, gaps, wrong order and repeats', () => {
@@ -69,14 +69,14 @@ describe('gate-c run: input copying', () => {
     expect(copied).toEqual([...BASE_INPUTS, 'gate-c.json'].sort())
     for (const f of BASE_INPUTS) expect(await readFile(join(root, 'eval-1', f), 'utf8')).toBe(`input ${f}`)
     expect(await snapshot(src)).toEqual(before)
-    expect(step.mock.calls.map((c) => c[0])).toEqual(['describe', 'fit', 'edit', 'voice'])
+    expect(step.mock.calls.map((c) => c[0])).toEqual(['describe', 'scenes', 'fit', 'edit', 'voice'])
     expect(step.mock.calls[0]![1].work).toBe(join(root, 'eval-1'))
     const manifest = JSON.parse(await readFile(join(root, 'eval-1', 'gate-c.json'), 'utf8'))
-    expect(manifest).toMatchObject({ source: 'src-clip', steps: ['describe', 'fit', 'edit', 'voice'], capUsd: 0.3, totalUsd: 0, language: 'en', voice: 'Joanna' })
+    expect(manifest).toMatchObject({ source: 'src-clip', steps: ['describe', 'scenes', 'fit', 'edit', 'voice'], capUsd: 0.3, totalUsd: 0, language: 'en', voice: 'Joanna' })
     expect(manifest.versions).toEqual(expect.objectContaining({ VERIFY_PROMPT_VERSION: expect.any(Number), DESCRIBE_CACHE_VERSION: expect.any(Number) }))
     expect(Object.keys(manifest.env)).toEqual(expect.arrayContaining(['DESCRIBE_MODEL_ID', 'VERIFY_MODEL_ID', 'EDIT_MODEL_ID', 'DESCRIBE_EDIT', 'DESCRIBE_VERIFY', 'DESCRIBE_CONCURRENCY']))
     expect(typeof manifest.dirty).toBe('boolean')
-    expect(manifest.models.map((m: { role: string }) => m.role)).toEqual(['describe', 'verify', 'shorten (fit, edit)', 'edit'])
+    expect(manifest.models.map((m: { role: string }) => m.role)).toEqual(['describe', 'verify', 'scenes', 'shorten (fit, edit)', 'edit'])
   })
   it('a copy that fails part-way removes the half-copied eval dir', async () => {
     await sourceDir()
@@ -93,6 +93,24 @@ describe('gate-c run: input copying', () => {
     expect(copied).not.toContain('cues.json') // edit writes it from cues.fit.json
     expect(copied).not.toContain('cache')
     expect(copied).not.toContain('cue_0.mp3')
+  })
+  // DESC-029: fit and edit read the scenes; fit re-groups when scenes.json is missing or stale, so it is copied only when present.
+  it('starting at fit or edit carries scenes.json when the source has one', async () => {
+    await sourceDir()
+    await writeFile(join(root, 'src-clip', 'scenes.json'), '{"scenes":[]}')
+    await runGateC(opts({ steps: parseSteps('fit,edit') }), deps({ runStep: async () => {} }))
+    expect(await readdir(join(root, 'eval-1'))).toEqual(expect.arrayContaining(['described.json', 'scenes.json']))
+  })
+  it('the steps run with the SOURCE slug\'s glossary: the eval slug is a copy with no entry of its own', async () => {
+    await sourceDir('sintel-90-210')
+    const seen: (string[] | undefined)[] = []
+    const step = async (_: Step, ctx: Ctx) => { seen.push(ctx.glossary?.characters.map((c) => c.name)) }
+    await runGateC(opts({ sourceSlug: 'sintel-90-210', evalSlug: 'sintel-90-210-g10', steps: parseSteps('describe,scenes') }), deps({ runStep: step }))
+    expect(seen).toEqual([['Sintel', 'Shaman', 'Scales'], ['Sintel', 'Shaman', 'Scales']])
+    expect(evalGlossary('sintel-90-210').characters.map((c) => c.name)).toEqual(['Sintel', 'Shaman', 'Scales']) // docs/eval/gate-c-glossary.json
+    expect(evalGlossary('tears-of-steel-40-100').characters.map((c) => c.name)).toContain('Thom') // titles.json
+    expect(evalCtx(root, 'eval-1', 'en', 'Joanna', '', evalGlossary('sintel-90-210')).glossary?.settings.map((s) => s.name)).toEqual(['the snowy mountains', 'the tent', 'the town'])
+    expect(evalCtx(root, 'eval-1', 'en', 'Joanna').glossary).toBeUndefined()
   })
   it('refuses an existing eval dir, the source slug itself, a missing input and a non-positive cap', async () => {
     await sourceDir()
@@ -126,7 +144,7 @@ describe('gate-c run: model prices', () => {
     vi.stubEnv('EDIT_MODEL_ID', 'amazon.nova-pro-v1:0')
     await expect(runGateC(opts(), deps())).rejects.toThrow(/no price .*amazon\.nova-pro-v1:0 \(edit\)/)
     expect(existsSync(join(root, 'eval-1'))).toBe(false)
-    await expect(runGateC(opts({ steps: parseSteps('describe,fit'), dryRun: true }), deps())).resolves.toBeTruthy() // edit not run: its model does not matter
+    await expect(runGateC(opts({ steps: parseSteps('describe,scenes,fit'), dryRun: true }), deps())).resolves.toBeTruthy() // edit not run: its model does not matter
     vi.stubEnv('DESCRIBE_MODEL_ID', 'us.anthropic.unknown')
     await expect(runGateC(opts({ steps: parseSteps('describe'), dryRun: true }), deps())).rejects.toThrow(/describe/)
     expect(noStep).not.toHaveBeenCalled()
@@ -146,7 +164,7 @@ describe('gate-c run --dry-run', () => {
     expect(existsSync(join(root, 'eval-1'))).toBe(false)
     expect(await snapshot(src)).toEqual(before)
     expect(lines.join('\n')).toMatch(/mezz\.mp4/)
-    expect(lines.join('\n')).toMatch(/describe → fit → edit → voice/)
+    expect(lines.join('\n')).toMatch(/describe → scenes → fit → edit → voice/)
     expect(lines.join('\n')).not.toMatch(/cache\/describe|cue_0/)
   })
 })
@@ -181,14 +199,14 @@ describe('gate-c run: hard spend cap', () => {
     const step = async (s: Step, ctx: { signal?: AbortSignal }) => { ran.push(s); if (ctx.signal?.aborted) throw new Error('aborted'); fake.bedrock('amazon.nova-lite-v1:0', { inputTokens: 1e6 }) } // $0.06 each
     const err = await runGateC(opts({ cap: 0.1 }), deps({ runStep: step, metered: fakeMetered, meter: () => fake })).catch((e: unknown) => e)
     expect(err).toBeInstanceOf(CapExceeded)
-    expect(ran).toEqual(['describe', 'fit']) // 0.06, then 0.12 > 0.10: edit and voice never run
+    expect(ran).toEqual(['describe', 'scenes']) // 0.06, then 0.12 > 0.10: fit, edit and voice never run
   })
   it('a step error carries the spend so far and stops the run', async () => {
     await sourceDir()
     const step = async (s: Step) => { meter()!.add(0.01); if (s === 'fit') throw new Error('boom') }
     const err = await runGateC(opts(), deps({ runStep: step })).catch((e: unknown) => e) as Error & { costUsd: number }
     expect(err.message).toBe('boom')
-    expect(err.costUsd).toBeCloseTo(0.02)
+    expect(err.costUsd).toBeCloseTo(0.03) // describe, scenes, then fit
   })
 })
 

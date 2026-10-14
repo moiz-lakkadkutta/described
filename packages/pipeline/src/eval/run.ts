@@ -5,6 +5,8 @@ import { join } from 'node:path'
 import { editModelId, LITE } from '../prompts'
 import { BEDROCK_PRICES, meter as currentMeter, metered as runMetered, type Meter } from '../cost'
 import { ctxFor, SLUG_RE, STEPS, type Ctx, type Step } from '../steps'
+import { DEFAULT_GLOSSARY_FILE, isEmpty, loadGlossary, type Glossary } from '../glossary'
+import { scenesModelId } from '../scenePrompt'
 import { CONTINUATION_CACHE_VERSION, DEFAULT_DESCRIBE_MODEL_ID, DESCRIBE_CACHE_VERSION, describeConcurrency } from '../steps/04-describe'
 import { verifyEnabled, verifyModelId } from '../steps/04b-verify'
 import { VERIFY_PROMPT_VERSION } from '../verifyPrompt'
@@ -14,12 +16,12 @@ import { VERIFY_PROMPT_VERSION } from '../verifyPrompt'
  * the pipeline meter with a hard spend cap. Never publishes, never writes the DB: only describe/fit/edit/voice can be named, and
  * they read and write work/{slug}/ alone (the S3 upload, Title rows and publish are in speech/package/publish and the CLI).
  *
- * TODO(DESC-029): when the `scenes` step and the per-title glossary land, EVAL_STEPS must take the new step (a test fails until it
- * does) and evalCtx must pass the SOURCE slug's glossary — the eval slug has none, so the run would silently describe without it.
+ * DESC-029: EVAL_STEPS includes the `scenes` step (04c), and evalCtx carries the SOURCE slug's glossary (evalGlossary) — the eval slug
+ * is a copy with no entry of its own, and a run without the glossary would describe with the old prompt.
  */
 
 /** The steps an evaluation may run, in pipeline order. Anything else (mix, package, publish …) is refused. */
-export const EVAL_STEPS = ['describe', 'fit', 'edit', 'voice'] as const satisfies readonly Step[]
+export const EVAL_STEPS = ['describe', 'scenes', 'fit', 'edit', 'voice'] as const satisfies readonly Step[]
 export type EvalStep = typeof EVAL_STEPS[number]
 export const DEFAULT_CAP_USD = 0.3
 
@@ -35,9 +37,12 @@ const REQUIRED = new Set(['probe.json', 'shots.json', 'gaps.json', 'words.json',
 /** Outputs of an earlier step that the first step reads (05b-edit starts from cues.fit.json). voice is never first (parseSteps). */
 const CARRIED: Record<Exclude<EvalStep, 'voice'>, readonly string[]> = {
   describe: [],
+  scenes: ['described.json'],
   fit: ['described.json'],
   edit: ['described.json', 'cues.fit.json'],
 }
+/** Copied when present: fit and edit read the scenes (04c-scenes). fit re-groups by itself when scenes.json is missing or stale. */
+const CARRIED_IF_PRESENT: Record<Exclude<EvalStep, 'voice'>, readonly string[]> = { describe: [], scenes: [], fit: ['scenes.json'], edit: ['scenes.json'] }
 
 /**
  * Pure (tested): `describe,fit` → steps in pipeline order; refuses unknown, non-evaluation, repeated or non-contiguous steps, and
@@ -65,6 +70,7 @@ export function effectiveModels(steps: readonly EvalStep[]): { role: string; id:
     out.push({ role: 'describe', id: describe })
     if (verifyEnabled()) out.push({ role: 'verify', id: verifyModelId(describe) })
   }
+  if (steps.includes('scenes')) out.push({ role: 'scenes', id: scenesModelId() }) // 04c-scenes
   if (steps.includes('fit') || steps.includes('edit')) out.push({ role: 'shorten (fit, edit)', id: LITE() })
   if (steps.includes('edit') && process.env.DESCRIBE_EDIT !== '0') out.push({ role: 'edit', id: editModelId() }) // 05b-edit skips its call on DESCRIBE_EDIT=0
   return out
@@ -92,7 +98,7 @@ export async function planEval(o: { workRoot: string; sourceSlug: string; evalSl
   if (!(await stat(sourceDir).then((s) => s.isDirectory(), () => false))) throw new Error(`no work dir ${sourceDir}`)
   await assertNew(evalDir)
   const present = new Set(await readdir(sourceDir))
-  const wanted = [...BASE_INPUTS, ...CARRIED[first]]
+  const wanted = [...BASE_INPUTS, ...CARRIED[first], ...CARRIED_IF_PRESENT[first]]
   const missing = wanted.filter((f) => !present.has(f) && (REQUIRED.has(f) || CARRIED[first].includes(f)))
   if (missing.length) throw new Error(`${sourceDir} lacks ${missing.join(', ')} (needed to start at ${first})`)
   const copy: CopyItem[] = []
@@ -197,8 +203,16 @@ export function describePlan(plan: Plan, sourceSlug: string, evalSlug: string): 
   ]
 }
 
-export const evalCtx = (workRoot: string, slug: string, language: 'en' | 'de', voice: string, source = ''): Ctx =>
-  ({ ...ctxFor({ slug, source, language, voice }), work: join(workRoot, slug) })
+export const evalCtx = (workRoot: string, slug: string, language: 'en' | 'de', voice: string, source = '', glossary?: Glossary): Ctx =>
+  ({ ...ctxFor({ slug, source, language, voice }), work: join(workRoot, slug), ...(glossary ? { glossary } : {}) })
+
+/** Glossaries of evaluation segments that are not catalogue titles (sintel-90-210, the Gate C segment). */
+export const EVAL_GLOSSARY_FILE = new URL('../../../../docs/eval/gate-c-glossary.json', import.meta.url)
+/** The source slug's glossary: its titles.json entry, else its entry in EVAL_GLOSSARY_FILE (a warning when neither has one). */
+export function evalGlossary(sourceSlug: string, files: readonly (string | URL)[] = [process.env.GLOSSARY_FILE ?? DEFAULT_GLOSSARY_FILE, EVAL_GLOSSARY_FILE]): Glossary {
+  for (const f of files) { const g = loadGlossary(sourceSlug, f, { warn: false }); if (!isEmpty(g)) return g }
+  return loadGlossary(sourceSlug, files[0]!)
+}
 
 /**
  * The whole `gate-c run`: plan, check every model has a price, print, and — unless dryRun — copy the inputs, run the steps and write
@@ -218,7 +232,7 @@ export async function runGateC(o: { workRoot: string; sourceSlug: string; evalSl
     throw e
   }
   try {
-    const r = await runEvalSteps(plan, evalCtx(o.workRoot, o.evalSlug, o.language, o.voice), deps)
+    const r = await runEvalSteps(plan, evalCtx(o.workRoot, o.evalSlug, o.language, o.voice, '', evalGlossary(o.sourceSlug)), deps)
     await writeManifest(plan.evalDir, record, settings, r)
     return r
   } catch (e) {

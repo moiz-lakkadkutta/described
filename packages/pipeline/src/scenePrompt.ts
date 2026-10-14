@@ -1,5 +1,6 @@
 import type { ConverseCommandInput } from '@aws-sdk/client-bedrock-runtime'
 import type { Setting } from '@described/contracts'
+import { LITE } from './prompts'
 
 /**
  * The scene-grouping request (DESC-029, steps/04c-scenes.ts, docs/decisions/0012-characters-and-scenes.md): one text-only Nova Lite
@@ -9,7 +10,7 @@ import type { Setting } from '@described/contracts'
  * https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ToolChoice.html
  * Converse: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html
  */
-export const scenesModelId = () => process.env.SCENES_MODEL_ID ?? process.env.NOVA_LITE_MODEL_ID ?? 'amazon.nova-lite-v1:0'
+export const scenesModelId = () => process.env.SCENES_MODEL_ID ?? LITE()
 
 /** JSON Schema for the forced emit_scenes tool's input (Nova: a top-level object with type, properties, required). */
 export const SCENES_TOOL_SCHEMA = {
