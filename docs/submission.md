@@ -163,8 +163,7 @@ Services and why each is load-bearing — the full table with costs is [docs/aws
 - **Amazon S3 + CloudFront**: sources, renditions and HLS delivery; CloudFront is configured to serve only `/published/*` (`infra/lib/media-stack.ts`). TODO(human): confirm after the media-stack deploy.
 - **AWS CDK**: the whole stack as code in `infra/`.
 
-Dev tooling listed in [docs/aws.md](aws.md): Claude Code, Kiro Crew, Amazon Devices Builder Tools MCP.
-TODO(human): confirm Kiro Crew and the Builder Tools MCP were actually used before claiming them.
+Dev tooling listed in [docs/aws.md](aws.md): Claude Code.
 
 ## Feedback and friction
 
