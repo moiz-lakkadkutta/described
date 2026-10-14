@@ -47,6 +47,8 @@ export async function metered<T>(fn: () => Promise<T>, signal?: AbortSignal): Pr
  * Measured cost of the five DESC-010 titles (60 s each, CLI meter, first runs on 2026-10-14; Sintel is its re-run that day) —
  * docs/titles.md "Measured cost per title". The estimate before a run (DESC-025, src/own.ts) is built from these, not from the
  * unit prices alone: how many shots, cues and characters a minute of film produces is only known from real runs.
+ * These five were measured before the verify pass (DESC-027, decision 0010). The describe step's meter now includes the verify call
+ * (≈ +$0.020 / min, estimated), so a describe figure measured from now on is describe + verify and is not comparable with these.
  */
 export const MEASURED_TITLES = [
   { slug: 'sintel-90-150-r2', seconds: 60, transcribe: 0.0240, describe: 0.0177, nova: 0.0004, polly: 0.0094, total: 0.0514 },
