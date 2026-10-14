@@ -50,10 +50,11 @@ export function filmEnds<T extends FitCue>(cues: readonly T[], durationMs?: numb
 
 /**
  * cues.json in canonical order (start, then end — ends clamped by filmEnds first, so the order matches the DescriptionCue rows the
- * API sorts), each with its cues.json index (its clip). Cues filmEnds drops are left out; the others keep their own index.
+ * API sorts), each with its cues.json index (its clip). Ties on start and end keep cues.json order; the row ids follow it
+ * (descriptionCueRows), and the API breaks the same tie by id. Cues filmEnds drops are left out; the others keep their own index.
  */
 export function ordered(cues: readonly FitCue[], durationMs?: number): (FitCue & { i: number })[] {
-  return filmEnds(cues.map((c, i) => ({ ...c, i })), durationMs).sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs)
+  return filmEnds(cues.map((c, i) => ({ ...c, i })), durationMs).sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs || a.i - b.i)
 }
 
 /** The title's length in ms from work/probe.json; undefined when the file or the number is missing. */
@@ -79,11 +80,13 @@ export function descriptionsVtt(cues: readonly FitCue[], durationMs?: number): s
   })))
 }
 
-export interface DescriptionCueRow { titleId: string; startMs: number; endMs: number; text: string; extended: boolean; wordCount: number; pollyKey: string | null }
-/** DescriptionCue rows in canonical order; pollyKey only where the clip was published (`published`: cues.json index → key). */
+export interface DescriptionCueRow { id: string; titleId: string; startMs: number; endMs: number; text: string; extended: boolean; wordCount: number; pollyKey: string | null }
+/** Row id of cue d{n+1}: `{titleId}:d` + n+1 in 6 digits, so ids sort in canonical order (the API's last ORDER BY key; d{n} ≤ d999999). */
+export const descriptionCueId = (titleId: string, n: number) => `${titleId}:d${String(n + 1).padStart(6, '0')}`
+/** DescriptionCue rows in canonical order (ids from descriptionCueId); pollyKey only where the clip was published (`published`: cues.json index → key). */
 export function descriptionCueRows(titleId: string, cues: readonly FitCue[], published: ReadonlyMap<number, string>, durationMs?: number): DescriptionCueRow[] {
-  return ordered(cues, durationMs).map((c) => ({
-    titleId, startMs: c.startMs, endMs: c.endMs, text: c.text, extended: c.extended, wordCount: c.wordCount,
+  return ordered(cues, durationMs).map((c, n) => ({
+    id: descriptionCueId(titleId, n), titleId, startMs: c.startMs, endMs: c.endMs, text: c.text, extended: c.extended, wordCount: c.wordCount,
     pollyKey: published.get(c.i) ?? null,
   }))
 }

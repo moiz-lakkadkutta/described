@@ -103,6 +103,15 @@ describe('cue ids', () => {
     const vtt = descriptionsVtt(cues)
     expect([...vtt.matchAll(/^(d\d+)\n(\S+) --> (\S+)$/gm)].map((m) => [m[1], m[2], m[3]]).slice(0, 2)).toEqual([['d1', '00:00:01.000', '00:00:01.001'], ['d2', '00:00:01.000', '00:00:04.000']])
   })
+  it('cues tied on start and end keep cues.json order, and each row\'s id sorts the way the API breaks the tie (d{n} → its own clip)', () => {
+    const cues = [cue(5000, 5100, true, 'Words appear: Paris.'), cue(5000, 5100, true, 'Words appear: Berlin.'), cue(1000, 2000)]
+    expect(parseVtt(descriptionsVtt(cues), { trackId: 'd' }).map((c) => [c.id, c.text])).toEqual([['d1', 'A dragon lands.'], ['d2', 'Words appear: Paris.'], ['d3', 'Words appear: Berlin.']])
+    const rows = descriptionCueRows('t1', cues, new Map([[0, 'paris'], [1, 'berlin'], [2, 'dragon']]))
+    expect(rows.map((r) => [r.id, r.pollyKey])).toEqual([['t1:d000001', 'dragon'], ['t1:d000002', 'paris'], ['t1:d000003', 'berlin']])
+    // the API orders by (startMs, endMs, id): the same order
+    const api = [...rows].reverse().sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    expect(api.map((r) => r.pollyKey)).toEqual(['dragon', 'paris', 'berlin'])
+  })
   it('pollyKey is null for a cue whose clip was not published', () => {
     expect(descriptionCueRows('t', [cue(0, 2000), cue(5000, 5100, true)], new Map([[0, 'k0']])).map((r) => r.pollyKey)).toEqual(['k0', null])
   })
@@ -155,8 +164,8 @@ describe('publish and DescriptionCue rows (no AWS, no Postgres: upload and datab
     expect(f.ops).toEqual([
       { deleteMany: { where: { titleId: 't1' } } },
       { createMany: { data: [
-        { titleId: 't1', startMs: 0, endMs: 2000, text: 'A dragon lands.', extended: false, wordCount: 3, pollyKey: `published/x/cues/cue_0.${h0}.mp3` },
-        { titleId: 't1', startMs: 5000, endMs: 5100, text: 'A dragon lands.', extended: true, wordCount: 3, pollyKey: `published/x/cues/cue_1.${h1}.mp3` },
+        { id: 't1:d000001', titleId: 't1', startMs: 0, endMs: 2000, text: 'A dragon lands.', extended: false, wordCount: 3, pollyKey: `published/x/cues/cue_0.${h0}.mp3` },
+        { id: 't1:d000002', titleId: 't1', startMs: 5000, endMs: 5100, text: 'A dragon lands.', extended: true, wordCount: 3, pollyKey: `published/x/cues/cue_1.${h1}.mp3` },
       ] } },
     ])
   })

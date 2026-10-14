@@ -28,8 +28,13 @@ titles.get('/:slug', async (req, res, next) => {
   } catch (e) { next(e) }
 })
 
-/** Description cues in canonical order — start, then end — so `d{n}` is the n-th (packages/pipeline/src/cues.ts). */
-const cueOrder = [{ startMs: 'asc' as const }, { endMs: 'asc' as const }]
+/**
+ * Description cues in canonical order — start, then end, then id — so `d{n}` is the n-th (packages/pipeline/src/cues.ts). The id
+ * makes the order total: rows tied on start and end (two pauses on one millisecond, each ending 1 ms later) would otherwise come
+ * back in no promised order, and the VTT (full list) and the clip route (OFFSET n−1) could disagree. The pipeline writes ids that
+ * sort in its own order ({titleId}:d{n, 6 digits}, cues.ts descriptionCueRows).
+ */
+const cueOrder = [{ startMs: 'asc' as const }, { endMs: 'asc' as const }, { id: 'asc' as const }]
 
 /** One line of cue text: whitespace (blank lines too) collapsed, no `-->` or `{…}` that a parser would read as timing or meta. */
 export const vttText = (t: string) => t.replace(/-->/g, '→').replace(/[{}]/g, '').replace(/\s+/g, ' ').trim()

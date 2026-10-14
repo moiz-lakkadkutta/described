@@ -154,6 +154,7 @@ describe('pipeline jobs', () => {
   it('chains every step to the next by titleId, with the files each step writes', async () => {
     const f = fakes()
     const files: Partial<Record<JobStep, [string, unknown]>> = {
+      // 10 s, not 1 s: finishFiles' cues start at 0 and 5 s, and a cue starting at or after the title's end is dropped (cues.ts filmEnds)
       probe: ['probe.json', { format: { duration: '10' } }], shots: ['shots.json', [{ index: 0, startMs: 0, endMs: 1000 }]],
       speech: ['gaps.json', []], describe: ['described.json', [{ index: 0, startMs: 0, endMs: 1000, description: 'Snow.', sameAsPrev: false, tokens: 1, outputTokens: 1 }]],
     }
