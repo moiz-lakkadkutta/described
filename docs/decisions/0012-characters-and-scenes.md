@@ -33,8 +33,8 @@ place words depend on a glossary; a title without one (`pnpm describe` on your o
 Schema in `packages/contracts` (`Glossary`, `Character`, `Setting`), validated by `TitleSeed`. The API does not store it: no screen
 or route shows it, and the pipeline needs it for a CLI run with no database, so the pipeline reads titles.json
 (`packages/pipeline/src/glossary.ts`; `GLOSSARY_FILE` overrides; a video with no entry — `pnpm describe` on your own file — has an
-empty glossary — no names, scenes as for any title — and a loud warning; an evaluation copy such as `sintel-90-210-g10` reads its
-source slug's entry).
+empty glossary — no names, scenes as for any title — and a loud warning; an evaluation copy named `<source>-g<n>` such as
+`sintel-90-210-g10` reads its source slug's entry, a sibling title such as `tears-of-steel-40-100-de` does not).
 
 - Character: `name`, `look` (stable visible descriptors, every detail checked against frames), `short` (a short reference from the
   look, said in place of a name the cue may not use: "the young man in the leather jacket"), `role` (their part in the story),
@@ -49,14 +49,16 @@ source slug's entry).
   (the same matching as the evaluation's descriptor assignment: same kind of noun, most look words shared, ties broken by the clause —
   "man in dark jacket aims rifle" is the sniper, not Thom). The describe prompt says "only if the person visible matches this look,
   call them Thom"; the edit guard and the final grounding pass reject or replace a name on a cue whose shots do not show that person.
+  A revealed name the describer itself wrote in one of the cue's shot descriptions is bound (it saw the frames and the look-bound
+  list: "The old man pulls Emo." keeps Emo); the look test applies to a name that fit or the edit pass adds. A name the dialogue has
+  said by the cue's start is kept whatever the binding.
 - **Voice (the human's request): `look` and `role` are written as a film director would introduce the character to the audience —
   vivid, story-aware, short** ("a bald old man with a long nose, in a long brown coat and a red tie"; "the old man leading Emo through
   the machine, insisting that everything is safe").
 - **Guardrails (the orchestrator's challenge, accepted by the human): only what a sighted viewer can see, or has been told by that
   point; no inner thoughts, intentions or later plot; no name before it is revealed inside the segment; a role is never voiced.** The
   describe prompt therefore gets the look always and the name only once `revealedAtS` has passed at the shot's start — never the role.
-  The edit pass sees the role only as `background` to choose what matters, with the rule "never use its words", and its guard rejects
-  role words.
+  The edit request carries no role either, and the edit guard rejects role words.
 
 ### 2. Describe prompt (`prompts.ts`, `describeSystemPrompt`; the only describe change)
 
@@ -110,7 +112,7 @@ the new describe prompt.) Per-scene establishing calls to Qwen3-VL (option B of 
 
 - **One window per scene** (a scene of more than 30 cues is split), not blocks of 30 cues.
 - The request carries the scene (place, the place's look, whether it returns, whether its place was said as heard so far), the people
-  (look always; name and `namedFrom` once revealed; the role as `background` only) and per cue `mayName`. New rules: say the place once, at the scene's first action cue,
+  (look always; name and `namedFrom` once revealed; never the role) and per cue `mayName`. New rules: say the place once, at the scene's first action cue,
   when the words fit ("Back in …" on a return), never twice; names only where `mayName` allows ("the bald old man, Proog" the first
   time); and **the voice: guide the listener through the story as a film's describer would — connective ("Back in the lab, the
   man…", "then"), choosing what matters to the story, in the film's tone — never what anyone thinks, wants or feels, never a hint of

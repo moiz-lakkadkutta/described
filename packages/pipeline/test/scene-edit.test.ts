@@ -44,7 +44,8 @@ describe('edit pass with scenes and a glossary (DESC-029)', () => {
     expect(sent).toHaveLength(1)
     const input = JSON.parse((sent[0]!.messages![0]!.content![0] as { text: string }).text.replace(/^Input:\n/, '').replace(/\n\nUse the emit_edits tool[\s\S]*$/, ''))
     expect(input.scene).toEqual({ setting: 'the white chamber', looks: expect.stringContaining('cables'), returning: false, placeAlreadySaid: false })
-    expect(input.people).toEqual([{ look: 'a bald old man with a long nose, in a long brown coat and a red tie' }, { look: expect.stringContaining('thin young man'), name: 'Emo', namedFrom: 25.1, background: expect.any(String) }])
+    expect(input.people).toEqual([{ look: 'a bald old man with a long nose, in a long brown coat and a red tie' }, { look: expect.stringContaining('thin young man'), name: 'Emo', namedFrom: 25.1 }])
+    for (const c of ED.characters) expect(JSON.stringify(sent[0])).not.toContain(c.role) // never the role (0012)
     expect(input.cues.map((c: { mayName?: string[] }) => c.mayName)).toEqual([['Emo'], ['Emo'], ['Emo']])
     expect((sent[0]!.system![0] as { text: string }).text).toMatch(/8\. These cues are one scene, set in "the white chamber"[\s\S]*9\. People:[\s\S]*10\. Voice: guide the listener/)
   })
@@ -54,12 +55,14 @@ describe('edit pass with scenes and a glossary (DESC-029)', () => {
     expect(edit(2, 'Emo blinks, turns his head.').rejected).toEqual([{ i: 2, text: 'Emo blinks, turns his head.', reason: 'not in any shot description: his' }]) // "his" is still a fact to trace
     expect(edit(2, 'Emo blinks, turns head.').applied).toHaveLength(1) // shot 2 shows the thin young man
     expect(edit(2, 'The thin young man in a pale green shirt blinks, turns head.').applied).toHaveLength(1) // his look: shot 2 shows him
-    expect(edit(1, 'The bald man in the coat stands, then steps forward as the other figure, Emo, crawls.').rejected[0]!.reason).toMatch(/^name not revealed, not shown in its shots/) // shot 1 never shows him by look
+    const noDialogue = (i: number, text: string) => applyEdits(edCues, edShots, [{ cue: i, text }], budgets, [0, 3], 'en', { ...guard, spoken: [] })
+    expect(noDialogue(1, 'The bald man in the coat stands, then steps forward as the other figure, Emo, crawls.').rejected[0]!.reason).toMatch(/^name not revealed, not shown in its shots/) // shot 1 never shows him by look
+    expect(edit(1, 'The bald man in the coat stands, then steps forward as the other figure, Emo, crawls.').rejected.map((r) => r.reason)).toEqual(['not a sentence: new list comma after "figure"']) // the dialogue has said "Emo" by then: no name rejection (only #52's sentence guard)
     expect(edit(1, 'The bald man in the coat stands, then steps forward as the thin young man crawls.').rejected[0]!.reason).toMatch(/not in any shot description: thin, young/) // nor his look
     expect(edit(1, 'Proog stands, then steps forward as the other figure crawls.').rejected[0]!.reason).toMatch(/: Proog$/)
     expect(edit(2, 'Thin young man blinks, turns head toward Jack.').rejected[0]!.reason).toMatch(/: Jack$/)
     const early = [cue(0, 10_000, 'Thin young man blinks, turns head.')]
-    expect(applyEdits(early, edShots.slice(2).map((x) => ({ ...x, index: 0 })), [{ cue: 0, text: 'Emo blinks, turns head.' }], [20], [0, 1], 'en', guard).rejected[0]!.reason).toMatch(/: Emo$/)
+    expect(applyEdits(early, edShots.slice(2).map((x) => ({ ...x, index: 0 })), [{ cue: 0, text: 'Emo blinks, turns head.' }], [20], [0, 1], 'en', guard).rejected[0]!.reason).toMatch(/Emo/)
     for (const c of ED.characters) expect(edit(2, `Thin young man blinks, turns head, ${c.role.split(' ').slice(-2).join(' ')}.`).applied).toHaveLength(0) // a role is never words in a cue
   })
   it('a proper noun a missed shot\'s description says is grounded there (folded into the next cue)', () => {
@@ -105,9 +108,14 @@ describe('edit pass with scenes and a glossary (DESC-029)', () => {
     const shots = [sh(0, 9000, 12_000, 'Proog stands on the platform.'), sh(1, 29_000, 32_000, 'The thin young man, Emo, crawls on the platform.'), sh(2, 39_000, 42_000, 'Emo stands on the platform.')]
     const scenes: Scene[] = [{ ...edScenes[0]!, shots: [0, 1, 2], startMs: 9000, endMs: 42_000 }]
     const r = await editScene(early, shots, edWords, 'en', toolReply([]), undefined, noShorten, { scenes, glossary: ED })
-    // Proog: not revealed; Emo at 40 s: revealed, but nothing in shot 2 shows which figure he is (binding) — both become the short reference
-    expect(r.cues.map((c) => c.text)).toEqual(['The bald old man stands on the platform.', 'The thin young man, Emo, crawls on the platform.', 'The thin young man stands on the platform.'])
-    expect(r.applied).toEqual([{ i: 0, from: 'Proog stands on the platform.', to: 'The bald old man stands on the platform.', by: 'name' }, { i: 2, from: 'Emo stands on the platform.', to: 'The thin young man stands on the platform.', by: 'name' }])
+    // Proog: not revealed, becomes the short reference. Emo at 40 s: revealed, and the describer wrote the name in shot 2 itself: kept.
+    expect(r.cues.map((c) => c.text)).toEqual(['The bald old man stands on the platform.', 'The thin young man, Emo, crawls on the platform.', 'Emo stands on the platform.'])
+    expect(r.applied).toEqual([{ i: 0, from: 'Proog stands on the platform.', to: 'The bald old man stands on the platform.', by: 'name' }])
+    // A name fit or edit put on a shot that neither names nor shows him (and no dialogue): the short reference.
+    const added = await editScene([cue(0, 40_000, 'Emo stands on the platform.')], [sh(0, 39_000, 42_000, 'A man stands on the platform.')], [], 'en', toolReply([]), undefined, noShorten, { scenes: [{ ...edScenes[0]!, shots: [0] }], glossary: ED })
+    expect(added.cues[0]!.text).toBe('The thin young man stands on the platform.')
+    const keeps = await editScene([cue(0, 40_000, 'The old man pulls Emo.')], [sh(0, 39_000, 42_000, 'The old man pulls Emo.')], [], 'en', toolReply([]), undefined, noShorten, { scenes: [{ ...edScenes[0]!, shots: [0] }], glossary: ED })
+    expect(keeps.cues[0]!.text).toBe('The old man pulls Emo.')
     expect(r.evidence[1]).toEqual({ i: 1, names: [{ name: 'Emo', source: 'glossary', revealedAtS: 25.1, evidence: expect.stringContaining('c3') }], setting: { scene: 0, words: [{ word: 'platform', source: 'description', shot: 0 }] } })
     expect(cueEvidence(0, cue(0, 40_000, 'A man named Jack waits.'), shots, guard)).toMatchObject({ unbacked: ['Jack'] })
   })

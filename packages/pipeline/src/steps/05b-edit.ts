@@ -139,7 +139,7 @@ export async function editScene(cues: FitCue[], shots: Described[], words: Word[
     const set = sc?.settingName ? glossary.settings.find((x) => x.name === sc.settingName) : undefined
     const scene = sc && { setting: sc.setting, ...(set ? { looks: set.look } : {}), returning: sc.returning, placeAlreadySaid: report.cues.slice(0, from).some((c) => sc.shots.includes(c.shotIndex) && statesPlace(c.text, sceneStems(sc, glossary))) }
     const end = cues[to - 1]!.startMs
-    const people = isEmpty(glossary) ? undefined : glossary.characters.map((c) => (isProperName(c) && nameRevealed(c, end) ? { look: c.look, name: c.name, namedFrom: c.revealedAtS!, background: c.role } : { look: c.look }))
+    const people = isEmpty(glossary) ? undefined : glossary.characters.map((c) => (isProperName(c) && nameRevealed(c, end) ? { look: c.look, name: c.name, namedFrom: c.revealedAtS! } : { look: c.look }))
     const input = { language, cues: window, dialogue: dialogueTurns(words, cues[from]!.startMs - 10_000, cues[to - 1]!.endMs + 10_000), heard, ...(scene ? { scene } : {}), ...(people ? { people } : {}) }
     let reply: unknown
     // The forced tool first; when that call fails (Nova Lite: "Model produced invalid sequence as part of ToolUse" on some inputs, probe
@@ -485,7 +485,7 @@ export function unfaithfulWords(text: string, allowed: readonly string[], gate?:
     const revealed = allowedNames(gate.glossary, gate.atMs)
     const spoken = (gate.spoken ?? []).filter((s) => s.at * 1000 <= gate.atMs).map((s) => s.name)
     for (const c of gate.glossary.characters.filter((x) => shown.has(x.name))) more.push(c.look, shortOf(c), ...(revealed.includes(c.name) ? [c.name] : []))
-    more.push(...spoken.filter((n) => !gate.glossary.characters.some((c) => c.name === n)), ...(gate.extra ?? []))
+    more.push(...spoken, ...(gate.extra ?? [])) // a name the dialogue has said by then is evidence on any shot, as before DESC-029
   }
   const ok = new Set([...allowed, ...more].flatMap((a) => contentWords(a).map(stem)))
   return [...new Set(contentWords(text))].filter((w) => !ok.has(stem(w)))

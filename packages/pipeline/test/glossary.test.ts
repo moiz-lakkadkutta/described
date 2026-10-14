@@ -19,12 +19,16 @@ describe('glossary (DESC-029)', () => {
   })
   it('an evaluation copy of a slug reads its source\'s glossary (sintel-90-210-g10 → sintel-90-210; tears-of-steel-40-100-g1 → tears-of-steel-40-100)', () => {
     const file = new URL('../../../docs/eval/gate-c-glossary.json', import.meta.url)
-    for (const slug of ['sintel-90-210', 'sintel-90-210-g10', 'sintel-90-210-anything']) {
+    for (const slug of ['sintel-90-210', 'sintel-90-210-g10', 'sintel-90-210-g2']) {
       const g = loadGlossary(slug, file)
       expect(g.characters.map((c) => [c.name, c.revealedAtS])).toEqual([['Sintel', null], ['Shaman', null], ['Scales', null]])
       expect(g.settings.map((s) => s.name)).toEqual(['the snowy mountains', 'the tent', 'the town'])
     }
     expect(loadGlossary('tears-of-steel-40-100-g1')).toEqual(tos)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    expect(loadGlossary('tears-of-steel-40-100-de')).toEqual(EMPTY_GLOSSARY) // a sibling title (another language) is not an eval copy
+    expect(loadGlossary('tears-of-steel-40-100-g')).toEqual(EMPTY_GLOSSARY)
+    warn.mockRestore()
   })
   it('allows a glossary name only from its reveal inside the segment (Emo 25.1 s, Thom 2.2 s; Celia never), and names spoken in the dialogue', () => {
     expect(allowedNames(ED, 25_000)).toEqual([])
@@ -56,7 +60,16 @@ describe('glossary (DESC-029)', () => {
     expect(matchedCharacters([SNIPER], tos)).toEqual(new Set(['the sniper']))
     expect(matchedCharacters(['The young man in the leather jacket, Thom, gestures to the woman with a mechanical arm.'], tos)).toEqual(new Set(['Thom', 'Celia']))
     expect(nameEvidence('Thom aims a rifle from the balcony.', 45_000, tos, [], [SNIPER])).toMatchObject({ names: [], unbound: ['Thom'] })
-    expect(nameEvidence('The young man in the leather jacket, Thom, gestures.', 3_000, tos, [], [BRIDGE]).names.map((n) => n.name)).toEqual(['Thom'])
+    expect(nameEvidence('Thom gestures.', 3_000, tos, [], ['The young man in the leather jacket gestures.']).names.map((n) => n.name)).toEqual(['Thom']) // bound by look
+    expect(nameEvidence('Thom gestures.', 3_000, tos, [], [BRIDGE]).unbound).toEqual(['Thom']) // "a man in a dark jacket": Thom or the sniper
+  })
+  it('a revealed name the describer itself wrote in the shot description is bound; one added later must match the look', () => {
+    expect(nameEvidence('Emo runs.', 40_000, ED, [], ['Emo runs.'])).toMatchObject({ names: [{ name: 'Emo', source: 'glossary' }], unbound: [] })
+    expect(nameEvidence('The old man pulls Emo.', 40_000, ED, [], ['The old man pulls Emo.'])).toMatchObject({ names: [{ name: 'Emo' }], unbound: [] })
+    expect(nameEvidence('Emo runs.', 40_000, ED, [], ['A man runs.'])).toMatchObject({ names: [], unbound: ['Emo'] }) // added by fit or edit, no look
+    expect(nameEvidence('Thom aims a rifle.', 45_000, tos, [], [SNIPER])).toMatchObject({ unbound: ['Thom'] })
+    expect(nameEvidence('Thom aims a rifle.', 45_000, tos, [{ name: 'Thom', at: 3 }], [SNIPER])).toMatchObject({ names: [{ name: 'Thom', source: 'dialogue', at: 3 }], unbound: [] }) // heard in the dialogue: kept
+    expect(nameEvidence('The young man in the leather jacket, Thom, aims a rifle.', 45_000, tos, [], [SNIPER])).toMatchObject({ unbound: ['Thom'] }) // the cue's own words do not bind
   })
   it('nameEvidence: glossary names once revealed, dialogue names once heard, premature and invented names reported', () => {
     expect(nameEvidence('Emo blinks, turns his head.', 30_000, ED)).toEqual({ names: [{ name: 'Emo', source: 'glossary', revealedAtS: 25.1, evidence: expect.stringContaining('c3') }], premature: [], invented: [], unbound: [] })

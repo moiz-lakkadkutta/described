@@ -21,14 +21,15 @@ const Entry = z.object({ slug: z.string() }).merge(Glossary)
 const warned = new Set<string>()
 /**
  * The glossary for `slug` from `file` (titles.json): the entry with that slug, else the entry whose slug the requested one extends —
- * an evaluation copy such as `sintel-90-210-g10` (pnpm gate-c) reads `sintel-90-210`'s — else EMPTY_GLOSSARY, with a loud warning
+ * an evaluation copy named `<source>-g<n>` (`sintel-90-210-g10`, pnpm gate-c) reads `sintel-90-210`'s, never a sibling title such as
+ * `tears-of-steel-40-100-de` — else EMPTY_GLOSSARY, with a loud warning
  * once per slug (no name will be voiced). A malformed entry throws.
  */
 export function loadGlossary(slug: string, file: string | URL = process.env.GLOSSARY_FILE ?? DEFAULT_GLOSSARY_FILE, opts: { warn?: boolean } = {}): Glossary {
   let raw: unknown
   try { raw = JSON.parse(readFileSync(file, 'utf8')) } catch { raw = undefined }
   const entries = Array.isArray(raw) ? raw.filter((t): t is { slug: string } => !!t && typeof t === 'object' && typeof (t as { slug?: unknown }).slug === 'string') : []
-  const hit = entries.find((t) => t.slug === slug) ?? entries.filter((t) => slug.startsWith(`${t.slug}-`)).sort((a, b) => b.slug.length - a.slug.length)[0]
+  const hit = entries.find((t) => t.slug === slug) ?? entries.find((t) => new RegExp(`^${t.slug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-g\\d+$`).test(slug))
   if (!hit) {
     if (opts.warn !== false && !warned.has(slug)) { warned.add(slug); console.warn(`glossary: WARNING no people-and-places entry for "${slug}" in ${String(file)}: no name will be voiced and no look suggested (scenes still work). Set GLOSSARY_FILE or add the title to titles.json.`) }
     return EMPTY_GLOSSARY
@@ -179,7 +180,7 @@ const NOT_A_NAME = new Set(['I', 'TV', 'OK'])
  */
 export function nameEvidence(text: string, atMs: number, g: Glossary, spoken: readonly { name: string; at: number }[] = [], shots?: readonly string[]): NameCheck {
   const out: NameCheck = { names: [], premature: [], invented: [], unbound: [] }
-  const shown = shots ? matchedCharacters([...shots, text], g) : undefined
+  const shown = shots ? matchedCharacters(shots, g) : undefined // the shots' looks only: a cue's own added words never bind
   let plain = textSpans(text).reduceRight((t, s) => t.slice(0, s.start) + ' '.repeat(s.end - s.start) + t.slice(s.end), text)
   const said = (n: string) => spoken.find((s) => s.name === n)
   const add = (n: NameSource) => { if (!out.names.some((x) => x.name === n.name)) out.names.push(n) }
@@ -188,9 +189,14 @@ export function nameEvidence(text: string, atMs: number, g: Glossary, spoken: re
     if (!re.test(plain)) continue
     plain = plain.replace(re, (m) => ' '.repeat(m.length))
     const heard = said(c.name)
-    if (nameRevealed(c, atMs) && shown && !shown.has(c.name)) { if (!out.unbound.includes(c.name)) out.unbound.push(c.name) }
-    else if (nameRevealed(c, atMs)) add({ name: c.name, source: 'glossary', revealedAtS: c.revealedAtS!, evidence: c.nameEvidence })
+    // Bound when the shots show the character by look, or when the describer itself wrote the name in one of the shot descriptions
+    // (it saw the frames and the look-bound list); a name only fit or edit added must match the look. A name the dialogue has said by
+    // then is kept whatever the binding.
+    const named = !!shots?.some((d) => new RegExp(re.source, 'u').test(textSpans(d).reduceRight((t, s) => t.slice(0, s.start) + ' ' + t.slice(s.end), d)))
+    const bound = !shots || shown!.has(c.name) || named
+    if (nameRevealed(c, atMs) && bound) add({ name: c.name, source: 'glossary', revealedAtS: c.revealedAtS!, evidence: c.nameEvidence })
     else if (heard && heard.at * 1000 <= atMs) add({ name: c.name, source: 'dialogue', at: heard.at })
+    else if (nameRevealed(c, atMs)) { if (!out.unbound.includes(c.name)) out.unbound.push(c.name) }
     else if (!out.premature.includes(c.name)) out.premature.push(c.name)
   }
   const ws = [...plain.matchAll(/\S+/gu)].map((m) => m[0])
