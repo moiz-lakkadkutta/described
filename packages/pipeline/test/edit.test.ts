@@ -486,7 +486,19 @@ describe('deterministic repeat guard (a lead sentence the previous cues already 
 
   it('keeps the lead when the first sentence left would open with a pronoun', () => {
     expect(after('A forest. A man runs.', 'A forest. He stops.')[1]).toBe('A forest. He stops.')
+    expect(after('Ein Wald. Ein Mann rennt.', 'Ein Wald. Ihn friert.')[1]).toBe('Ein Wald. Ihn friert.')
     expect(after('Ein Wald. Ein Mann rennt.', 'Ein Wald. Er bleibt stehen.')[1]).toBe('Ein Wald. Er bleibt stehen.')
+  })
+
+  it('never treats a negated sentence and its affirmed form as a repeat, either way round', () => {
+    expect(after('The car is not burning.', 'The car is burning. A man runs.')[1]).toBe('The car is burning. A man runs.')
+    expect(after('No snow falls.', 'Snow falls. A wolf howls.')[1]).toBe('Snow falls. A wolf howls.')
+    expect(after('He cannot get the door open.', 'The door opens. A man enters.')[1]).toBe('The door opens. A man enters.')
+    expect(after('The man is not dead.', 'The man is dead. A woman cries.')[1]).toBe('The man is dead. A woman cries.')
+    expect(after('The door isn’t open.', 'The door is open. A man enters.')[1]).toBe('The door is open. A man enters.')
+    expect(after('Kein Schnee fällt.', 'Schnee fällt. Ein Wolf heult.')[1]).toBe('Schnee fällt. Ein Wolf heult.')
+    expect(after('Snow falls.', 'No snow falls. A wolf howls.')[1]).toBe('No snow falls. A wolf howls.') // vice versa
+    expect(after('Nobody moves. A wolf howls.', 'Nobody moves. A man enters.')[1]).toBe('A man enters.') // both negated: a repeat
   })
 
   it('does not split at an abbreviation', () => {

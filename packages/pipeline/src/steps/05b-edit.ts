@@ -151,10 +151,10 @@ export async function editScene(cues: FitCue[], shots: Described[], words: Word[
 export const REPEAT_WINDOW_MS = 15_000
 
 /** Words that open a sentence about someone already named: a lead before one is kept, or "He stops." would lose its referent. */
-const PRONOUN_OPENERS = new Set(['he', 'she', 'it', 'they', 'his', 'her', 'its', 'their', 'him', 'them', 'er', 'sie', 'es', 'ihr', 'ihre', 'sein', 'seine'])
+const PRONOUN_OPENERS = new Set(['he', 'she', 'it', 'they', 'his', 'her', 'its', 'their', 'him', 'them', 'er', 'sie', 'es', 'ihr', 'ihre', 'ihren', 'ihm', 'ihn', 'ihnen', 'sein', 'seine', 'seinen', 'seiner'])
 /** Abbreviations whose period is not a sentence end; ../textClause's plain split cuts after them ("Mr." | "Smith walks."). */
 const ABBREVIATION = /(?:^|\s)(?:mr|mrs|ms|dr|st|jr|sr|prof|mt|lt|sgt|capt|gen|col|no|vs|etc|hr|fr|nr|bzw|ca|str)\.$/i
-/** A sentence end: . ! ? … with optional closing quotes or brackets after it. */
+/** A unit that ends a sentence: . ! ? or … with optional closing quotes or brackets after it (sentences() splits after . ! ? only; a unit ending in … is one it did not split). */
 const SENTENCE_END = /[.!?…]["'”’»)\]]*$/
 
 interface Unit { start: number; end: number; text: string; onScreen: boolean }
@@ -177,8 +177,14 @@ function units(text: string): Unit[] {
   }
   return out
 }
-/** Does `earlier` contain every content word of `unit`, by stem, in the same order? */
+/** A negation (en, de): "The car is not burning." and "The car is burning." share every content word in order but say opposite things. */
+const NEGATION = /(?:^|[^\p{L}])(?:not|no|never|cannot|nobody|nothing|none|nowhere|neither|nor|without|\p{L}+n['’]t|nicht|kein\p{L}*|nie|niemals|niemand|nichts|nirgends|ohne)(?![\p{L}])/iu
+/**
+ * Does `earlier` say `unit`: every content word of `unit`, by stem, in the same order, and both negated or neither? Without the
+ * negation check "Snow falls." would count as said by "No snow falls." and be dropped.
+ */
 const saidIn = (unit: string, earlier: string) => {
+  if (NEGATION.test(unit) !== NEGATION.test(earlier)) return false
   const want = contentWords(unit).map(stem), have = contentWords(earlier).map(stem)
   let k = 0
   for (const w of have) if (k < want.length && w === want[k]) k++

@@ -83,12 +83,15 @@ failed) the exact rule is:
   "Dark room. Man stands." keeps the third "Dark room.", the only sign of the cut back.
 - **Units**: `sentences()` of `../textClause` (each on-screen text clause its own unit), with a unit of ≤ 3 characters or ending in an
   abbreviation (Mr., Dr., St., …) joined to the next plain unit.
-- **Dropped**: the cue's leading units, in order, while each one is a whole plain sentence (not on-screen text, ends in . ! ? … with
-  optional closing quotes) and ONE plain sentence of the previous cue contains all of its content words (Porter stem, `contentWords`)
-  in the same order. Words spread over several sentences or cues never count: "The cat chases the dog." after "The dog chases the
-  cat." stays, and so does "A woman walks left." after "A man walks left. A woman runs right.".
+- **Dropped**: the cue's leading units, in order, while each one is a whole plain sentence (not on-screen text; `sentences()` splits
+  after . ! ? only, so a unit must end in one of those, or in … when it is the last text before a clause, with optional closing
+  quotes) and ONE plain sentence of the previous cue contains all of its content words (Porter stem, `contentWords`) in the same
+  order, with both sentences negated or neither (not, no, never, cannot, -n't, nobody, nothing, without, nicht, kein…, nie, niemand,
+  nichts, ohne, …): "Snow falls." after "No snow falls." stays, and so does "The car is burning." after "The car is not burning.".
+  Words spread over several sentences or cues never count: "The cat chases the dog." after "The dog chases the cat." stays, and so
+  does "A woman walks left." after "A man walks left. A woman runs right.".
 - **Kept whole** when the trim would leave no plain sentence, or the text left would not open with a capital letter (a piece cut by a
-  mid-sentence on-screen text clause) or would open with a pronoun (he, she, it, they, er, sie, es, …: "A forest. He stops." keeps
+  mid-sentence on-screen text clause) or would open with a pronoun (he, she, it, they, er, sie, es, ihn, ihm, …: "A forest. He stops." keeps
   "A forest.").
 - The text after the dropped units is kept verbatim; timing never changes; on-screen text cues are never trimmed.
 
