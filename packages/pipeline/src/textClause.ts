@@ -18,7 +18,7 @@ export const TEXT_LABEL = /(?:Words appear|Text erscheint|Wörter erscheinen|Sch
 /** On-screen text longer than this is taken as invented (parseDescription drops a labelled clause; an unlabelled one is not text). */
 export const MAX_TEXT_WORDS = 8
 /** Things that carry text (en, de). */
-const CARRIER = String.raw`(?:headlines?|captions?|subtitles?|title cards?|titles?|street signs?|signs?|banners?|placards?|posters?|billboards?|plaques?|labels?|inscriptions?|newspapers?|screens?|monitors?|displays?|notes?|letters?|messages?|cards?|boards?|Schlagzeilen?|Überschriften?|Untertitel|Schilder|Schild|Aufschriften?|Titelkarten?|Titel|Plakate?|Bildschirm)`
+const CARRIER = String.raw`(?:headlines?|captions?|subtitles?|title cards?|titles?|street signs?|sign|banners?|placards?|posters?|billboards?|plaques?|labels?|inscriptions?|newspapers?|screens?|monitors?|displays?|notes?|letters?|messages?|cards?|boards?|Schlagzeilen?|Überschriften?|Untertitel|Schilder|Schild|Aufschriften?|Titelkarten?|Titel|Plakate?|Bildschirm)`
 const QUOTE = String.raw`(?=["“„«»])`
 /** Not after a pronoun subject: "He signs: …" is a verb, not a sign. */
 const NOT_PRONOUN = String.raw`(?<!\b(?:he|she|they|it|who|er|sie|es)\s+)`
@@ -32,7 +32,9 @@ const TEXT_CUE = String.raw`${C}\s*:|${C}\s+(?:reads|says|lautet)\b\s*:?|${C}\s+
 /** Words that join a clause to the one before it: a carrier clause starts after one, a split leaves none dangling. */
 const JOINERS = 'as|while|where|and|then|with|that'
 /** A trailing modifier ends before one of these when a lowercase word follows (the next action: "… and a man runs in."). */
-const NEXT_ACTION = /[,;]?\s+(?:and|while|as|then)\s+\p{Ll}/u
+const NEXT_ACTION = /[,;]?\s+(?:and|while|as|then|und|während|dann|als)\s+\S/u
+/** Bare text ends before ", and …" (the next action: "A sign reads OPEN, and a man enters."). */
+const BARE_JOIN = /,\s+(?:and|while|as|then|und|während|dann|als)\s/u
 /** Opening quote → the characters that close it. An unclosed quote runs to the end of the description. */
 const CLOSE: Record<string, string> = { '"': '"', '“': '”“', '„': '“”', '«': '»', '»': '«' }
 /** A period after one of these (case-insensitive) does not end bare on-screen text: "Mr. Smith", "Dr. Who". */
@@ -43,7 +45,8 @@ const ARTICLES = new Set(['a', 'an', 'the', 'der', 'die', 'das', 'ein', 'eine'])
 /** One clause: [start, end) in the description, and the on-screen text itself (without label, quotes or the closing period). */
 export interface TextSpan { start: number; end: number; body: string }
 
-export function textSpans(text: string): TextSpan[] {
+/** `onTooLong`: told of each unlabelled match left out because its text is over MAX_TEXT_WORDS words (parseDescription warns). */
+export function textSpans(text: string, onTooLong?: (match: string) => void): TextSpan[] {
   const out: TextSpan[] = []
   const label = new RegExp(`(${TEXT_LABEL.source})|${TEXT_CUE}`, 'giu')
   let after = 0 // end of the previous span
@@ -61,10 +64,14 @@ export function textSpans(text: string): TextSpan[] {
       if (/[.!?]/.test(text[end] ?? '')) end++
     } else {
       end = bareEnd(text, i)
+      const join = BARE_JOIN.exec(text.slice(i, end)) // "OPEN, and a man enters.": the text ends before the next action
+      if (join) end = i + join.index
       body = text.slice(i, end).replace(/[.!?]$/, '').trim()
     }
-    // Unlabelled: no text after the cue word, a bare body that is not a capital or a digit, or one too long to be legible text.
-    if (cue && (!body.trim() || (!close && !/^[\p{Lu}\p{N}]/u.test(body)) || words(body) > MAX_TEXT_WORDS)) { label.lastIndex = m.index + m[0].length; continue }
+    // Unlabelled: no text after the cue word, a bare body that does not open with an all-caps word or a digit ("Monitors: Thom types."),
+    // or one too long to be legible text.
+    if (cue && (!body.trim() || (!close && !/^(?:\p{Lu}{2,}(?!\p{Ll})|\p{N})/u.test(body)))) { label.lastIndex = m.index + m[0].length; continue }
+    if (cue && words(body) > MAX_TEXT_WORDS) { onTooLong?.(text.slice(m.index, end)); label.lastIndex = m.index + m[0].length; continue }
     if (/^\s*[\p{Ll},;:]/u.test(text.slice(end))) { // a trailing modifier: "… in metallic silver, centered."
       const to = bareEnd(text, end), next = NEXT_ACTION.exec(text.slice(end, to))
       end = next ? end + next.index : to
@@ -89,7 +96,7 @@ function carrierStart(text: string, at: number, from: number): number {
 
 const capitalise = (t: string) => t.replace(/^(\s*)(\p{Ll})/u, (_, s: string, c: string) => s + c.toUpperCase())
 const TRAILING_JOIN = new RegExp(String.raw`[\s,;:]*(?:\b(?:${JOINERS})\b)?[\s,;:]*$`, 'iu')
-const LEADING_JOIN = /^[\s,;:]*(?:(?:and|while|as|then|with)\s+)?/iu
+const LEADING_JOIN = /^[\s,;:]*(?:(?:and|while|as|then|with|und|während|dann|als)\s+)?/iu
 
 /**
  * `text` without `spans` (in order), as sentences: a joining word or comma left before a removed clause is dropped and the part ends
@@ -107,8 +114,13 @@ export function withoutSpans(text: string, spans: readonly TextSpan[]): string {
     return t.trim()
   }).filter(Boolean).join(' ').replace(/\s+/g, ' ').trim()
 }
-/** A clause as said on its own (a text pause): its first letter capitalised ("a sign reads …" → "A sign reads …"). */
-export const clauseText = (text: string, s: TextSpan) => capitalise(text.slice(s.start, s.end).trim())
+/**
+ * A clause as said on its own (a text pause): its first letter capitalised ("a sign reads …" → "A sign reads …"), and a clause that
+ * opens with the bare verb ("… the poster that reads "WANTED"") said with the house label: `Words appear: "WANTED".` The span's body
+ * is unchanged, so "already said" still matches.
+ */
+export const clauseText = (text: string, s: TextSpan) => capitalise(text.slice(s.start, s.end).trim()
+  .replace(/^(?:reads|says|shows|displays)\b\s*:?\s*/iu, 'Words appear: ').replace(/^(?:lautet|zeigt)\b\s*:?\s*/iu, 'Text erscheint: '))
 
 /**
  * "Darkness." is the whole description or absent (DESC-010 follow-up): a "Darkness." / "Darkness..." / "Darkness," (German

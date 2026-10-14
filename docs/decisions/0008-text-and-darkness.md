@@ -29,10 +29,14 @@ Pipeline (`packages/pipeline/src/textClause.ts`, read by 04-describe, 05-fit, 05
   start (`. ! ? ; :`), a `, ` or a joining word (as, while, where, and, then, with, that), so the action before it stays on the plain
   AD track as a whole sentence (`A soldier grabs the rifle as a sign reads "EXIT".` → `A soldier grabs the rifle.` and the pause
   `A sign reads "EXIT".`); with nothing between them (`Hand holds crumpled newspaper headline: …`) the whole sentence is the clause.
+  A clause that would open with the bare verb (`… the poster that reads "WANTED".`) is said as `Words appear: "WANTED".` (German
+  `Text erscheint:`). Bare text ends before `, and …` (`A sign reads OPEN, and a man enters.` keeps `A man enters.`); the modifier
+  rule also stops before German und / während / dann / als.
 - Not on-screen text (left as plain description):
-  - a bare (unquoted) body that does not start with a capital letter or a digit: `The sign says nothing.`, `He reads the note: his
-    hands tremble.`, `Monitors: green waveforms pulse.`, `Ein Schild: rot und rostig.`;
-  - a carrier word after a pronoun subject (he, she, they, it, who; er, sie, es), which is a verb: `He signs: thank you.`;
+  - a bare (unquoted) body that does not open with an all-caps word or a digit: `The sign says nothing.`, `He reads the note: his
+    hands tremble.`, `Monitors: green waveforms pulse.`, `Monitors: Thom types quickly.`, `Ein Schild: rot und rostig.`;
+  - a carrier word after a pronoun subject (he, she, they, it, who; er, sie, es), or "signs", which is a verb: `He signs: thank
+    you.`, `The woman signs: I LOVE YOU.`;
   - a cue word with no text after it: `Man reads newspaper`, `A man holds a sign`;
   - an unlabelled body of more than 8 words: `The card says Happy Birthday in gold letters, and a woman smiles at the boy.` stays as
     written. Only a labelled clause (`Words appear:`) that long is dropped as invented text, as before.

@@ -192,3 +192,39 @@ describe('PR #37 review round 1', () => {
     expect(r.cues[1]!.text).toBe('A figure kneels beside a prone body.')
   })
 })
+
+/** PR #37 review round 2. */
+describe('PR #37 review round 2', () => {
+  const WANTED = 'A soldier tears down the poster that reads "WANTED". He runs.'
+  it('N1: a clause that starts with the bare verb is said with the house label; its body is unchanged', async () => {
+    expect(textClauses(WANTED)).toMatchObject({ clause: 'Words appear: "WANTED".', rest: 'A soldier tears down the poster. He runs.' })
+    expect(textSpans(WANTED)[0]!.body).toBe('WANTED')
+    const shot: Described = { index: 0, startMs: 0, endMs: 3000, description: WANTED, sameAsPrev: false, tokens: 0, outputTokens: 0 }
+    const cues = await fit([shot], [{ startMs: 0, endMs: 3200 }], (t, n) => safeShorten(t, n, (x) => x))
+    expect(cues.map((c) => [c.extended, c.text])).toEqual([[true, 'Words appear: "WANTED".'], [false, 'A soldier tears down the poster. He runs.']])
+    for (const c of cues) expect(c.text).not.toMatch(/^Reads\b/)
+  })
+  it('N2: a bare body after an unlabelled carrier needs an all-caps first word or a digit', () => {
+    for (const t of ['Monitors: Thom types quickly.', 'Notes: Celia plays the cello.', 'Sintel holds a letter: The dragon lives.']) expect(textSpans(t), t).toEqual([])
+    for (const [t, body] of [[HEADLINE, 'ROBOTICIST CREATES KILLER ROBOTS'], ['A shop sign reads OPEN 24 HOURS.', 'OPEN 24 HOURS'], ['A sign reads STOP.', 'STOP'], ['Schlagzeile: ROBOTER GREIFEN AN.', 'ROBOTER GREIFEN AN'], ['A plaque reads 1888.', '1888']])
+      expect(textSpans(t!).map((s) => s.body), t).toEqual([body])
+  })
+  it('N3: a bare body ends before ", and …", and a trailing modifier stops before an English or German joining word', () => {
+    expect(textClauses('A sign reads OPEN, and a man enters.')).toMatchObject({ clause: 'A sign reads OPEN', rest: 'A man enters.' })
+    expect(textSpans('A sign reads OPEN, and a man enters.')[0]!.body).toBe('OPEN')
+    expect(textClauses('Das Schild zeigt „AUSGANG“, und ein Mann rennt.')).toMatchObject({ clause: 'Das Schild zeigt „AUSGANG“', rest: 'Ein Mann rennt.' })
+    expect(textClauses('The board shows "B" as Thom runs.')).toMatchObject({ clause: 'The board shows "B"', rest: 'Thom runs.' })
+  })
+  it('N4: "signs" is a verb, not a carrier', () => {
+    expect(textSpans('The woman signs: I LOVE YOU.')).toEqual([])
+    expect(textSpans('A pole holds two street signs: MAIN, ELM.')).toHaveLength(1)
+  })
+  it('parseDescription warns when an unlabelled match is not text because it is too long', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const t = 'A soldier aims; the screen reads TARGET LOCKED ON THE NORTHERN SECTOR OF THE CITY WALL NOW.'
+      expect(parseDescription(t, '').description).toBe(t)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('longer than 8 words'), expect.stringContaining('TARGET LOCKED'))
+    } finally { warn.mockRestore() }
+  })
+})

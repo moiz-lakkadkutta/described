@@ -324,7 +324,8 @@ export function parseDescription(raw: string, prev: string): { description: stri
   const q = /^["'`“‘]([^"`“”]+)["'`”’]$/.exec(text) // one wrapping pair only: '"A." Then "B."' keeps its inner quotes
   if (q) text = q[1]!.trim()
   if (SAME_PREFIX.test(text) || NOTHING_NEW.test(text)) { if (SAME_PREFIX.test(text) && text.replace(/^SAME\.?/, '').trim()) console.warn('describe: dropped text after SAME:', text); return { description: '', sameAsPrev: true } }
-  for (const span of textSpans(text).reverse()) {
+  const onTooLong = (match: string) => console.warn('describe: unlabelled text longer than 8 words, kept as description, not on-screen text:', match)
+  for (const span of textSpans(text, onTooLong).reverse()) {
     if (span.body.trim().split(/\s+/).filter(Boolean).length <= 8) continue
     console.warn('describe: dropped on-screen text longer than 8 words:', text.slice(span.start, span.end))
     text = text.slice(0, span.start) + text.slice(span.end).replace(/^\s+/, '')
