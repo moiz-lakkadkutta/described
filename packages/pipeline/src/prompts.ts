@@ -324,6 +324,23 @@ export async function shortenEditWithNovaLite(text: string, maxWords: number, ke
   return { text: (r.output?.message?.content?.find((c) => c.text)?.text ?? '').trim(), usage: r.usage }
 }
 
+/**
+ * DESC-029 (docs/decisions/0012-characters-and-scenes.md): the rules for a window that is one scene, and for a title with a glossary.
+ * Voice: a describer guiding a listener through the story — connective, story-aware, in the film's tone (Netflix AD style guide §1.2,
+ * §5.2; Walczak & Fryer 2017 on creative AD) — inside the guardrails: nothing not visible, no thoughts, no foreshadowing (§1.4, DCMP).
+ */
+export function sceneRules(scene: EditInput['scene'], people: EditInput['people']): string[] {
+  const out: string[] = []
+  if (scene) {
+    out.push(scene.placeAlreadySaid
+      ? `8. These cues continue one scene, set in ${JSON.stringify(scene.setting)}; an earlier cue already said where it is. Do not say the place again.`
+      : `8. These cues are one scene, set in ${JSON.stringify(scene.setting)}${scene.looks ? ` (${scene.looks})` : ''}. If no cue says where we are, say it briefly at the start of the first cue that carries action, in the words of the setting, when the words fit; ${scene.returning ? `this scene returns to an earlier place, so it may open "Back in ${scene.setting.replace(/^(?:the|a|an)\s+/i, 'the ')}". ` : ''}Never say the place twice in the scene.`)
+  }
+  if (people?.length) out.push('9. People: refer to a person listed under people by their look. Use a name only in a cue whose mayName lists it; the first time, say the look and the name ("the bald old man, Proog"). Never name anyone else, and never use a name before mayName allows it.')
+  if (scene || people?.length) out.push(`${people?.length ? 10 : 9}. Voice: guide the listener through the story as a film's describer would: connect the cues ("Back in the lab, the man…", "then"), choose what matters to the story, and match the film's tone. Never say what anyone thinks, wants or feels, never hint at what happens later, and say nothing that is not visible in the cues and their missedJustBefore.`)
+  return out
+}
+
 /** JSON Schema for the forced emit_edits tool's input (Nova: top level object with type, properties, required only). */
 export const EDIT_TOOL_SCHEMA = {
   type: 'object', required: ['edits'],
@@ -331,13 +348,17 @@ export const EDIT_TOOL_SCHEMA = {
 }
 
 /** One cue as the edit step hands it to the request: its index in cues.json, budget, whether it is a frozen on-screen text cue, and the dropped descriptions just before it. */
-export interface EditCueInput { i: number; startMs: number; text: string; wordCount: number; budget: number; extended: boolean; onScreenText: boolean; missed: string[]; /** the cue's facts the guard requires the edit to keep (05b-edit factWords) */ mustSay?: string[] }
+export interface EditCueInput { i: number; startMs: number; text: string; wordCount: number; budget: number; extended: boolean; onScreenText: boolean; missed: string[]; /** the cue's facts the guard requires the edit to keep (05b-edit factWords) */ mustSay?: string[]; /** DESC-029: the names this cue may use (glossary names revealed by its start, and names the dialogue has said) */ mayName?: string[] }
 export interface EditInput {
   language: 'en' | 'de'
   cues: readonly EditCueInput[]
   dialogue: readonly { start: number; end: number; speaker?: string; text: string }[]
   /** The last cue of the previous window, already revised: what the viewer heard just before this window. */
   heard?: string
+  /** DESC-029: the scene these cues belong to (04c-scenes): its place, the glossary look of that place, whether it returns to an earlier place, and whether an earlier cue already said where it is. */
+  scene?: { setting: string; looks?: string; returning: boolean; placeAlreadySaid: boolean }
+  /** DESC-029: the title's people (glossary): the look always; the name and role only once revealed (namedFrom: segment seconds). */
+  people?: readonly { look: string; name?: string; role?: string; namedFrom?: number }[]
 }
 
 /**
@@ -351,12 +372,12 @@ export interface EditInput {
  * (DESC-017) is listed as fixed, with no room and no dropped shots: the viewer hears it, the model may not touch it.
  * https://docs.aws.amazon.com/nova/latest/userguide/tool-use-definition.html · https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ToolChoice.html
  */
-export function editRequest({ language, cues, dialogue, heard }: EditInput, mode: 'tool' | 'json' = 'tool'): ConverseCommandInput {
+export function editRequest({ language, cues, dialogue, heard, scene, people }: EditInput, mode: 'tool' | 'json' = 'tool'): ConverseCommandInput {
   const s = (ms: number) => Math.round(ms / 100) / 10
   const items = cues.map((c) => c.onScreenText
     ? { cue: c.i, start: s(c.startMs), text: c.text, onScreenText: true, fixed: true }
-    : { cue: c.i, start: s(c.startMs), ...(c.extended ? { extended: true } : {}), ...(c.missed.length ? { missedJustBefore: c.missed } : {}), text: c.text, ...(c.mustSay?.length ? { mustStillSay: c.mustSay } : {}), words: c.wordCount, wordsYouMayAdd: c.budget - c.wordCount })
-  const input = JSON.stringify({ language, ...(heard ? { heardJustBefore: heard } : {}), cues: items, dialogue })
+    : { cue: c.i, start: s(c.startMs), ...(c.extended ? { extended: true } : {}), ...(c.missed.length ? { missedJustBefore: c.missed } : {}), text: c.text, ...(c.mustSay?.length ? { mustStillSay: c.mustSay } : {}), ...(c.mayName ? { mayName: c.mayName } : {}), words: c.wordCount, wordsYouMayAdd: c.budget - c.wordCount })
+  const input = JSON.stringify({ language, ...(heard ? { heardJustBefore: heard } : {}), ...(scene ? { scene } : {}), ...(people?.length ? { people } : {}), cues: items, dialogue })
   return {
     modelId: editModelId(),
     system: [{ text: [
@@ -374,6 +395,7 @@ export function editRequest({ language, cues, dialogue, heard }: EditInput, mode
       '5. Keep the house style: present tense, active voice, third person, short sentences, no film language ("the camera"), no "we see". One line per cue.',
       '6. Keep any "Words appear: …" clause exactly as written, and never add one.',
       '7. Do not add, remove, merge, split or reorder cues, and do not mention timing; it is fixed.',
+      ...sceneRules(scene, people),
     ].join('\n') }],
     messages: [{ role: 'user', content: [{ text: `Input:\n${input}\n\n${mode === 'tool' ? 'Use the emit_edits tool to return the revised cues.' : 'Reply with the JSON object {"edits":[…]} only.'}` }] }],
     ...(mode === 'tool' ? { toolConfig: { tools: [{ toolSpec: { name: 'emit_edits', description: 'Return the revised text of the voiced cues you change', inputSchema: { json: EDIT_TOOL_SCHEMA } } }], toolChoice: { tool: { name: 'emit_edits' } } } } : {}),
