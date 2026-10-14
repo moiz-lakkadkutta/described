@@ -15,7 +15,7 @@ titles.get('/:slug', async (req, res, next) => {
     const sample = t.cues[0]
     ok(res, {
       slug: t.slug, name: t.name, year: t.year, durationS: t.durationS, posterUrl: t.posterKey ? cdn(t.posterKey) : null,
-      badges: ['ad', 'sdh', ...(t._count.cues ? (['extended'] as const) : [])], extendedCount: t._count.cues, // cues above is the first extended cue only (the sample)
+      badges: ['ad', ...(t.tracks.some((x: (typeof t.tracks)[number]) => x.kind === 'sdh') ? (['sdh'] as const) : []), ...(t._count.cues ? (['extended'] as const) : [])], extendedCount: t._count.cues, // cues above is the first extended cue only (the sample)
       resumeS: t.progress[0]?.positionS ?? null, // this device's saved position (PUT /me/progress); the Player resumes from it
       synopsis: t.synopsis, attribution: t.attribution, voice: t.voice,
       manifestUrl: cdn(`published/${t.slug}/master.m3u8`),
@@ -28,8 +28,13 @@ titles.get('/:slug', async (req, res, next) => {
   } catch (e) { next(e) }
 })
 
-/** Description cues in canonical order — start, then end — so `d{n}` is the n-th (packages/pipeline/src/cues.ts). */
-const cueOrder = [{ startMs: 'asc' as const }, { endMs: 'asc' as const }]
+/**
+ * Description cues in canonical order — start, then end, then id — so `d{n}` is the n-th (packages/pipeline/src/cues.ts). The id
+ * makes the order total: rows tied on start and end (two pauses on one millisecond, each ending 1 ms later) would otherwise come
+ * back in no promised order, and the VTT (full list) and the clip route (OFFSET n−1) could disagree. The pipeline writes ids that
+ * sort in its own order ({titleId}:d{n, 6 digits}, cues.ts descriptionCueRows).
+ */
+const cueOrder = [{ startMs: 'asc' as const }, { endMs: 'asc' as const }, { id: 'asc' as const }]
 
 /** One line of cue text: whitespace (blank lines too) collapsed, no `-->` or `{…}` that a parser would read as timing or meta. */
 export const vttText = (t: string) => t.replace(/-->/g, '→').replace(/[{}]/g, '').replace(/\s+/g, ' ').trim()

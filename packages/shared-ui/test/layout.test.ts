@@ -1,4 +1,4 @@
-import { homeModel, titleModel } from '../src/models'
+import { homeModel, titleModel, titleSummary } from '../src/models'
 import { cardBox, focusBleed, rowPad, rowPadY, rowSlots, rowViewportW, skeletonCount } from '../src/layout'
 import { tokens } from '../src/theme/tokens'
 import { textStyle } from '../src/theme/typography'
@@ -48,6 +48,11 @@ describe('type', () => {
 describe('Title model', () => {
   const m = titleModel(title, { sample: 'idle', inList: false, captionKind: 'sdh', synopsisLines: 6 })
   it('badges: AD (ochre), Rich captions, Extended pauses', () => expect(m.badges).toEqual([{ text: 'AD', ad: true }, { text: 'Rich captions', ad: false }, { text: 'Extended: 3 pauses', ad: false }]))
+  it('no Rich captions badge on a title without an sdh track (the API leaves the badge out)', () => {
+    const plain = { ...title, badges: ['ad', 'extended'] as typeof title.badges }
+    expect(titleModel(plain, { sample: 'idle', inList: false, captionKind: 'sdh' }).badges).toEqual([{ text: 'AD', ad: true }, { text: 'Extended: 3 pauses', ad: false }])
+    expect(titleSummary(plain)).not.toContain('Rich captions')
+  })
   it('year · duration', () => expect(m.meta).toBe('2010 · 15 min'))
   it('More only past 4 laid-out lines', () => {
     expect(m.more?.id).toBe('more')

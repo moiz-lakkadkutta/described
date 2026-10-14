@@ -23,27 +23,38 @@ export const clipHash = (bytes: Uint8Array) => createHash('sha256').update(bytes
 export const cueAudioKey = (slug: string, i: number, hash: string) => `published/${slug}/cues/cue_${i}.${hash}.mp3`
 
 /**
- * The latest a cue may end on the film's clock: the title's duration (probe.json), and for an extended cue also the next cue's start.
- * An extended cue's endMs from 06-voice is start + clip length, but the film is paused while that clip plays, so on the film's
- * clock it has no length of its own: left as is it overlaps the cue the voice step placed TEXT_LEAD_MS after it (tears-of-steel
- * d7/d8) and can end after the film does (tears-of-steel d15, 62.9 s on a 60.0 s title). Infinity when neither applies.
+ * The latest each cue may end on the film's clock: the title's duration (probe.json), and for an extended cue also the start of the
+ * next other cue at or after its own start. An extended cue's endMs from 06-voice is start + clip length, but the film is paused
+ * while that clip plays, so on the film's clock it has no length of its own: left as is it overlaps the cue the voice step placed
+ * TEXT_LEAD_MS after it (tears-of-steel d7/d8) and can end after the film does (tears-of-steel d15, 62.9 s on a 60.0 s title).
+ * A cue sharing the extended cue's start caps it at that start, so filmEnds' 1 ms floor applies: the extended cue keeps the
+ * shortest length a cue may have, sorts first (start, then end), and no start moves — the 1 ms overlap is the floor. Infinity
+ * when neither cap applies.
  */
-function endCap(c: FitCue, starts: readonly number[], durationMs?: number): number {
-  const next = c.extended ? (starts.find((s) => s > c.startMs) ?? Infinity) : Infinity
-  return Math.min(next, durationMs ?? Infinity)
+function endCaps(cues: readonly FitCue[], durationMs?: number): number[] {
+  return cues.map((c, k) => {
+    const next = c.extended ? Math.min(Infinity, ...cues.flatMap((d, j) => (j !== k && d.startMs >= c.startMs ? [d.startMs] : []))) : Infinity
+    return Math.min(next, durationMs ?? Infinity)
+  })
 }
-/** cues with endMs clamped to endCap, never to or before the start (a cue keeps ≥ 1 ms). Pure (tested). */
-export function filmEnds(cues: readonly FitCue[], durationMs?: number): FitCue[] {
-  const starts = [...new Set(cues.map((c) => c.startMs))].sort((a, b) => a - b)
-  return cues.map((c) => ({ ...c, endMs: Math.max(c.startMs + 1, Math.min(c.endMs, endCap(c, starts, durationMs))) }))
+/**
+ * cues with endMs clamped to their endCaps, never to or before the start (a cue keeps ≥ 1 ms). A cue starting at or after the
+ * title's end is dropped: nothing plays there, so it cannot be heard, and every cue left ends by the duration (06-voice already
+ * leaves such cues out, so neither Polly nor 07-mix sees them; this keeps cues.json from an older run consistent). Pure (tested).
+ */
+export function filmEnds<T extends FitCue>(cues: readonly T[], durationMs?: number): T[] {
+  const kept = durationMs === undefined ? [...cues] : cues.filter((c) => c.startMs < durationMs)
+  const caps = endCaps(kept, durationMs)
+  return kept.map((c, k) => ({ ...c, endMs: Math.max(c.startMs + 1, Math.min(c.endMs, caps[k]!)) }))
 }
 
 /**
  * cues.json in canonical order (start, then end — ends clamped by filmEnds first, so the order matches the DescriptionCue rows the
- * API sorts), each with its cues.json index (its clip).
+ * API sorts), each with its cues.json index (its clip). Ties on start and end keep cues.json order; the row ids follow it
+ * (descriptionCueRows), and the API breaks the same tie by id. Cues filmEnds drops are left out; the others keep their own index.
  */
 export function ordered(cues: readonly FitCue[], durationMs?: number): (FitCue & { i: number })[] {
-  return filmEnds(cues, durationMs).map((c, i) => ({ ...c, i })).sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs)
+  return filmEnds(cues.map((c, i) => ({ ...c, i })), durationMs).sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs || a.i - b.i)
 }
 
 /** The title's length in ms from work/probe.json; undefined when the file or the number is missing. */
@@ -57,22 +68,25 @@ export async function probeDurationMs(work: string): Promise<number | undefined>
 export const vttText = (t: string) => t.replace(/-->/g, '→').replace(/[{}]/g, '').replace(/\s+/g, ' ').trim()
 
 /**
- * descriptions.vtt: every cue ≥ 833 ms on screen where that fits under its endCap (an extended cue never past the next cue's start,
+ * descriptions.vtt: every cue ≥ 833 ms on screen where that fits under its endCaps (an extended cue never past the next cue's start,
  * no cue past the title's end), extended ones with `{extended=1;words=N}` meta.
  */
 export function descriptionsVtt(cues: readonly FitCue[], durationMs?: number): string {
-  const starts = [...new Set(cues.map((c) => c.startMs))].sort((a, b) => a - b)
-  return serializeVtt(ordered(cues, durationMs).map((c, n) => ({
-    trackId: 'desc', id: vttCueId(n), start: c.startMs / 1000, end: Math.max(c.endMs, Math.min(c.startMs + 833, endCap(c, starts, durationMs))) / 1000, text: vttText(c.text),
+  const o = ordered(cues, durationMs)
+  const caps = endCaps(o, durationMs)
+  return serializeVtt(o.map((c, n) => ({
+    trackId: 'desc', id: vttCueId(n), start: c.startMs / 1000, end: Math.max(c.endMs, Math.min(c.startMs + 833, caps[n]!)) / 1000, text: vttText(c.text),
     ...(c.extended ? { meta: { extended: '1', words: String(c.wordCount) } } : {}),
   })))
 }
 
-export interface DescriptionCueRow { titleId: string; startMs: number; endMs: number; text: string; extended: boolean; wordCount: number; pollyKey: string | null }
-/** DescriptionCue rows in canonical order; pollyKey only where the clip was published (`published`: cues.json index → key). */
+export interface DescriptionCueRow { id: string; titleId: string; startMs: number; endMs: number; text: string; extended: boolean; wordCount: number; pollyKey: string | null }
+/** Row id of cue d{n+1}: `{titleId}:d` + n+1 in 6 digits, so ids sort in canonical order (the API's last ORDER BY key; d{n} ≤ d999999). */
+export const descriptionCueId = (titleId: string, n: number) => `${titleId}:d${String(n + 1).padStart(6, '0')}`
+/** DescriptionCue rows in canonical order (ids from descriptionCueId); pollyKey only where the clip was published (`published`: cues.json index → key). */
 export function descriptionCueRows(titleId: string, cues: readonly FitCue[], published: ReadonlyMap<number, string>, durationMs?: number): DescriptionCueRow[] {
-  return ordered(cues, durationMs).map((c) => ({
-    titleId, startMs: c.startMs, endMs: c.endMs, text: c.text, extended: c.extended, wordCount: c.wordCount,
+  return ordered(cues, durationMs).map((c, n) => ({
+    id: descriptionCueId(titleId, n), titleId, startMs: c.startMs, endMs: c.endMs, text: c.text, extended: c.extended, wordCount: c.wordCount,
     pollyKey: published.get(c.i) ?? null,
   }))
 }

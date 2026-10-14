@@ -5,7 +5,7 @@ import { z } from 'zod'
 import type { Ctx } from './index'
 import { byStart, capExtended, introducesNew, leadText, shortenDeterministic, textClauses, type FitCue } from './05-fit'
 import type { Shot } from './02-shots'
-import { cueAudioFile } from '../cues'
+import { cueAudioFile, probeDurationMs } from '../cues'
 import { meter, pollyUsd } from '../cost'
 import { textSpans } from '../textClause'
 import { EVENT_SPACING_MS, eventSpaced, plotEvent } from '../plotEvent'
@@ -75,6 +75,8 @@ const words = (t: string) => t.trim().split(/\s+/).filter(Boolean).length
  *    where the action would have (after the text cue's lead); else it is dropped. The plain AD track is unchanged by an event cue.
  *    The original clip is set aside before the slot shortening overwrites its slot, so a pause that voices it again costs no third call.
  * 3. cues.json is written back with endMs = startMs + durationMs for every kept cue; 07-mix and 08-text read those ends.
+ * A cue starting at or after the title's end (probe.json) is never voiced: left out before the loop, and dropped with its clip when
+ * afterClips moves a pause there (beforeFilmEnd, dropPastEnd), so 07-mix, descriptions.vtt and the rows agree.
  * On-screen text already heard: a text clause ("Words appear: SINTEL.") that the previous voiced cue — its action cue and the text cue
  * split from it — said (same text, case and spacing aside) is not voiced again: the clause is cut from this cue's text and the rest
  * voiced; a cue that was only that clause is not voiced (sintel-90-150-r2: shots 0 and 1, the halves of one camera shot, both ended in
@@ -92,7 +94,8 @@ const words = (t: string) => t.trim().split(/\s+/).filter(Boolean).length
 export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
   const synthesize = deps.synthesize ?? pollySynthesize(ctx.signal)
   const measureMs = deps.measureMs ?? ffprobeClipMs(ctx.signal)
-  const cues = JSON.parse(await readFile(`${ctx.work}/cues.json`, 'utf8')) as FitCue[]
+  const filmMs = await probeDurationMs(ctx.work)
+  const cues = beforeFilmEnd(JSON.parse(await readFile(`${ctx.work}/cues.json`, 'utf8')) as FitCue[], filmMs)
   const language = ctx.language
   await removeCueFilesFrom(ctx.work, cues.length)
   for (const f of await readdir(ctx.work)) if (f.startsWith(MOVING)) await rm(`${ctx.work}/${f}`, { force: true }) // left by a crash in withTextCues
@@ -183,6 +186,7 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
   }
   if (texts.length) kept = await withTextCues(ctx.work, kept, texts, synth, (i, text) => reusable(ctx.work, i, { text, voice: ctx.voice, language, ssml: cueSsml(text) }))
   kept = await afterClips(ctx.work, kept)
+  kept = await dropPastEnd(ctx.work, kept, filmMs)
   await removeCueFilesFrom(ctx.work, kept.length)
   warnOverlaps(kept)
   await writeFile(`${ctx.work}/cues.json`, JSON.stringify(kept, null, 2))
@@ -252,6 +256,31 @@ async function afterClips(work: string, cues: FitCue[]): Promise<FitCue[]> {
   for (const { from } of moves) for (const f of [cueAudioFile, cueSidecarFile]) await rename(`${work}/${f(from)}`, `${work}/${MOVING}${f(from)}`)
   for (const { from, to } of moves) for (const f of [cueAudioFile, cueSidecarFile]) await rename(`${work}/${MOVING}${f(from)}`, `${work}/${f(to)}`)
   return out.map((x) => x.c)
+}
+/**
+ * Cues starting before the title's end (probe.json; all of them when the duration is unknown). A cue at or after the end cannot be
+ * heard — the mix ends with the film and the app has nothing left to pause — so it is left out before any Polly call, and the mix,
+ * descriptions.vtt and the DescriptionCue rows agree (../cues filmEnds applies the same rule). Pure (tested through voice).
+ */
+function beforeFilmEnd(cues: FitCue[], filmMs: number | undefined): FitCue[] {
+  if (filmMs === undefined) return cues
+  for (const c of cues) if (c.startMs >= filmMs) console.log(`voice: cue at ${c.startMs} ms starts at or after the title's end (${filmMs} ms); not voiced: ${JSON.stringify(c.text)}`)
+  return cues.filter((c) => c.startMs < filmMs)
+}
+/** After afterClips moved pauses later: drops any cue now starting at or after the title's end, its clip with it, and moves later clips down a slot. */
+async function dropPastEnd(work: string, cues: FitCue[], filmMs: number | undefined): Promise<FitCue[]> {
+  const out: FitCue[] = []
+  for (const [from, c] of cues.entries()) {
+    const files = [cueAudioFile, cueSidecarFile]
+    if (filmMs !== undefined && c.startMs >= filmMs) {
+      console.log(`voice: cue moved to ${c.startMs} ms starts at or after the title's end (${filmMs} ms); dropped: ${JSON.stringify(c.text)}`)
+      for (const f of files) await rm(`${work}/${f(from)}`, { force: true })
+      continue
+    }
+    if (out.length !== from) for (const f of files) await rename(`${work}/${f(from)}`, `${work}/${f(out.length)}`) // ascending: slot out.length is already free
+    out.push(c)
+  }
+  return out
 }
 /** The previous placed cue's text — what the AD track said before this cue; '' when none. An event is new against that, whatever the mode. */
 const previousPlaced = (kept: readonly FitCue[]) => [...kept].reverse().find((k) => !k.extended)?.text ?? ''

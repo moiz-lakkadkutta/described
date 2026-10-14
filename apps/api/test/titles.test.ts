@@ -29,10 +29,15 @@ describe('GET /titles/:slug', () => {
     expect(findUnique.mock.calls.at(-1)![0].include.progress).toEqual({ where: { profile: { deviceId: 'fireos-abc' } } })
   })
   it("badges carry 'extended' when the title has extended cues, as /catalog does", async () => {
-    findUnique.mockResolvedValueOnce(row)
+    const sdh = { ...row, tracks: [{ kind: 'sdh', language: 'en', s3Key: 'published/x/sdh.m3u8' }] }
+    findUnique.mockResolvedValueOnce(sdh)
     expect((await http().get('/titles/sintel-90-210')).body.data.badges).toEqual(['ad', 'sdh', 'extended'])
-    findUnique.mockResolvedValueOnce({ ...row, _count: { cues: 0 } })
+    findUnique.mockResolvedValueOnce({ ...sdh, _count: { cues: 0 } })
     expect((await http().get('/titles/sintel-90-210')).body.data.badges).toEqual(['ad', 'sdh'])
+  })
+  it("badges carry 'sdh' only when the title has a Rich captions (sdh) text track, as /catalog does", async () => {
+    findUnique.mockResolvedValueOnce({ ...row, tracks: [{ kind: 'captions', language: 'en', s3Key: 'published/x/captions.m3u8' }] })
+    expect((await http().get('/titles/sintel-90-210')).body.data.badges).toEqual(['ad', 'extended'])
   })
 })
 
@@ -45,7 +50,7 @@ describe('GET /titles/:slug/cues/:cueId/audio (Extended mode, DESC-007)', () => 
     expect(res.headers['cache-control']).toBe('public, max-age=300')
     const q = findUnique.mock.calls.at(-1)![0]
     expect(q.where).toEqual({ slug: 'sintel-90-210' })
-    expect(q.select.cues).toMatchObject({ orderBy: [{ startMs: 'asc' }, { endMs: 'asc' }], skip: 6, take: 1 })
+    expect(q.select.cues).toMatchObject({ orderBy: [{ startMs: 'asc' }, { endMs: 'asc' }, { id: 'asc' }], skip: 6, take: 1 })
   })
   it('404 when the cue has no clip — nothing is synthesised at request time', async () => {
     findUnique.mockResolvedValueOnce({ status: 'published', cues: [{ pollyKey: null }] })
@@ -64,6 +69,30 @@ describe('GET /titles/:slug/cues/:cueId/audio (Extended mode, DESC-007)', () => 
   })
 })
 
+describe('d{n} is the same cue in descriptions.vtt and the clip route, even for cues tied on start and end', () => {
+  // Postgres returns rows tied on every ORDER BY key in no promised order, and two queries may differ. The stand-in sorts by the
+  // route's orderBy and leaves ties in storage order for the VTT query but reversed for the clip query (OFFSET … LIMIT 1).
+  type Row = { id: string; startMs: number; endMs: number; text: string; extended: boolean; wordCount: number; pollyKey: string }
+  const stored: Row[] = [
+    { id: 't1:d000002', startMs: 5000, endMs: 5001, text: 'Words appear: Paris.', extended: true, wordCount: 3, pollyKey: 'paris.mp3' },
+    { id: 't1:d000001', startMs: 5000, endMs: 5001, text: 'Words appear: Berlin.', extended: true, wordCount: 3, pollyKey: 'berlin.mp3' },
+  ]
+  const sorted = (orderBy: Record<string, 'asc'>[], tiesReversed: boolean) => {
+    const rows = tiesReversed ? [...stored].reverse() : [...stored]
+    return rows.sort((a, b) => { for (const o of orderBy) { const k = Object.keys(o)[0] as keyof Row; if (a[k] !== b[k]) return a[k] < b[k] ? -1 : 1 } return 0 })
+  }
+  it('each tied cue maps to its own clip', async () => {
+    findUnique.mockImplementation(async (q: { include?: { cues: { orderBy: Record<string, 'asc'>[] } }; select?: { cues: { orderBy: Record<string, 'asc'>[]; skip: number; take: number } } }) => {
+      if (q.include) return { status: 'published', cues: sorted(q.include.cues.orderBy, false) }
+      const c = q.select!.cues
+      return { status: 'published', cues: sorted(c.orderBy, true).slice(c.skip, c.skip + c.take) }
+    })
+    const parsed = parseVtt((await http().get('/titles/x/descriptions.vtt')).text, { trackId: 'd' })
+    const clips = await Promise.all(parsed.map(async (c) => (await http().get(`/titles/x/cues/${c.id}/audio`)).headers.location as string))
+    expect(parsed.map((c, k) => [c.id, c.text, clips[k]!.split('/').at(-1)])).toEqual([['d1', 'Words appear: Berlin.', 'berlin.mp3'], ['d2', 'Words appear: Paris.', 'paris.mp3']])
+  })
+})
+
 describe('GET /titles/:slug/descriptions.vtt (the app\'s source for d{n})', () => {
   it('numbers cues d1… in start-then-end order and marks extended ones', async () => {
     findUnique.mockResolvedValueOnce({ status: 'published', cues: [
@@ -73,7 +102,7 @@ describe('GET /titles/:slug/descriptions.vtt (the app\'s source for d{n})', () =
     const res = await http().get('/titles/sintel-90-210/descriptions.vtt')
     expect(res.type).toBe('text/vtt')
     expect(res.text).toBe('WEBVTT\n\nd1\n00:00:01.000 --> 00:00:01.100\nWords appear: Berlin. {extended=1;words=3}\n\nd2\n00:00:01.000 --> 00:00:04.000\nA dragon lands.\n')
-    expect(findUnique.mock.calls.at(-1)![0].include.cues.orderBy).toEqual([{ startMs: 'asc' }, { endMs: 'asc' }])
+    expect(findUnique.mock.calls.at(-1)![0].include.cues.orderBy).toEqual([{ startMs: 'asc' }, { endMs: 'asc' }, { id: 'asc' }])
   })
   it('a blank line, an arrow or text that cleans to nothing cannot move a cue onto another\'s clip', async () => {
     findUnique.mockResolvedValueOnce({ status: 'published', cues: [

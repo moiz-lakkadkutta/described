@@ -242,6 +242,22 @@ describe('voice: on-screen text and pauses after measured clips (DESC-020 follow
     const out = await run([{ ...cue(0, 'Smoke rises.', 1000), shotIndex: 0 }, { ...cue(1150, SHOT0, 5000), shotIndex: 1 }], { synthesize: perWord.synthesize, measureMs: async (f) => { const t = await readFile(f, 'utf8'); return t === 'Smoke rises.' ? 1200 : t.split(/\s+/).length * 560 } })
     expect(out.map((c) => [c.startMs, c.extended, c.text])).toEqual([[0, false, 'Smoke rises.'], [1200, true, 'Words appear: SINTEL.'], [1550, false, 'Snowy mountains.']])
   })
+  it('a cue starting at or after the title\'s end (probe.json) is not voiced: no Polly call, no clip, not in cues.json (so not mixed)', async () => {
+    await writeFile(`${work}/probe.json`, JSON.stringify({ format: { duration: '3.000' } }))
+    const f = fakes()
+    const out = await run([cue(1000, 'Smoke rises.', 2500), cue(3000, 'Snow falls.', 5000), cue(3200, 'She waits.', undefined, true)], f)
+    expect(f.synthesize.mock.calls.map((c) => c[0])).toEqual(['Smoke rises.'])
+    expect(out.map((c) => c.text)).toEqual(['Smoke rises.'])
+    expect(await files()).toEqual(['cue_0.json', 'cue_0.mp3'])
+  })
+  it('an extended cue moved to or past the title\'s end by the measured clip before it is dropped, its clip with it', async () => {
+    // 'Smoke rises.' from 1000 measures 1200 ms: the text cue at 1800 would move to 2200, on a 2.2 s title
+    await writeFile(`${work}/probe.json`, JSON.stringify({ format: { duration: '2.2' } }))
+    const out = await run([{ ...cue(1000, 'Smoke rises.', 5000), shotIndex: 0 }, text(1800, 'Words appear: North.', 1)], fakes())
+    expect(out.map((c) => [c.startMs, c.text])).toEqual([[1000, 'Smoke rises.']])
+    expect(await files()).toEqual(['cue_0.json', 'cue_0.mp3'])
+    expect(await readFile(`${work}/cue_0.mp3`, 'utf8')).toBe('Smoke rises.')
+  })
   // (d) sintel-90-150-r2: shots 0 and 1, the halves of one camera shot, both ended in "Words appear: SINTEL."
   it('does not voice on-screen text the previous voiced cue already said: the clause is dropped, the rest voiced', async () => {
     expect(withoutSaidText('Snowy mountains. A figure walks, falls. Words appear: SINTEL.', ['sintel'])).toBe('Snowy mountains. A figure walks, falls.')

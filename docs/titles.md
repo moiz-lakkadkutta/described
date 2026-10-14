@@ -59,7 +59,7 @@ From the CLI meter (`src/cost.ts` list prices, unverified — each still marked 
 | tears-of-steel-40-100 | 16 | $0.0240 | $0.0166 | $0.0004 | $0.0148 | **$0.0557** |
 | app-voice prompt clips (`pnpm pipeline prompts --run`, 16 clips, 1,232 characters) | — | — | — | — | $0.0197 | **$0.0197** |
 | re-runs `--from text` (Elephants Dream, Tears of Steel: VTT ends clamped; one Nova Lite 424, retried) | — | — | — | $0.0003 | — | **$0.0003** |
-| **Batch** | | | | | | **≈ $0.29** (approved ≈ $5, cap $10) |
+| **Batch** | | | | | | **$0.293** for the five first runs and the prompt clips ($0.2731 + $0.0197), plus **$0.0003** for the `--from text` re-runs (approved ≈ $5, cap $10) |
 
 Transcribe is the floor: $0.024 for 60 s (billed per second, 15 s minimum) even when the clip has no speech (Caminandes). Every
 title took 4–5 minutes wall clock, four in parallel with `DESCRIBE_CONCURRENCY=2`; no throttling. Sintel's earlier figure,
@@ -92,6 +92,9 @@ Fixed after review (2026-10-14, PR #33):
 - 10-publish uploads only the text tracks 09-package advertised: a degraded sdh.vtt has no TextTrack row and is no longer
   published. The ones uploaded before the fix stay in S3, unreferenced by any master (delete by hand:
   `published/{big-buck-bunny-0-60,elephants-dream-0-60,caminandes-35-95}/sdh.vtt`, `published/caminandes-35-95/captions.vtt`).
+  Also left over: `published/sintel-90-150-r2/sdh.vtt`, `sdh.m3u8` and its 15 segments under `sdh/`, from the 2026-10-04 run
+  (checked with `aws s3 ls` on 2026-10-14; the current master.m3u8 does not name them). Harmless: no master references them, so
+  no player requests them; delete by hand with the others.
 
 Follow-ups from this batch (not fixed before the freeze):
 - 08-text: a Nova Lite `ModelErrorException` (424, "Model produced invalid sequence as part of ToolUse") fails the SDH step and the
