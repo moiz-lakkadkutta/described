@@ -1,6 +1,6 @@
 import React from 'react'
 import TestRenderer, { act } from 'react-test-renderer'
-import { FETCH_TIMEOUT_MS, Root } from '../src/index'
+import { FETCH_TIMEOUT_MS, LIST_RESEND_DELAY_MS, Root } from '../src/index'
 import { ANNOUNCE_DEBOUNCE_MS, _setScreenReader } from '../src/a11y'
 import { Player } from '../src/screens/Player'
 import { Title } from '../src/screens/Title'
@@ -22,6 +22,8 @@ function api() {
     hold: [] as string[],
     /** My list on the server (GET /me/list; PUT/DELETE /me/list/:slug change it); `refuse` answers 404, `broken` 500. */
     list: [] as string[], refuse: [] as string[], broken: [] as string[],
+    /** Paths whose next request fails like a dropped connection (no answer), once. */
+    failOnce: [] as string[],
     /** Every PUT/DELETE as "METHOD path", in the order fetch saw them. */
     writes: [] as string[],
   }
@@ -30,6 +32,7 @@ function api() {
     state.calls.push(path); state.headers.push(init?.headers as Record<string, string>); state.bodies.push(String(init?.body ?? ''))
     if (init?.method === 'PUT' && init.body) state.puts.push({ path, body: JSON.parse(String(init.body)) })
     if (init?.method === 'PUT' || init?.method === 'DELETE') state.writes.push(`${init.method} ${path}`)
+    if (state.failOnce.includes(path)) { state.failOnce.splice(state.failOnce.indexOf(path), 1); return Promise.reject(new TypeError('Network request failed')) }
     if (state.hold.includes(path)) return new Promise<Response>((resolve, reject) => state.held.set(path, { resolve, reject }))
     if (state.hang) return new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => reject(new Error('aborted'))))
     if (state.down) return Promise.reject(new Error('network'))
@@ -395,6 +398,87 @@ describe('Root', () => {
       await act(async () => { s.held.get('/me/list/sintel-90-210')!.resolve(await ok({ slugs: ['sintel-90-210', 'tears-of-steel'] })) }); await flush()
       expect(s.writes).toEqual(['PUT /me/list/sintel-90-210', 'DELETE /me/list/sintel-90-210'])
       expect(labels(r)).toContain('Add Sintel to My list')
+    })
+
+    // DESC-022: after a relaunch the list comes from GET /me/list, so Remove on a saved title sends DELETE from every way in.
+    it.each(['Home card', 'My list card', 'Home hero'] as const)('after a relaunch, Remove from the %s sends DELETE /me/list/:slug', async (via) => {
+      const s = api(); s.list = ['sintel-90-210'] // saved before the relaunch
+      const r = await mount()
+      if (via === 'My list card') { await railTo(r, strings.rail.list); press(r, 'Open Sintel'); await flush() } else if (via === 'Home card') await onTitle(r)
+      press(r, 'Remove Sintel from My list'); await flush()
+      expect(s.writes).toEqual(['DELETE /me/list/sintel-90-210'])
+      expect(s.list).toEqual([])
+      expect(labels(r)).toContain('Add Sintel to My list')
+    })
+
+    // DESC-022 on the stick: the DELETE failed before it reached the API and the change was undone. A change that fails
+    // without an answer (a dropped connection) is sent once more; PUT and DELETE are idempotent on the API.
+    it('a My list change that fails before reaching the API is sent once more, then stands', async () => {
+      const s = api(); s.list = ['sintel-90-210']
+      const r = await mount()
+      await onTitle(r)
+      s.failOnce.push('/me/list/sintel-90-210')
+      a11yCalls.length = 0
+      vi.useFakeTimers()
+      try {
+        press(r, 'Remove Sintel from My list'); await flush()
+        expect(s.writes).toEqual(['DELETE /me/list/sintel-90-210'])
+        await act(async () => { await vi.advanceTimersByTimeAsync(LIST_RESEND_DELAY_MS - 1) })
+        expect(s.writes).toHaveLength(1) // waits before resending, so the connection can recover
+        await act(async () => { await vi.advanceTimersByTimeAsync(1) }); await flush()
+        expect(s.writes).toEqual(['DELETE /me/list/sintel-90-210', 'DELETE /me/list/sintel-90-210'])
+        expect(s.list).toEqual([])
+        expect(labels(r)).toContain('Add Sintel to My list')
+        expect(a11yCalls).not.toContain(strings.a11y.listNotSaved)
+      } finally { vi.useRealTimers() }
+    })
+
+    it('a newer press during the wait replaces the failed change: no resend, nothing undone', async () => {
+      const s = api(); s.list = ['sintel-90-210']
+      const r = await mount()
+      await onTitle(r)
+      s.failOnce.push('/me/list/sintel-90-210')
+      a11yCalls.length = 0
+      vi.useFakeTimers()
+      try {
+        press(r, 'Remove Sintel from My list'); await flush() // fails with no answer; the resend waits
+        press(r, 'Add Sintel to My list'); await flush() // newer press on the same title
+        await act(async () => { await vi.advanceTimersByTimeAsync(LIST_RESEND_DELAY_MS) }); await flush()
+        expect(s.writes).toEqual(['DELETE /me/list/sintel-90-210', 'PUT /me/list/sintel-90-210'])
+        expect(s.list).toEqual(['sintel-90-210'])
+        expect(labels(r)).toContain('Remove Sintel from My list')
+        expect(a11yCalls).not.toContain(strings.a11y.listNotSaved)
+      } finally { vi.useRealTimers() }
+    })
+
+    it('a My list change with the API down is tried twice, then undone and announced once', async () => {
+      const s = api(); s.list = ['sintel-90-210']
+      const r = await mount()
+      await onTitle(r)
+      s.down = true; a11yCalls.length = 0
+      vi.useFakeTimers()
+      try {
+        press(r, 'Remove Sintel from My list'); await flush()
+        await act(async () => { await vi.advanceTimersByTimeAsync(LIST_RESEND_DELAY_MS) }); await flush()
+        expect(s.writes).toEqual(['DELETE /me/list/sintel-90-210', 'DELETE /me/list/sintel-90-210'])
+        expect(labels(r)).toContain('Remove Sintel from My list')
+        expect(a11yCalls.filter((c) => c === strings.a11y.listNotSaved)).toHaveLength(1)
+      } finally { vi.useRealTimers() }
+    })
+
+    it('a My list change that times out is not sent again (the slow-API check keeps its 10 s)', async () => {
+      const s = api(); s.list = ['sintel-90-210']
+      const r = await mount()
+      await onTitle(r)
+      vi.useFakeTimers()
+      try {
+        s.hang = true
+        press(r, 'Remove Sintel from My list'); await flush()
+        await act(async () => { await vi.advanceTimersByTimeAsync(FETCH_TIMEOUT_MS) }); await flush()
+        expect(s.writes).toEqual(['DELETE /me/list/sintel-90-210'])
+        expect(labels(r)).toContain('Remove Sintel from My list')
+        expect(a11yCalls).toContain(strings.a11y.listNotSaved)
+      } finally { vi.useRealTimers() }
     })
 
     it('Player started from the Home hero Backs to Home even after a Described visit', async () => {
