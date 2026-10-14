@@ -122,7 +122,10 @@ work dirs) fit and edit behave as before. Per-scene establishing calls to Qwen3-
 ## Consequences
 
 - **Re-run** all five titles from describe (prompt change), and **re-check Gate C** with this prompt (one run covers DESC-024 and
-  this; owned by the DESC-024 session).
+  this; owned by the DESC-024 session). The Gate C segment `sintel-90-210` is not in titles.json, so its glossary is
+  `docs/eval/gate-c-glossary.json` (Sintel, the shaman, Scales — named at film 3:48, after the segment — and the snowy mountains, the
+  tent and the town), passed with `GLOSSARY_FILE`; without it the re-check would run the 0009 prompt. The run must include the
+  `scenes` step between describe and fit.
 - Metrics and baseline: docs/eval/character-scene-baseline.md (`pnpm eval-context`). Hard gates: 0 invented and 0 premature names;
   no misbound name (checked against the frames by the raters). Targets: Emo, Thom and Celia voiced; one descriptor (+ name) per
   character; ≥ 90 % of scenes state their place in their first cue; every change of place or time signalled; 0 repeats; Extended

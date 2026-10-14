@@ -9,6 +9,15 @@ describe('glossary (DESC-029)', () => {
     expect(loadGlossary('my-own-video')).toEqual(EMPTY_GLOSSARY)
     expect(loadGlossary('elephants-dream-0-60', '/no/such/file.json')).toEqual(EMPTY_GLOSSARY)
   })
+  it('the Gate C glossary (docs/eval/gate-c-glossary.json, GLOSSARY_FILE for the re-check) parses for sintel-90-210 and its eval slug', () => {
+    const file = new URL('../../../docs/eval/gate-c-glossary.json', import.meta.url)
+    for (const slug of ['sintel-90-210', 'sintel-90-210-g10']) {
+      const g = loadGlossary(slug, file)
+      expect(g.characters.map((c) => [c.name, c.revealedAtS])).toEqual([['Sintel', 367], ['Shaman', null], ['Scales', 138]])
+      expect(g.settings.map((s) => s.name)).toEqual(['the snowy mountains', 'the tent', 'the town'])
+      expect(allowedNames(g, 120_000)).toEqual([]) // no name is revealed inside the 120 s segment
+    }
+  })
   it('allows a glossary name from revealedAtS on, and names spoken in the dialogue', () => {
     expect(allowedNames(ED, 25_000)).toEqual([])
     expect(allowedNames(ED, 30_000)).toEqual(['Emo'])
