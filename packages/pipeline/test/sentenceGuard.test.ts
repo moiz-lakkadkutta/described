@@ -92,11 +92,35 @@ describe('readsAsSentences', () => {
     expect(readsAsSentences(CREATURE, 'Creature stares as hand reaches toward it.')).toBeUndefined()
     expect(readsAsSentences(SHOT0, 'Snowy mountains. A lone figure walks left.')).toBeUndefined() // a verbless sentence of the original may stay
     expect(readsAsSentences(SHOT0, 'Figure walks left, carrying a spear.')).toBeUndefined() // a comma the original had
-    expect(readsAsSentences('Tent interior. Fire glows.', 'Tent glows.')).toBeUndefined() // sintel-90-210 A2's recorded shortening
+    expect(readsAsSentences('Tent interior. Fire glows.', 'Tent glows.')).toBe('joins two sentences: "Tent glows."') // sintel-90-210 A2's recorded shortening: rejected since DESC-029
   })
   it('lets a verbless original stay verbless, without new list commas', () => {
     expect(readsAsSentences(CITY, 'Dense city under hazy sky.')).toBeUndefined()
     expect(readsAsSentences(CITY, 'City under hazy sky, central pyramid.')).toBeUndefined()
+  })
+})
+
+// DESC-029 (the DESC-028 follow-up): sintel-90-150-r2 shot 9, published 0:41.6 (and sintel-90-210 A2): Nova Lite shortened "Tent interior.
+// Fire glows." to "Tent glows." — every word in order, but the subject of one sentence joined to the verb of another, so the tent glows.
+describe('one source sentence per clause (DESC-029)', () => {
+  it('rejects a clause whose words come from two sentences of the original', () => {
+    expect(readsAsSentences('Tent interior. Fire glows.', 'Tent glows.')).toBe('joins two sentences: "Tent glows."')
+    expect(readsAsSentences('Dark room. Fire burns.', 'Room burns.')).toMatch(/^joins two sentences/)
+    expect(readsAsSentences('Snowy mountains. A lone figure walks left, carrying a spear.', 'Mountains walk left.')).toMatch(/^joins two sentences/)
+    expect(readsAsSentences('Bearded man holds ornate staff. Red-haired woman watches.', 'Bearded man watches.')).toMatch(/^joins two sentences/)
+    expect(readsAsSentences('Ein Zelt. Feuer brennt.', 'Zelt brennt.', 'de')).toMatch(/^joins two sentences/) // language-independent
+  })
+  it('accepts whole sentences kept or dropped, words dropped inside one sentence, and two sentences joined by "and"', () => {
+    for (const [o, s] of [
+      ['Tent interior. Fire glows.', 'Tent interior.'], ['Tent interior. Fire glows.', 'Fire glows.'], ['Tent interior. Fire glows.', 'Tent. Fire glows.'],
+      ['Snowy mountains. A lone figure walks left, carrying a spear.', 'Mountains. A figure walks left.'],
+      ['Bearded man holds ornate staff. Red-haired woman watches.', 'Bearded man holds staff.'],
+      ['Red-haired woman stares intently forward.', 'Red-haired woman stares forward.'], ['A figure walks, falls. Logo fades.', 'A figure walks, falls.'],
+      ['Girl runs. Dragon follows.', 'The girl runs and the dragon follows.'],
+    ]) expect(readsAsSentences(o!, s!), s).toBeUndefined()
+  })
+  it('safeShorten: "Tent glows." falls back to the deterministic shortening', async () => {
+    expect(await safeShorten('Tent interior. Fire glows.', 2, () => 'Tent glows.')).toBe('Tent interior.')
   })
 })
 
