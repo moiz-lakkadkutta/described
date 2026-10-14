@@ -17,7 +17,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
  * DESC-010 follow-ups (2026-10-14, docs/decisions/0008-text-and-darkness.md): signs and headlines also take "Words appear:", and
  * "Darkness." only for frames where nothing can be made out. Gate C must be re-checked with this prompt.
  * DESC-029 (docs/decisions/0012-characters-and-scenes.md): with a title glossary (`people`, glossary.ts peopleAndPlaces) the prompt
- * carries "People and places in this film" — looks always, names and roles once revealed — and the stable-descriptor rule points at
+ * carries "People and places in this film" — looks always, names once revealed; never roles — and the stable-descriptor rule points at
  * it; `knownNames` is then the glossary's revealed names plus the dialogue's. Without a glossary (own videos) the prompt is unchanged.
  */
 export function describeSystemPrompt({ maxWords, knownNames, language, people = '' }: { maxWords: number; knownNames: string[]; language: 'en' | 'de'; people?: string }) {
