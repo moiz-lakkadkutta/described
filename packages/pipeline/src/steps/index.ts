@@ -11,6 +11,7 @@ import { pack } from './09-package'
 import { publish } from './10-publish'
 import { validateWork } from '../validate'
 import { metered } from '../cost'
+import type { Glossary } from '../glossary'
 
 export interface DescribeInput { slug: string; source: string; language: 'en' | 'de'; voice: string; fromStep?: string }
 /** `edit` (05b-edit.ts, DESC-018) revises fit's cue text with scene context before voice; file numbers stay, so --from names are stable. */
@@ -51,4 +52,5 @@ export async function runDescribe(input: DescribeInput): Promise<number> {
   return total
 }
 /** signal: aborted when the job's time is up (src/jobs.ts); steps that loop or wait stop early, ffmpeg is killed. */
-export type Ctx = DescribeInput & { work: string; signal?: AbortSignal }
+/** glossary: the title's people and places (DESC-029, ../glossary); when absent, steps read the slug's entry in titles.json. */
+export type Ctx = DescribeInput & { work: string; signal?: AbortSignal; glossary?: Glossary }

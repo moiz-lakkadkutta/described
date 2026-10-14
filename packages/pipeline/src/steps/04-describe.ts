@@ -9,6 +9,7 @@ import type { Gap, Word } from './03-speech'
 import { describeSystemPrompt, wordBudget } from '../prompts'
 import { meter } from '../cost'
 import { sentences, stripDarkness, TEXT_LABEL, textSpans } from '../textClause'
+import { allowedNames, glossaryFor, peopleAndPlaces } from '../glossary'
 import { newVerifyReport, verifyModelId, verifyReply, writeVerifyReport, type VerifyReport, type VerifyShotInput } from './04b-verify'
 
 /** `tokens` = Converse input tokens (the Prisma `novaTokens` column); `outputTokens` is kept alongside for the docs/aws.md run log. */
@@ -38,9 +39,11 @@ export async function describeShots(ctx: Ctx, send: Converse = bedrockConverse(c
   const modelId = process.env.DESCRIBE_MODEL_ID ?? DEFAULT_DESCRIBE_MODEL_ID
   const videoMs = await videoDurationMs(`${ctx.work}/mezz.mp4`)
   const verified = newVerifyReport(verifyModelId(modelId)) // DESC-027: each reply checked against its own frames (04b-verify)
+  const glossary = glossaryFor(ctx) // DESC-029: "People and places in this film" (../glossary)
   const replies = await describeInParts(shots, describeConcurrency(), async (s, said) => {
-    const maxWords = wordBudget(s, gaps), names = knownNames(words, s.startMs, ctx.language)
-    const system = describeSystemPrompt({ maxWords, knownNames: names, language: ctx.language })
+    // DESC-029: the title glossary's revealed names join the dialogue's, so verify (guard 3) keeps them too
+    const maxWords = wordBudget(s, gaps), names = allowedNames(glossary, s.startMs, knownNames(words, s.startMs, ctx.language))
+    const system = describeSystemPrompt({ maxWords, knownNames: names, language: ctx.language, people: peopleAndPlaces(glossary, s.startMs) })
     return describeAndVerify(ctx.work, modelId, system, await keyframes(ctx.work, s, videoMs), send, said, verified, { index: s.index, language: ctx.language, maxWords, names })
   }, ctx.signal)
   await writeVerifyReport(ctx.work, verified)

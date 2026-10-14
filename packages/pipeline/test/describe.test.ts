@@ -6,6 +6,7 @@ import { alreadySaid, buildDescribeRequest, cachedDescribe, clampKeyframeTimes, 
 import { wordsFromTranscribe, type Word } from '../src/steps/03-speech'
 import { metered } from '../src/cost'
 import { describeSystemPrompt } from '../src/prompts'
+import { allowedNames, loadGlossary, peopleAndPlaces } from '../src/glossary'
 import { shotsFromCuts, type Shot } from '../src/steps/02-shots'
 
 const p = 'Man holds large weapon.'
@@ -45,6 +46,20 @@ describe('describeSystemPrompt', () => {
     expect(t).toContain('Output: one line, at most 8 words, no preamble, no quotes.')
     expect(t).toContain('Reply in English.')
     expect(describeSystemPrompt({ maxWords: 8, knownNames: ['Sintel'], language: 'de' })).toMatch(/Reply in German\.[\s\S]*Known names so far: Sintel\./)
+  })
+  // DESC-029: with a title glossary the prompt carries "People and places in this film"; without one it is the approved prompt.
+  it('adds the people-and-places block and points the descriptor rule at it, only when the title has a glossary', () => {
+    const ed = loadGlossary('elephants-dream-0-60')
+    const plain = describeSystemPrompt({ maxWords: 8, knownNames: [], language: 'en' })
+    expect(describeSystemPrompt({ maxWords: 8, knownNames: [], language: 'en', people: '' })).toBe(plain)
+    expect(plain).toContain('use one stable visible descriptor (e.g. "the woman in the red coat")')
+    const t = describeSystemPrompt({ maxWords: 8, knownNames: allowedNames(ed, 40_000), language: 'en', people: peopleAndPlaces(ed, 40_000) })
+    expect(t).toContain('refer to a listed person by their look from the list')
+    expect(t).not.toContain('the woman in the red coat')
+    expect(t).toContain('Known names so far: Emo.')
+    expect(t).toContain('when the place is one of the listed places, use its words')
+    expect(t.endsWith(peopleAndPlaces(ed, 40_000))).toBe(true)
+    expect(describeSystemPrompt({ maxWords: 8, knownNames: allowedNames(ed, 10_000), language: 'en', people: peopleAndPlaces(ed, 10_000) })).not.toMatch(/\bEmo\b/)
   })
 })
 
