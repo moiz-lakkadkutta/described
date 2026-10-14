@@ -122,8 +122,17 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
   const measureMs = deps.measureMs ?? ffprobeClipMs(ctx.signal)
   const ffmpegSpeech = ffmpegSpeechMs(ctx.signal)
   const measureSpeech = deps.measureSpeechMs ? (f: string) => deps.measureSpeechMs!(f) : deps.measureMs ? async () => undefined : (f: string, d: number) => ffmpegSpeech(f, d)
-  /** Decision 0009: the measured speech, else the clip minus its usual tail. */
-  const speechOf = async (file: string, durationMs: number) => (await measureSpeech(file, durationMs)) ?? Math.max(0, durationMs - TAIL_SILENCE_MS)
+  /**
+   * Decision 0009: the measured speech (`measured`), else the clip minus its usual tail, with a warning. A measured 0 (an all-silent clip
+   * at −45 dB) counts as a failed measurement.
+   */
+  const speechOf = async (file: string, durationMs: number): Promise<{ speechMs: number; measured: boolean }> => {
+    const m = await measureSpeech(file, durationMs)
+    if (m !== undefined && m > 0) return { speechMs: m, measured: true }
+    const speechMs = Math.max(0, durationMs - TAIL_SILENCE_MS)
+    console.warn(`voice: speech not measured for ${file}${m === 0 ? ' (all silent)' : ''}; using the clip length − TAIL_SILENCE_MS = ${speechMs} ms`)
+    return { speechMs, measured: false }
+  }
   const filmMs = await probeDurationMs(ctx.work)
   const cues = beforeFilmEnd(JSON.parse(await readFile(`${ctx.work}/cues.json`, 'utf8')) as FitCue[], filmMs)
   const language = ctx.language
@@ -137,14 +146,15 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
     meter()?.add(pollyUsd(text.length))
     await writeFile(file, audio)
     const durationMs = await measureMs(file)
-    const speechMs = await speechOf(file, durationMs)
-    await writeFile(`${ctx.work}/${cueSidecarFile(i)}`, JSON.stringify({ text, voice: ctx.voice, language, ssml: cueSsml(text), durationMs, speechMs } satisfies CueSidecar))
+    const { speechMs, measured } = await speechOf(file, durationMs)
+    // an estimated speech end is not stored: a later run measures it again
+    await writeFile(`${ctx.work}/${cueSidecarFile(i)}`, JSON.stringify({ text, voice: ctx.voice, language, ssml: cueSsml(text), durationMs, ...(measured ? { speechMs } : {}) } satisfies CueSidecar))
     return { durationMs, speechMs }
   }
   /** The stored clip of slot i when its sidecar matches (its speech measured now when the sidecar predates decision 0009). */
   const reuse = async (i: number, text: string): Promise<Clip | undefined> => {
     const r = await reusable(ctx.work, i, { text, voice: ctx.voice, language, ssml: cueSsml(text) })
-    return r && { durationMs: r.durationMs, speechMs: r.speechMs ?? await speechOf(`${ctx.work}/${cueAudioFile(i)}`, r.durationMs) }
+    return r && { durationMs: r.durationMs, speechMs: r.speechMs ?? (await speechOf(`${ctx.work}/${cueAudioFile(i)}`, r.durationMs)).speechMs }
   }
   const files = [cueAudioFile, cueSidecarFile]
   /** The original clip of a cue, set aside (ORIG_ + its names) before the slot shortening overwrites its slot: an event pause may voice it again without a third Polly call. */
@@ -335,7 +345,7 @@ async function reusable(work: string, i: number, want: Omit<CueSidecar, 'duratio
   const side = await readFile(`${work}/${cueSidecarFile(i)}`, 'utf8').then((t) => { try { return JSON.parse(t) as Partial<CueSidecar> } catch { return undefined } }, () => undefined)
   if (!side || side.text !== want.text || side.voice !== want.voice || side.language !== want.language || side.ssml !== want.ssml) return undefined
   if (typeof side.durationMs !== 'number' || !(side.durationMs > 0)) return undefined
-  const speechMs = typeof side.speechMs === 'number' && side.speechMs >= 0 ? side.speechMs : undefined
+  const speechMs = typeof side.speechMs === 'number' && side.speechMs > 0 ? side.speechMs : undefined
   return (await readFile(`${work}/${cueAudioFile(i)}`).then(() => true, () => false)) ? { durationMs: side.durationMs, ...(speechMs === undefined ? {} : { speechMs }) } : undefined
 }
 

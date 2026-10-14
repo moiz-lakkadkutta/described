@@ -184,6 +184,8 @@ describe('clip estimate (decision 0009)', () => {
   it('g9 shots 8 and 9: an event pause never starts before the estimated end of an earlier shot\'s placed cue', async () => {
     const cues = await fit([sh(8, 33125, 36333, 'Girl accepts bowl.'), sh(9, 36333, 41000, 'Woman offers bowl to man.')], [{ startMs: 37240, endMs: 38989 }], shorten)
     expect(cues.map((c) => [c.shotIndex, c.extended, c.startMs])).toEqual([[8, false, 37240], [9, true, 37240 + estimateClipMs(3)]])
+    expect(cues[1]!.endMs).toBe(cues[1]!.startMs + 100) // an extended cue's placeholder end follows its moved start
+    for (const c of cues) expect(c.endMs).toBeGreaterThan(c.startMs)
     expect(cues[1]).toMatchObject({ event: true })
   })
   it('a 3-word cue still fits a gap with room for its estimate', async () => {

@@ -63,7 +63,7 @@ describe('voice', () => {
     await voice(ctx(), f)
     expect(f.synthesize).toHaveBeenCalledTimes(1)
     expect(f.synthesize).toHaveBeenCalledWith('Smoke rises.', 'Joanna', 'en')
-    expect(JSON.parse(await readFile(`${work}/${cueSidecarFile(0)}`, 'utf8'))).toEqual({ text: 'Smoke rises.', voice: 'Joanna', language: 'en', ssml: cueSsml('Smoke rises.'), durationMs: 1200, speechMs: 1050 }) // speech: 1200 − TAIL_SILENCE_MS (measureMs injected)
+    expect(JSON.parse(await readFile(`${work}/${cueSidecarFile(0)}`, 'utf8'))).toEqual({ text: 'Smoke rises.', voice: 'Joanna', language: 'en', ssml: cueSsml('Smoke rises.'), durationMs: 1200 }) // no speechMs: the speech was not measured (measureMs injected), the fallback is not stored
     // A sidecar written with another SSML wrapper (or none, before the wrapper was recorded) is a different clip.
     await writeFile(`${work}/${cueSidecarFile(0)}`, JSON.stringify({ text: 'Smoke rises.', voice: 'Joanna', language: 'en', ssml: '<speak>Smoke rises.</speak>', durationMs: 1200 }))
     const h = fakes()
@@ -322,6 +322,15 @@ describe('voice: decision 0009 — the speech ends by the limit, the clip file b
     expect(f.synthesize).not.toHaveBeenCalled()
     expect((await readCues()).map((c) => c.text)).toEqual(['Smoke rises.'])
   })
+  it('an all-silent measurement (speech 0) counts as failed: the fallback is used, with a warning, and not stored', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await writeCues([cue(0, 'Smoke rises.', 1050)])
+    await voice(ctx(), { ...fakes(), measureSpeechMs: async () => 0 })
+    expect((await readCues()).map((c) => c.text)).toEqual(['Smoke rises.']) // 1200 − 150 = 1050 ≤ 1050
+    expect(JSON.parse(await readFile(`${work}/${cueSidecarFile(0)}`, 'utf8'))).not.toHaveProperty('speechMs')
+    expect(warn.mock.calls.flat().join(' ')).toMatch(/speech not measured.*TAIL_SILENCE_MS/)
+    warn.mockRestore()
+  })
   it('no two placed clip files overlap', async () => {
     // clips that the old rule (file ≤ limit + 200 with limit = next start − 150) let run up to 50 ms into the next cue
     const T = ['Smoke rises.', 'Snow falls.', 'She waits.', 'Smoke rises.']
@@ -350,7 +359,8 @@ describe('speech end (silencedetect)', () => {
     const log = '[silencedetect @ 0x1] silence_start: 0\n[silencedetect @ 0x1] silence_end: 0.303958 | silence_duration: 0.303958\n[silencedetect @ 0x1] silence_start: 1.706625\n'
     expect(parseSpeechMs(log, 1800)).toBe(1707)
     expect(parseSpeechMs(log + '[silencedetect @ 0x1] silence_end: 1.8 | silence_duration: 0.093375\n', 1800)).toBe(1707) // ends at the clip end
-    expect(parseSpeechMs(log + '[silencedetect @ 0x1] silence_end: 1.5 | silence_duration: 0.2\n', 1800)).toBe(1800) // a pause inside the clip
+    const inner = '[silencedetect @ 0x1] silence_start: 0\n[silencedetect @ 0x1] silence_end: 0.3 | silence_duration: 0.3\n[silencedetect @ 0x1] silence_start: 1.2\n[silencedetect @ 0x1] silence_end: 1.5 | silence_duration: 0.3\n'
+    expect(parseSpeechMs(inner, 1800)).toBe(1800) // a pause inside the clip (1.2–1.5 s), speech to the clip end
     expect(parseSpeechMs('', 1800)).toBe(1800)
   })
 })
