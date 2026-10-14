@@ -4,7 +4,7 @@ One file per incident, created with `pnpm friction "<short title>"`. Format foll
 expected vs actual, severity, workaround, suggestion). Target: 8–12 per submission. Link the relevant ones from
 `docs/feedback.md`. These logs earn up to a 10 % bonus in judging and are the raw material for the required feedback.
 
-## Index (18)
+## Index (19)
 
 | Date | Log | Area | Severity |
 |---|---|---|---|
@@ -26,3 +26,4 @@ expected vs actual, severity, workaround, suggestion). Target: 8–12 per submis
 | 2026-10-01 | [Transcribe: "needs a subscription" on the Free plan](2026-10-01-transcribe-free-plan-subscription-required.md) | AWS account / Transcribe | Medium |
 | 2026-10-06 | [react-tv-space-navigation 5 crashes release builds on React 19](2026-10-06-react-tv-space-navigation-5-crashes-release-builds-on-react-19.md) | Focus library / sample | High |
 | 2026-10-10 | [Fire OS drops `Log.d`: a native module's debug logs never reach logcat](2026-10-10-fire-os-drops-log-d.md) | Fire OS tooling | Medium |
+| 2026-10-14 | [Nova Lite at temperature 0 gives different replies to the same request](2026-10-14-nova-lite-temperature-0-is-not-deterministic.md) | Bedrock / Nova | Medium |

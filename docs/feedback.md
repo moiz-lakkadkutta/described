@@ -1,6 +1,6 @@
 # Product feedback — Described
 
-Every number links to where it was measured; each item in §3 links its friction log ([docs/friction/](friction/), 18 logs).
+Every number links to where it was measured; each item in §3 links its friction log ([docs/friction/](friction/), 19 logs).
 Device throughout: Fire TV Stick `AFTSS`, Fire OS 7.7.1.6 (Android 9, API 28), over adb.
 
 ## 1. Tools, APIs and SDKs used, and why

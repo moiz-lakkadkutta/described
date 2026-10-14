@@ -76,14 +76,17 @@ checks 1–13 passed; check 14 (Alexa) failed for fast forward / rewind and was 
     `LanguageCode = voiceLanguage[voice]`, `Text = promptTextFor(voice, key)`, neural mp3, `published/prompts/<voice>/<key>.mp3`); 16 clips published 2026-10-14, $0.02
   - the Settings Voice changes only the app's own prompts (first run, Hear it); description tracks keep the title's voice (`Title.voice`, chosen per title in the pipeline)
   - pipeline follow-ups from the batch (docs/titles.md): a split text clause leaves its modifier behind ("Darkness. in metallic silver, centered.");
-    on-screen text phrased as `headline: "…"` is not a text clause and can be dropped; "Darkness." prefixed to a visible scene; SDH degraded
-    (no additions) on most titles, so Rich captions is omitted; the `grid-test-*` filler rows are still published
+    on-screen text phrased as `headline: "…"` is not a text clause and can be dropped; "Darkness." prefixed to a visible scene; the
+    `grid-test-*` filler rows are still published (device run §18 clean-up not run; a seed cannot create them)
+  - [x] SDH (claude/desc-010-sdh-fixes): additions need evidence (a description naming the sound's source, audible audio, a spoken name);
+    greedy decoding and a per-window reply cache make re-runs repeatable; a 424 is retried once, then the window stays plain. Re-run
+    `--from text`: sintel-90-150-r2, tears-of-steel-40-100. The other titles stay without Rich captions (no audio-event data)
   - [x] #33 review follow-ups: the `sdh` badge comes from the title's Rich captions TextTrack row (`/catalog`, `/titles/:slug`); filmEnds
     and 06-voice (before any Polly call, and after pauses move) drop a cue starting at or after the title's end and ends an extended cue sharing its start 1 ms later; stale sintel-90-150-r2 sdh
     objects listed in docs/titles.md; batch cost split (first runs + prompt clips $0.293, re-runs $0.0003)
 - [ ] DESC-011 · week 4 · Polish, docs/screens, README, docs/aws.md, feedback, feature requests, ≥ 8 friction logs · freeze Oct 15 (needs: screenshots)
   - [x] rail: Described (described titles grid) and My list screens + `GET/PUT/DELETE /me/list` (#12); device run checks 9–11 passed
-  - [x] README, docs/aws.md, docs/feedback.md, docs/feature-requests.md, friction index (18 logs in `docs/friction/`)
+  - [x] README, docs/aws.md, docs/feedback.md, docs/feature-requests.md, friction index (19 logs in `docs/friction/`)
   - [ ] screenshots in `docs/screens/` (list and capture recipe: `docs/screens/README.md`)
   - [x] README title list and credits: the five DESC-010 titles (#33)
 - [ ] DESC-012 · week 5 · Video + submission (Oct 22)
