@@ -1,11 +1,12 @@
 import { execFileSync } from 'node:child_process'
 import { constants } from 'node:fs'
-import { access, copyFile, mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { access, copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { editModelId, LITE } from '../prompts'
 import { BEDROCK_PRICES, meter as currentMeter, metered as runMetered, type Meter } from '../cost'
 import { ctxFor, SLUG_RE, STEPS, type Ctx, type Step } from '../steps'
 import { CONTINUATION_CACHE_VERSION, DEFAULT_DESCRIBE_MODEL_ID, DESCRIBE_CACHE_VERSION, describeConcurrency } from '../steps/04-describe'
-import { verifyEnabled } from '../steps/04b-verify'
+import { verifyEnabled, verifyModelId } from '../steps/04b-verify'
 import { VERIFY_PROMPT_VERSION } from '../verifyPrompt'
 
 /**
@@ -54,28 +55,26 @@ export function parseSteps(arg: string): EvalStep[] {
   return names as EvalStep[]
 }
 
-/** 04-describe/05-fit/05b-edit's Nova Lite (prompts.ts LITE, not exported): the shorteners of fit and edit. */
-const novaLiteId = (env: Record<string, string | undefined>) => env.NOVA_LITE_MODEL_ID ?? 'amazon.nova-lite-v1:0'
 const priced = (id: string) => id.replace(/^(us|eu|apac|global)\./, '') in BEDROCK_PRICES
 
-/** Every Bedrock model the steps will call, resolved from env as the steps resolve them from process.env (a test checks they agree). */
-export function effectiveModels(steps: readonly EvalStep[], env: Record<string, string | undefined> = process.env): { role: string; id: string }[] {
+/** Every Bedrock model the steps will call, from the same functions the steps use (they read process.env). */
+export function effectiveModels(steps: readonly EvalStep[]): { role: string; id: string }[] {
   const out: { role: string; id: string }[] = []
   if (steps.includes('describe')) {
-    const describe = env.DESCRIBE_MODEL_ID ?? DEFAULT_DESCRIBE_MODEL_ID
+    const describe = process.env.DESCRIBE_MODEL_ID ?? DEFAULT_DESCRIBE_MODEL_ID // 04-describe
     out.push({ role: 'describe', id: describe })
-    if (env.DESCRIBE_VERIFY !== '0') out.push({ role: 'verify', id: env.VERIFY_MODEL_ID ?? describe }) // 04b-verify verifyEnabled / verifyModelId
+    if (verifyEnabled()) out.push({ role: 'verify', id: verifyModelId(describe) })
   }
-  if (steps.includes('fit') || steps.includes('edit')) out.push({ role: 'shorten (fit, edit)', id: novaLiteId(env) })
-  if (steps.includes('edit') && env.DESCRIBE_EDIT !== '0') out.push({ role: 'edit', id: env.EDIT_MODEL_ID ?? novaLiteId(env) }) // prompts.ts editModelId
+  if (steps.includes('fit') || steps.includes('edit')) out.push({ role: 'shorten (fit, edit)', id: LITE() })
+  if (steps.includes('edit') && process.env.DESCRIBE_EDIT !== '0') out.push({ role: 'edit', id: editModelId() }) // 05b-edit skips its call on DESCRIBE_EDIT=0
   return out
 }
 /**
  * A model with no price in cost.ts BEDROCK_PRICES is metered as $0 (bedrockUsd warns and counts nothing), which would make the
  * cap blind; refuse such a run before anything is copied.
  */
-export function assertPriced(steps: readonly EvalStep[], env: Record<string, string | undefined> = process.env) {
-  const missing = effectiveModels(steps, env).filter((m) => !priced(m.id))
+export function assertPriced(steps: readonly EvalStep[]) {
+  const missing = effectiveModels(steps).filter((m) => !priced(m.id))
   if (missing.length) throw new Error(`no price in src/cost.ts BEDROCK_PRICES for ${missing.map((m) => `${m.id} (${m.role})`).join(', ')}: the meter would count it as $0 and the cap could not stop it. Add the price first. Nothing was copied or spent.`)
 }
 
@@ -113,7 +112,7 @@ export async function copyInputs(plan: Plan) {
 
 export class CapExceeded extends Error {
   constructor(readonly spentUsd: number, readonly cap: number, readonly step: string) {
-    super(`spend cap reached in ${step}: $${spentUsd.toFixed(4)} > cap $${cap.toFixed(2)}; stopped (no further AWS call is started)`)
+    super(`spend cap reached in ${step}: $${spentUsd.toFixed(4)} > cap $${cap.toFixed(3)}; stopped (no further AWS call is started)`)
   }
 }
 
@@ -151,7 +150,7 @@ export async function runEvalSteps(plan: Pick<Plan, 'steps' | 'cap'>, ctx: Ctx, 
     }
     total += costUsd
     done.push({ step, costUsd })
-    deps.log(`${step}: $${costUsd.toFixed(4)}  (running $${total.toFixed(4)} of cap $${plan.cap.toFixed(2)})`)
+    deps.log(`${step}: $${costUsd.toFixed(4)}  (running $${total.toFixed(4)} of cap $${plan.cap.toFixed(3)})`)
     if (over || total > plan.cap) throw Object.assign(new CapExceeded(total, plan.cap, step), { steps: done })
   }
   return { steps: done, totalUsd: total }
@@ -173,7 +172,7 @@ export function runSettings(steps: readonly Step[], language: string, voice: str
   return {
     commit: git(['rev-parse', 'HEAD'])?.trim(), dirty: status === undefined ? undefined : status.trim().length > 0,
     language, voice,
-    models: effectiveModels(steps.filter((s): s is EvalStep => (EVAL_STEPS as readonly string[]).includes(s)), env),
+    models: effectiveModels(steps.filter((s): s is EvalStep => (EVAL_STEPS as readonly string[]).includes(s))),
     env: Object.fromEntries(['DESCRIBE_MODEL_ID', 'VERIFY_MODEL_ID', 'EDIT_MODEL_ID', 'NOVA_LITE_MODEL_ID', 'DESCRIBE_EDIT', 'DESCRIBE_VERIFY', 'DESCRIBE_CONCURRENCY', 'BEDROCK_REGION', 'AWS_REGION'].map((k) => [k, env[k] ?? null])),
     describeConcurrency: describeConcurrency(), verifyEnabled: verifyEnabled(),
     versions: { VERIFY_PROMPT_VERSION, DESCRIBE_CACHE_VERSION, CONTINUATION_CACHE_VERSION },
@@ -194,7 +193,7 @@ export function describePlan(plan: Plan, sourceSlug: string, evalSlug: string): 
     `copy ${plan.sourceDir} → ${plan.evalDir}`,
     ...plan.copy.map((c) => `  ${c.file.padEnd(16)} ${mb(c.bytes)}`),
     `  (not copied: cache/, frames/, cue clips and every other output)`,
-    `run ${plan.steps.join(' → ')} on ${evalSlug} (from ${sourceSlug}); hard cap $${plan.cap.toFixed(2)}; no publish, no DB writes`,
+    `run ${plan.steps.join(' → ')} on ${evalSlug} (from ${sourceSlug}); hard cap $${plan.cap.toFixed(3)}; no publish, no DB writes`,
   ]
 }
 
@@ -212,7 +211,8 @@ export async function runGateC(o: { workRoot: string; sourceSlug: string; evalSl
   deps.log(`models: ${effectiveModels(o.steps).map((m) => `${m.role} ${m.id}`).join('; ')}; ${o.language}, voice ${o.voice}`)
   if (o.dryRun) { deps.log('dry run: nothing copied, no AWS call, $0.00'); return { steps: [], totalUsd: 0 } }
   const settings = runSettings(o.steps, o.language, o.voice)
-  const record = { source: o.sourceSlug, steps: plan.steps, capUsd: plan.cap, copied: plan.copy.map((c) => c.file) }
+  const prepared = await readFile(join(plan.sourceDir, 'gate-c.json'), 'utf8').then((t) => JSON.parse(t) as { credit?: string; input?: string; start?: string; end?: string }, () => undefined)
+  const record = { source: o.sourceSlug, steps: plan.steps, capUsd: plan.cap, copied: plan.copy.map((c) => c.file), credit: prepared?.credit, segment: prepared?.input ? { input: prepared.input, start: prepared.start, end: prepared.end } : undefined }
   try { await copyInputs(plan) } catch (e) {
     await rm(plan.evalDir, { recursive: true, force: true })
     throw e

@@ -8,8 +8,8 @@ import type { Step } from '../src/steps'
 import type { FitCue } from '../src/steps/05-fit'
 import { buildPackets, limitOf, rubricMd, RUBRIC_TEMPLATE, scoresMd, shotsMd, tc, type PacketData } from '../src/eval/packets'
 import { BASE_INPUTS, CapExceeded, effectiveModels, EVAL_STEPS, parseSteps, pipelineQualitySteps, runGateC, type EvalDeps } from '../src/eval/run'
-import { preparePlan, prepareGateC, PREPARE_STEPS, type PrepareDeps } from '../src/eval/prepare'
-import { editModelId } from '../src/prompts'
+import { defaultCredit, preparePlan, prepareGateC, PREPARE_STEPS, type PrepareDeps } from '../src/eval/prepare'
+import { editModelId, LITE } from '../src/prompts'
 import { verifyModelId } from '../src/steps/04b-verify'
 import { chmod } from 'node:fs/promises'
 import { formatSummary, parseScores, readExpected, readRaters, summarise, type RaterScores } from '../src/eval/score'
@@ -111,14 +111,15 @@ describe('gate-c run: model prices', () => {
     vi.stubEnv('DESCRIBE_MODEL_ID', 'us.qwen.qwen3-vl-235b-a22b')
     vi.stubEnv('VERIFY_MODEL_ID', 'x.verify')
     vi.stubEnv('EDIT_MODEL_ID', 'x.edit')
-    const m = effectiveModels(['describe', 'fit', 'edit', 'voice'], process.env)
-    expect(m).toEqual([{ role: 'describe', id: 'us.qwen.qwen3-vl-235b-a22b' }, { role: 'verify', id: verifyModelId('us.qwen.qwen3-vl-235b-a22b') }, { role: 'shorten (fit, edit)', id: 'amazon.nova-lite-v1:0' }, { role: 'edit', id: editModelId() }])
+    const m = effectiveModels(['describe', 'fit', 'edit', 'voice'])
+    expect(m).toEqual([{ role: 'describe', id: 'us.qwen.qwen3-vl-235b-a22b' }, { role: 'verify', id: verifyModelId('us.qwen.qwen3-vl-235b-a22b') }, { role: 'shorten (fit, edit)', id: LITE() }, { role: 'edit', id: editModelId() }])
     vi.stubEnv('VERIFY_MODEL_ID', undefined)
     vi.stubEnv('EDIT_MODEL_ID', undefined)
     vi.stubEnv('DESCRIBE_VERIFY', '0')
     vi.stubEnv('DESCRIBE_EDIT', '0')
-    expect(effectiveModels(['describe', 'fit', 'edit'], process.env).map((x) => x.role)).toEqual(['describe', 'shorten (fit, edit)'])
-    expect(effectiveModels(['fit'], { EDIT_MODEL_ID: 'x' }).map((x) => x.role)).toEqual(['shorten (fit, edit)'])
+    expect(effectiveModels(['describe', 'fit', 'edit']).map((x) => x.role)).toEqual(['describe', 'shorten (fit, edit)'])
+    vi.stubEnv('NOVA_LITE_MODEL_ID', 'us.amazon.nova-lite-v1:0')
+    expect(effectiveModels(['fit'])).toEqual([{ role: 'shorten (fit, edit)', id: 'us.amazon.nova-lite-v1:0' }])
   })
   it('refuses a model with no price before anything is copied (the meter would count it as $0)', async () => {
     await sourceDir()
@@ -165,6 +166,7 @@ describe('gate-c run: hard spend cap', () => {
     }
     const err = await runGateC(opts({ cap: 0.25 }), deps({ runStep: step })).catch((e: unknown) => e)
     expect(err).toBeInstanceOf(CapExceeded)
+    expect((err as Error).message).toMatch(/cap \$0\.250/)
     expect(ran).toEqual(['describe'])
     expect(charges).toBe(3) // 0.1, 0.2, 0.3 > 0.25 → aborted before the 4th
     expect((err as CapExceeded).spentUsd).toBeCloseTo(0.3)
@@ -354,6 +356,9 @@ describe('gate-c prepare', () => {
       cut: async (i, out, span) => { calls.push(`cut ${i} ${span.startS}-${span.endS}`); await writeFile(out, 'cut') },
       download: async (uri, f) => { calls.push(`download ${uri}`); await writeFile(f, 'dl') },
       upload: async (f, uri) => { calls.push(`upload ${uri}`) },
+      catalogueSlugs: async () => ['sintel-90-150-r2', 'tears-of-steel-40-100'],
+      titleInDb: async () => false,
+      s3Keys: async (prefix) => { calls.push(`list ${prefix}`); return [] },
       ...over,
     }
     return { d, calls }
@@ -362,22 +367,24 @@ describe('gate-c prepare', () => {
   it('prices Transcribe before anything runs and refuses a span the cap cannot cover', () => {
     expect(preparePlan(popts())).toMatchObject({ startS: 390, endS: 510, seconds: 120, kind: 'https' })
     expect(preparePlan(popts()).estimateUsd).toBeCloseTo(0.048)
-    expect(() => preparePlan(popts({ cap: 0.04 }))).toThrow(/over the cap/)
+    expect(() => preparePlan(popts({ cap: 0.04 }))).toThrow(/over the cap \$0\.040/)
     expect(() => preparePlan(popts({ end: '6:00' }))).toThrow(/after --start/)
     expect(() => preparePlan(popts({ end: '30:00', cap: 5 }))).toThrow(/min/)
     expect(() => preparePlan(popts({ slug: 'Bad Slug' }))).toThrow(/slug/)
   })
-  it('--dry-run cuts, uploads and runs nothing', async () => {
+  it('--dry-run cuts, uploads, lists and runs nothing, and says S3 was not checked', async () => {
     const { d, calls } = pdeps()
-    const r = await prepareGateC(popts({ dryRun: true }), d)
+    const lines: string[] = []
+    const r = await prepareGateC(popts({ dryRun: true }), { ...d, log: (l) => lines.push(l) })
     expect(r.totalUsd).toBe(0)
     expect(calls).toEqual([])
+    expect(lines.join('\n')).toMatch(/S3 not checked/)
     expect(existsSync(join(root, 'tos-390-510'))).toBe(false)
   })
   it('cuts, uploads under work/<slug>/ (never sources/), runs only probe → shots → speech, and records the run', async () => {
     const { d, calls } = pdeps()
     const r = await prepareGateC(popts({ input: 's3://bkt/sources/full.mp4' }), d)
-    expect(calls).toEqual(['download s3://bkt/sources/full.mp4', `cut ${join(root, 'tos-390-510', 'download.mp4')} 390-510`, 'upload s3://bkt/work/tos-390-510/source.mp4', 'step probe', 'step shots', 'step speech'])
+    expect(calls).toEqual(['list work/tos-390-510/', 'download s3://bkt/sources/full.mp4', `cut ${join(root, 'tos-390-510', 'download.mp4')} 390-510`, 'upload s3://bkt/work/tos-390-510/source.mp4', 'step probe', 'step shots', 'step speech'])
     expect(r.totalUsd).toBeCloseTo(0.048)
     expect([...PREPARE_STEPS]).toEqual(['probe', 'shots', 'speech'])
     const dir = await readdir(join(root, 'tos-390-510'))
@@ -390,5 +397,30 @@ describe('gate-c prepare', () => {
     expect(existsSync(join(root, 'tos-390-510'))).toBe(false)
     await mkdir(join(root, 'tos-390-510'))
     await expect(prepareGateC(popts(), pdeps().d)).rejects.toThrow(/exists/)
+  })
+  it('refuses a catalogue slug (titles.json, even on a dry run; Title rows) and a slug with objects under S3 work/<slug>/, before any upload', async () => {
+    await expect(prepareGateC(popts({ slug: 'tears-of-steel-40-100', dryRun: true }), pdeps().d)).rejects.toThrow(/catalogue title/)
+    const db = pdeps({ env: { S3_BUCKET_MEDIA: 'bkt', DATABASE_URL: 'postgresql://x' }, titleInDb: async (s) => s === 'tos-390-510' })
+    await expect(prepareGateC(popts(), db.d)).rejects.toThrow(/Title row/)
+    const s3 = pdeps({ s3Keys: async () => ['work/tos-390-510/mezz.mp4'] })
+    await expect(prepareGateC(popts(), s3.d)).rejects.toThrow(/work\/tos-390-510\/mezz\.mp4 already in S3/)
+    expect([...db.calls, ...s3.calls].filter((c) => /^(cut|upload|download|step)/.test(c))).toEqual([])
+    expect(existsSync(join(root, 'tos-390-510'))).toBe(false)
+  })
+  it('records a credit: given, or the Blender default for the Tears of Steel download', async () => {
+    expect(defaultCredit('https://download.blender.org/demo/movies/ToS/tears_of_steel_720p.mov')).toBe('Tears of Steel © 2012 Blender Foundation, mango.blender.org, CC-BY 3.0')
+    expect(defaultCredit('https://example.org/x.mp4')).toBeUndefined()
+    await prepareGateC(popts({ input: 'https://download.blender.org/demo/movies/ToS/tears_of_steel_720p.mov' }), pdeps().d)
+    expect(JSON.parse(await readFile(join(root, 'tos-390-510', 'gate-c.json'), 'utf8')).credit).toBe('Tears of Steel © 2012 Blender Foundation, mango.blender.org, CC-BY 3.0')
+    await prepareGateC(popts({ slug: 'other-1', credit: 'Film © Someone, CC-BY 4.0' }), pdeps().d)
+    expect(JSON.parse(await readFile(join(root, 'other-1', 'gate-c.json'), 'utf8')).credit).toBe('Film © Someone, CC-BY 4.0')
+  })
+  it('the credit travels: run copies it from the prepared dir, packets print it in shots.md', async () => {
+    await sourceDir()
+    await writeFile(join(root, 'src-clip', 'gate-c.json'), JSON.stringify({ credit: 'Film © X, CC-BY 3.0' }))
+    await runGateC(opts(), deps({ runStep: async () => {} }))
+    expect(JSON.parse(await readFile(join(root, 'eval-1', 'gate-c.json'), 'utf8')).credit).toBe('Film © X, CC-BY 3.0')
+    const md = shotsMd({ shots: [], described: [], gaps: [], words: [], cues: [], fitCues: [] }, new Map(), { title: 'T', offsetMs: 0, credit: 'Film © X, CC-BY 3.0' })
+    expect(md).toContain('Credit: Film © X, CC-BY 3.0')
   })
 })

@@ -42,7 +42,8 @@ export function wordBudget(shot: Shot, gaps: Gap[]): number {
 }
 
 const client = () => new BedrockRuntimeClient({ region: process.env.BEDROCK_REGION ?? 'us-east-1' })
-const LITE = () => process.env.NOVA_LITE_MODEL_ID ?? 'amazon.nova-lite-v1:0'
+/** The Nova Lite model id (NOVA_LITE_MODEL_ID overrides); exported for the Gate C price check (src/eval/run.ts). */
+export const LITE = () => process.env.NOVA_LITE_MODEL_ID ?? 'amazon.nova-lite-v1:0'
 
 /** The model half of fit's shortening; fit accepts its reply only through safeShorten (no new content words, still sentences — not a noun list, not only a subject: DESC-028). */
 export async function shortenWithNovaLite(text: string, maxWords: number, language: 'en' | 'de'): Promise<string> {

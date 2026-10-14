@@ -60,11 +60,11 @@ export const nextWordMs = (words: readonly Word[], t: number) => { const w = wor
  * Pure (tested): shots.md. speechMs maps a placed cue's index in cues.json to its clip's speech length (undefined: not measured,
  * the clip end is shown as the speech end, as before).
  */
-export function shotsMd(d: PacketData, speechMs: ReadonlyMap<number, number | undefined>, o: { title: string; offsetMs: number }): string {
+export function shotsMd(d: PacketData, speechMs: ReadonlyMap<number, number | undefined>, o: { title: string; offsetMs: number; credit?: string }): string {
   const t = (ms: number) => tc(ms, o.offsetMs)
   const lines = dialogueLines(d.words)
   const md = [`# ${o.title} — ${d.shots.length} shots`, '',
-    `Read RUBRIC.md first. Times in ms are from the start of the segment (0 = film ${t(0)}).`, '']
+    `Read RUBRIC.md first. Times in ms are from the start of the segment (0 = film ${t(0)}).`, '', ...(o.credit ? [`Credit: ${o.credit}`, ''] : [])]
   for (const s of d.shots) {
     const desc = d.described.find((x) => x.index === s.index)
     const { index: i, startMs: a, endMs: b } = s
@@ -158,11 +158,13 @@ export async function treeHash(dir: string): Promise<string> {
  * (which work dir, when, the hash). Refuses an even N (a majority needs an odd number of raters) and an outDir that has files,
  * so filled score sheets are never overwritten.
  */
-export async function buildPackets(o: { work: string; outDir: string; raters: number; offsetMs?: number; title?: string }, deps: PacketDeps = realDeps) {
+export async function buildPackets(o: { work: string; outDir: string; raters: number; offsetMs?: number; title?: string; credit?: string }, deps: PacketDeps = realDeps) {
   if (!Number.isInteger(o.raters) || o.raters < 1 || o.raters % 2 === 0) throw new Error(`--raters must be an odd number ≥ 1 (a majority needs one); got ${o.raters}`)
   if (existsSync(o.outDir) && (await readdir(o.outDir)).length) throw new Error(`${o.outDir} is not empty; packets never overwrite (a filled scores.md would be lost)`)
   const d = await loadPacketData(o.work)
   const offsetMs = o.offsetMs ?? 0, title = o.title ?? 'Gate C clip'
+  /** The film's credit: --credit, else what `gate-c prepare` recorded and `gate-c run` carried into the work dir. */
+  const credit = o.credit ?? await readJson<{ credit?: string }>(o.work, 'gate-c.json', {}).then((m) => m.credit)
   const stage = join(o.outDir, '_stage')
   await mkdir(join(stage, 'sheets'), { recursive: true })
   await mkdir(join(stage, 'frames'), { recursive: true })
@@ -180,7 +182,7 @@ export async function buildPackets(o: { work: string; outDir: string; raters: nu
   }
   const speech = new Map<number, number | undefined>()
   for (const [k, c] of d.cues.entries()) if (!c.extended) speech.set(k, await deps.speechMs(join(o.work, cueAudioFile(k))).catch(() => undefined))
-  await writeFile(join(stage, 'shots.md'), shotsMd(d, speech, { title, offsetMs }))
+  await writeFile(join(stage, 'shots.md'), shotsMd(d, speech, { title, offsetMs, credit }))
   await writeFile(join(stage, 'RUBRIC.md'), rubricMd(await readFile(RUBRIC_TEMPLATE, 'utf8'), o.raters, d.shots.length))
   await writeFile(join(stage, 'scores.md'), scoresMd(d.shots))
   const hashes: string[] = []
@@ -191,6 +193,6 @@ export async function buildPackets(o: { work: string; outDir: string; raters: nu
   }
   await rm(stage, { recursive: true })
   if (new Set(hashes).size !== 1) throw new Error('rater packets differ; this is a bug')
-  await writeFile(join(o.outDir, 'packet.json'), JSON.stringify({ work: o.work, raters: o.raters, shots: d.shots.length, shotIndices: d.shots.map((s) => s.index), offsetMs, title, sha256: hashes[0], at: new Date().toISOString() }, null, 2))
+  await writeFile(join(o.outDir, 'packet.json'), JSON.stringify({ work: o.work, raters: o.raters, shots: d.shots.length, shotIndices: d.shots.map((s) => s.index), offsetMs, title, credit, sha256: hashes[0], at: new Date().toISOString() }, null, 2))
   return { shots: d.shots.length, sha256: hashes[0]! }
 }
