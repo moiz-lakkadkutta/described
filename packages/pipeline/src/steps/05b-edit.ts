@@ -136,7 +136,7 @@ export async function editScene(cues: FitCue[], shots: Described[], words: Word[
   // The model's repetition removal is not reliable (sintel-90-150-r2, 2026-10-14: no proposal removed the second "Snowy mountains."),
   // so a lead sentence the viewer has just heard is dropped deterministically, after the model's edits and whether or not a call worked.
   // A trim of a cue the model already edited is its own entry (from = the model's text), so edit.json shows both steps.
-  const deduped = dropRepeatedLeads(report.cues)
+  const deduped = dropRepeatedLeads(report.cues, language)
   deduped.forEach((c, i) => {
     if (c.text === report.cues[i]!.text) return
     report.applied.push({ i, from: report.cues[i]!.text, to: c.text, by: 'repeat' })
@@ -179,19 +179,27 @@ function units(text: string): Unit[] {
 }
 /** A negation (en, de): "The car is not burning." and "The car is burning." share every content word in order but say opposite things. */
 const NEGATION = /(?:^|[^\p{L}])(?:not|no|never|cannot|nobody|nothing|none|nowhere|neither|nor|without|\p{L}+n['’]t|nicht|kein\p{L}*|nie|niemals|niemand|nichts|nirgends|ohne)(?![\p{L}])/iu
-/** The only words the repeat guard ignores: articles (en, de). Everything else — direction, number, conjunctions, pronouns — must match. */
-const ARTICLES = new Set(['a', 'an', 'the', 'der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einen', 'einem', 'einer', 'eines'])
-/** A sentence's words for the repeat guard: lower-cased, punctuation stripped (apostrophes and hyphens inside a word kept), articles removed. */
-const repeatWords = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}\s'’-]/gu, ' ').split(/\s+/).map((w) => w.replace(/^['’-]+|['’-]+$/g, '')).filter((w) => w && !ARTICLES.has(w))
+/** The only words the repeat guard ignores: the articles of the title's language. One set for both would make English "die", "den", "des" articles. */
+const ARTICLES: Record<'en' | 'de', ReadonlySet<string>> = {
+  en: new Set(['a', 'an', 'the']),
+  de: new Set(['der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einen', 'einem', 'einer', 'eines']),
+}
+/**
+ * A sentence's words for the repeat guard: lower-cased, punctuation stripped (apostrophes and hyphens inside a word kept, and a minus
+ * sign before a digit: "-5" ≠ "5"), the language's articles removed.
+ */
+const repeatWords = (t: string, language: 'en' | 'de') => t.toLowerCase().replace(/[^\p{L}\p{N}\s'’\-−]/gu, ' ').split(/\s+/)
+  .map((w) => w.replace(/['’\-−]+$/u, '').replace(/^(?:['’]|[-−](?!\p{N}))+/u, '').replace(/^−/, '-'))
+  .filter((w) => w && !ARTICLES[language].has(w))
 /**
  * Does `earlier` say `unit`: the same words in the same order, only articles may differ (human decision 2026-10-14, PR #44 rounds 3–4).
  * Deliberately not ../contentWords: its STOP list drops direction words ("Das Licht geht an." / "…aus.", "flies to" / "from the tree")
  * and its Porter stem folds number ("A dog barks." / "Dogs bark."), so either would let an opposite or a new fact pass as a repeat.
  * The negation check is kept as a second, explicit guard.
  */
-const saidIn = (unit: string, earlier: string) => {
+const saidIn = (unit: string, earlier: string, language: 'en' | 'de') => {
   if (NEGATION.test(unit) !== NEGATION.test(earlier)) return false
-  const want = repeatWords(unit), have = repeatWords(earlier)
+  const want = repeatWords(unit, language), have = repeatWords(earlier, language)
   return want.length > 0 && want.length === have.length && want.every((w, k) => w === have[k])
 }
 
@@ -205,7 +213,7 @@ const saidIn = (unit: string, earlier: string) => {
  * and nothing is dropped when the text left would not open with a capital letter or would open with a pronoun ("He stops."), or when
  * no plain sentence would be left. The rest of the text is kept verbatim; timing never changes. Pure: returns copies.
  */
-export function dropRepeatedLeads(cues: readonly FitCue[]): FitCue[] {
+export function dropRepeatedLeads(cues: readonly FitCue[], language: 'en' | 'de' = 'en'): FitCue[] {
   const out = cues.map((c) => ({ ...c }))
   out.forEach((c, i) => {
     if (isTextCue(c)) return
@@ -217,7 +225,7 @@ export function dropRepeatedLeads(cues: readonly FitCue[]): FitCue[] {
     let drop = 0
     while (drop < us.length) {
       const u = us[drop]!
-      if (u.onScreen || !SENTENCE_END.test(u.text) || !earlier.some((e) => saidIn(u.text, e))) break
+      if (u.onScreen || !SENTENCE_END.test(u.text) || !earlier.some((e) => saidIn(u.text, e, language))) break
       drop++
     }
     if (!drop || !us.slice(drop).some((u) => !u.onScreen)) return

@@ -452,6 +452,8 @@ describe('deterministic repeat guard (a lead sentence the previous cues already 
 
   /** The second cue's text after the guard, given the cue texts in order (2 s apart). */
   const after = (...texts: string[]) => dropRepeatedLeads(texts.map((t, i) => action(i * 2000, t, i))).map((c) => c.text)
+  /** The same for a German title: the German articles are the ones ignored. */
+  const afterDe = (...texts: string[]) => dropRepeatedLeads(texts.map((t, i) => action(i * 2000, t, i)), 'de').map((c) => c.text)
 
   it('drops only leading sentences one sentence of the previous cue already said, never a new fact, the on-screen text or the last action sentence', () => {
     expect(after('Snowy mountains. A lone figure walks left.', 'Snowy mountains. A figure falls. Snowy mountains.')[1]).toBe('A figure falls. Snowy mountains.') // a later repeat is not a lead
@@ -506,8 +508,27 @@ describe('deterministic repeat guard (a lead sentence the previous cues already 
     ]
     for (const [before, lead] of keeps) expect(after(before, `${lead} A cat hisses.`)[1]).toBe(`${lead} A cat hisses.`)
     expect(after('It glows.', 'They glow. A cat hisses.')[1]).toBe('They glow. A cat hisses.')
-    expect(after('Ein Wald. Ein Mann rennt.', 'Der Wald. Eine Frau steht.')[1]).toBe('Eine Frau steht.') // only the article differs
+    expect(afterDe('Ein Wald. Ein Mann rennt.', 'Der Wald. Eine Frau steht.')[1]).toBe('Eine Frau steht.') // only the article differs
+    expect(after('Ein Wald. Ein Mann rennt.', 'Der Wald. Eine Frau steht.')[1]).toBe('Der Wald. Eine Frau steht.') // in English "der" is a word
     expect(after('A red light glows.', 'The red light, glowing! A cat hisses.')[1]).toBe('The red light, glowing! A cat hisses.') // glows ≠ glowing
+  })
+
+  it('ignores only the articles of the title\'s language: English keeps "die", "den", "des" as words', () => {
+    expect(after('Soldiers.', 'Soldiers die. A dog barks.')[1]).toBe('Soldiers die. A dog barks.')
+    expect(after('Lights out.', 'Lights die out. A dog barks.')[1]).toBe('Lights die out. A dog barks.')
+    expect(after('A fox enters.', 'The fox enters the den. Cubs sleep.')[1]).toBe('The fox enters the den. Cubs sleep.')
+    expect(after('A fox enters the den.', 'The fox enters the den. Cubs sleep.')[1]).toBe('Cubs sleep.')
+    expect(afterDe('Der Fuchs kommt.', 'Ein Fuchs kommt. Die Jungen schlafen.')[1]).toBe('Die Jungen schlafen.')
+  })
+
+  it('keeps the sign of a number', () => {
+    expect(after('The thermometer shows 5 degrees.', 'The thermometer shows -5 degrees. Snow falls.')[1]).toBe('The thermometer shows -5 degrees. Snow falls.')
+    expect(after('The thermometer shows 5 degrees.', 'The thermometer shows −5 degrees. Snow falls.')[1]).toBe('The thermometer shows −5 degrees. Snow falls.')
+    expect(after('The thermometer shows -5 degrees.', 'The thermometer shows -5 degrees. Snow falls.')[1]).toBe('Snow falls.')
+  })
+
+  it('keeps the lead when the text left would not open with a capital letter', () => {
+    expect(after('The door opens.', 'The door opens. it closes.')[1]).toBe('The door opens. it closes.')
   })
 
   it('compares with the immediately previous action cue only, so a cut back to a place keeps the place', () => {

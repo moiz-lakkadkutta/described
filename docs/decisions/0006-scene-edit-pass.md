@@ -86,8 +86,9 @@ failed) the exact rule is:
 - **Dropped**: the cue's leading units, in order, while each one is a whole plain sentence (not on-screen text; `sentences()` splits
   after . ! ? only, so a unit must end in one of those, or in … when it is the last text before a clause, with optional closing
   quotes) and its words are IDENTICAL, in the same order, to those of ONE plain sentence of the previous cue after lower-casing,
-  stripping punctuation and removing only articles (en a, an, the; de der, die, das, den, dem, des, ein, eine, einen, einem, einer,
-  eines). The guard has its own normalisation: no stop list and no stemming (human decision 2026-10-14, PR #44 rounds 3–4). A subset
+  stripping punctuation (a minus sign before a digit is kept: "-5" ≠ "5") and removing only the articles of the title's language
+  (en a, an, the; de der, die, das, den, dem, des, ein, eine, einen, einem, einer, eines — never both sets: in English "die", "den",
+  "des" are words, "Soldiers die." after "Soldiers." and "The fox enters the den." after "A fox enters." keep their lead). The guard has its own normalisation: no stop list and no stemming (human decision 2026-10-14, PR #44 rounds 3–4). A subset
   match dropped outcomes ("The man opens the door." after "The man tries to open the door."; almost, nearly, stops, pretends, refuses,
   about to, fakes, barely, half, DE "stürzt fast"); the shared STOP list (`contentWords`, still used by the faithful and keeps-facts
   guards) dropped direction words ("Das Licht geht an." / "…aus.", "auf" / "zu", "in das" / "aus dem", "zum" / "vom", "flies to" /
