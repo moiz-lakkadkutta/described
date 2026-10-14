@@ -11,7 +11,9 @@ A run passes when **at least 70 % of the shots are majority-usable**: rated usab
 - A shot is usable when all five rubric criteria pass: faithful, on time, style, clean, fits
   ([rubric template](../packages/pipeline/src/eval/RUBRIC.template.md)). "Fits" is decision 0009's rule, quoted verbatim.
 - The denominator is every shot of the clip.
-- Three raters, so there is no tie. Runs up to DESC-024 used two raters and counted a shot only when both said usable; those
+- Three raters, so there is no tie. A row marked usable with a failed criterion is sent back to its rater (`score` counts it
+  unrated).
+- Runs up to DESC-024 used two raters and counted a shot only when both said usable; those
   scores stay as they are. `pnpm gate-c score` also prints the all-raters-usable count, so the old figure is still visible.
 
 ## The procedure
@@ -28,9 +30,17 @@ A run passes when **at least 70 % of the shots are majority-usable**: rated usab
 4. **Rate independently.** Each rater sees only their own folder and does not talk to the others.
 5. **Score.** `pnpm gate-c score <out>`: per-rater usable counts, majority-usable (against 70 %), all-raters-usable, agreement,
    and each disagreement with the raters' notes.
-6. **Report both clips, separately.** The Gate C clip `sintel-90-210` (29 shots) has been tuned on since 0003, so every
-   evaluation also runs the held-out clip `tears-of-steel-40-100` (16 shots) and reports its score on its own line, never pooled
-   with the tuned clip. A change that helps only the tuned clip is not an improvement.
+6. **Report each clip separately, never pooled.**
+   - **Primary: `sintel-90-210`** (Sintel 1:30–3:30, 29 shots). The Gate C clip since 0003; every change since has been checked on
+     it, so it is **tuned** and is reported as such.
+   - **Held-out: `tos-390-510`** (Tears of Steel 6:30–8:30), a stretch nothing in the repo has looked at. It is made once with
+     `pnpm gate-c prepare` (cut + probe/shots/speech, ≈ $0.05) and then evaluated like the primary clip. A change that helps only
+     the tuned clip is not an improvement.
+   - `tears-of-steel-40-100` is **less tuned, not held out** (it shaped decision 0008 and is pinned in tests); report it only as
+     an extra, labelled line.
+
+   At 16–30 shots one shot is 3–6 points, so a single clip's score is a coarse check: a 1-shot difference between runs is noise,
+   and the disagreements say more than the percentage.
 
 Record each result in the decision or ticket it informs: commit, eval slugs, cost (`work/<eval>/gate-c.json`), the score table
 for both clips, and the disagreements.

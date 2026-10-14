@@ -7,12 +7,16 @@ import { meter, metered, Meter } from '../src/cost'
 import type { Step } from '../src/steps'
 import type { FitCue } from '../src/steps/05-fit'
 import { buildPackets, limitOf, rubricMd, RUBRIC_TEMPLATE, scoresMd, shotsMd, tc, type PacketData } from '../src/eval/packets'
-import { BASE_INPUTS, CapExceeded, parseSteps, runGateC, type EvalDeps } from '../src/eval/run'
-import { formatSummary, parseScores, summarise, type RaterScores } from '../src/eval/score'
+import { BASE_INPUTS, CapExceeded, effectiveModels, EVAL_STEPS, parseSteps, pipelineQualitySteps, runGateC, type EvalDeps } from '../src/eval/run'
+import { preparePlan, prepareGateC, PREPARE_STEPS, type PrepareDeps } from '../src/eval/prepare'
+import { editModelId } from '../src/prompts'
+import { verifyModelId } from '../src/steps/04b-verify'
+import { chmod } from 'node:fs/promises'
+import { formatSummary, parseScores, readExpected, readRaters, summarise, type RaterScores } from '../src/eval/score'
 
 let root: string
 beforeEach(async () => { root = await mkdtemp(join(tmpdir(), 'gate-c-')); noStep.mockClear() })
-afterEach(async () => { await rm(root, { recursive: true, force: true }) })
+afterEach(async () => { vi.unstubAllEnvs(); await rm(root, { recursive: true, force: true }) })
 
 /** A source work dir with every input, plus caches and outputs that must never be copied. */
 async function sourceDir(slug = 'src-clip') {
@@ -35,7 +39,7 @@ const snapshot = async (d: string) => {
 }
 const noStep = vi.fn(async () => { throw new Error('a step ran') })
 const deps = (over: Partial<EvalDeps> = {}): EvalDeps => ({ runStep: noStep, metered, meter, log: () => {}, ...over })
-const opts = (o: Partial<Parameters<typeof runGateC>[0]> = {}) => ({ workRoot: root, sourceSlug: 'src-clip', evalSlug: 'eval-1', steps: parseSteps('describe,fit,edit,voice'), cap: 0.3, voice: 'Joanna', ...o })
+const opts = (o: Partial<Parameters<typeof runGateC>[0]> = {}) => ({ workRoot: root, sourceSlug: 'src-clip', evalSlug: 'eval-1', steps: parseSteps('describe,fit,edit,voice'), cap: 0.3, language: 'en' as const, voice: 'Joanna', ...o })
 
 describe('gate-c parseSteps', () => {
   it('takes consecutive evaluation steps in order', () => {
@@ -45,6 +49,13 @@ describe('gate-c parseSteps', () => {
   it('refuses publish and every other non-evaluation step, gaps, wrong order and repeats', () => {
     for (const bad of ['publish', 'voice,mix', 'package', 'speech,describe', 'describe,edit', 'fit,describe', 'fit,fit', ''])
       expect(() => parseSteps(bad)).toThrow()
+  })
+  it('refuses voice as the first step (06-voice rewrites cues.json); voice runs only after edit', () => {
+    expect(() => parseSteps('voice')).toThrow(/cannot start at voice/)
+    expect(parseSteps('edit,voice')).toEqual(['edit', 'voice'])
+  })
+  it('EVAL_STEPS is exactly the pipeline from describe to voice (a new step there, e.g. DESC-029 scenes, must be decided on)', () => {
+    expect([...EVAL_STEPS]).toEqual(pipelineQualitySteps())
   })
 })
 
@@ -61,14 +72,25 @@ describe('gate-c run: input copying', () => {
     expect(step.mock.calls.map((c) => c[0])).toEqual(['describe', 'fit', 'edit', 'voice'])
     expect(step.mock.calls[0]![1].work).toBe(join(root, 'eval-1'))
     const manifest = JSON.parse(await readFile(join(root, 'eval-1', 'gate-c.json'), 'utf8'))
-    expect(manifest).toMatchObject({ source: 'src-clip', steps: ['describe', 'fit', 'edit', 'voice'], capUsd: 0.3, totalUsd: 0 })
+    expect(manifest).toMatchObject({ source: 'src-clip', steps: ['describe', 'fit', 'edit', 'voice'], capUsd: 0.3, totalUsd: 0, language: 'en', voice: 'Joanna' })
+    expect(manifest.versions).toEqual(expect.objectContaining({ VERIFY_PROMPT_VERSION: expect.any(Number), DESCRIBE_CACHE_VERSION: expect.any(Number) }))
+    expect(Object.keys(manifest.env)).toEqual(expect.arrayContaining(['DESCRIBE_MODEL_ID', 'VERIFY_MODEL_ID', 'EDIT_MODEL_ID', 'DESCRIBE_EDIT', 'DESCRIBE_VERIFY', 'DESCRIBE_CONCURRENCY']))
+    expect(typeof manifest.dirty).toBe('boolean')
+    expect(manifest.models.map((m: { role: string }) => m.role)).toEqual(['describe', 'verify', 'shorten (fit, edit)', 'edit'])
+  })
+  it('a copy that fails part-way removes the half-copied eval dir', async () => {
+    await sourceDir()
+    await chmod(join(root, 'src-clip', 'mezz.mp4'), 0o000)
+    await expect(runGateC(opts(), deps({ runStep: async () => {} }))).rejects.toThrow()
+    await chmod(join(root, 'src-clip', 'mezz.mp4'), 0o644)
+    expect(existsSync(join(root, 'eval-1'))).toBe(false)
   })
   it('starting later carries only the earlier outputs that step reads', async () => {
     await sourceDir()
     await runGateC(opts({ steps: parseSteps('edit,voice') }), deps({ runStep: async () => {} }))
     const copied = await readdir(join(root, 'eval-1'))
     expect(copied).toEqual(expect.arrayContaining(['described.json', 'cues.fit.json']))
-    expect(copied).not.toContain('cues.json')
+    expect(copied).not.toContain('cues.json') // edit writes it from cues.fit.json
     expect(copied).not.toContain('cache')
     expect(copied).not.toContain('cue_0.mp3')
   })
@@ -80,6 +102,32 @@ describe('gate-c run: input copying', () => {
     await expect(runGateC(opts({ evalSlug: 'eval-2', cap: 0 }), deps())).rejects.toThrow(/cap/)
     await rm(join(root, 'src-clip', 'mezz.mp4'))
     await expect(runGateC(opts({ evalSlug: 'eval-3' }), deps())).rejects.toThrow(/mezz\.mp4/)
+    expect(noStep).not.toHaveBeenCalled()
+  })
+})
+
+describe('gate-c run: model prices', () => {
+  it('lists the models each step will call, as the steps resolve them', () => {
+    vi.stubEnv('DESCRIBE_MODEL_ID', 'us.qwen.qwen3-vl-235b-a22b')
+    vi.stubEnv('VERIFY_MODEL_ID', 'x.verify')
+    vi.stubEnv('EDIT_MODEL_ID', 'x.edit')
+    const m = effectiveModels(['describe', 'fit', 'edit', 'voice'], process.env)
+    expect(m).toEqual([{ role: 'describe', id: 'us.qwen.qwen3-vl-235b-a22b' }, { role: 'verify', id: verifyModelId('us.qwen.qwen3-vl-235b-a22b') }, { role: 'shorten (fit, edit)', id: 'amazon.nova-lite-v1:0' }, { role: 'edit', id: editModelId() }])
+    vi.stubEnv('VERIFY_MODEL_ID', undefined)
+    vi.stubEnv('EDIT_MODEL_ID', undefined)
+    vi.stubEnv('DESCRIBE_VERIFY', '0')
+    vi.stubEnv('DESCRIBE_EDIT', '0')
+    expect(effectiveModels(['describe', 'fit', 'edit'], process.env).map((x) => x.role)).toEqual(['describe', 'shorten (fit, edit)'])
+    expect(effectiveModels(['fit'], { EDIT_MODEL_ID: 'x' }).map((x) => x.role)).toEqual(['shorten (fit, edit)'])
+  })
+  it('refuses a model with no price before anything is copied (the meter would count it as $0)', async () => {
+    await sourceDir()
+    vi.stubEnv('EDIT_MODEL_ID', 'amazon.nova-pro-v1:0')
+    await expect(runGateC(opts(), deps())).rejects.toThrow(/no price .*amazon\.nova-pro-v1:0 \(edit\)/)
+    expect(existsSync(join(root, 'eval-1'))).toBe(false)
+    await expect(runGateC(opts({ steps: parseSteps('describe,fit'), dryRun: true }), deps())).resolves.toBeTruthy() // edit not run: its model does not matter
+    vi.stubEnv('DESCRIBE_MODEL_ID', 'us.anthropic.unknown')
+    await expect(runGateC(opts({ steps: parseSteps('describe'), dryRun: true }), deps())).rejects.toThrow(/describe/)
     expect(noStep).not.toHaveBeenCalled()
   })
 })
@@ -242,5 +290,105 @@ describe('gate-c score', () => {
     const s = summarise([rater('rater1', [true]), { rater: 'rater2', rows: [{ shot: 0, usable: null, criteria: {} as never, note: '' }] }, rater('rater3', [true])])
     expect(s.perRater[1]!.unrated).toEqual([0])
     expect(s.majority).toEqual([0])
+  })
+})
+
+describe('gate-c score: consistency and packet.json', () => {
+  const sheet = (rows: string[]) => `| Shot | Faithful | On time | Style | Clean | Fits | Usable | Note |\n|---|---|---|---|---|---|---|---|\n${rows.join('\n')}\n`
+  it('"usable: yes" with a failed criterion is inconsistent: unrated, and warned about', () => {
+    const rows = parseScores(sheet(['| 0 | fail | pass | pass | pass | pass | yes | wrong colour |', '| 1 | pass | pass | pass | pass | pass | no | other |']))
+    expect(rows[0]).toMatchObject({ usable: null, inconsistent: true })
+    expect(rows[1]!.usable).toBe(false)
+    const s = summarise([{ rater: 'rater1', rows }])
+    expect(s.perRater[0]!.inconsistent).toEqual([0])
+    expect(formatSummary(s).join('\n')).toMatch(/warning: rater1 marked shots 0 usable with a failed criterion/)
+  })
+  it('takes the shots from packet.json and names missing or unknown rows', async () => {
+    for (const r of ['rater1', 'rater2', 'rater3']) await mkdir(join(root, r))
+    const full = sheet(['| 0 | pass | pass | pass | pass | pass | yes | |', '| 1 | pass | pass | pass | pass | pass | yes | |', '| 2 | pass | pass | pass | pass | pass | yes | |'])
+    await writeFile(join(root, 'rater1', 'scores.md'), full)
+    await writeFile(join(root, 'rater2', 'scores.md'), full)
+    await writeFile(join(root, 'rater3', 'scores.md'), sheet(['| 0 | pass | pass | pass | pass | pass | yes | |', '| 7 | pass | pass | pass | pass | pass | yes | |']))
+    await writeFile(join(root, 'packet.json'), JSON.stringify({ shotIndices: [0, 1, 2] }))
+    const raters = await readRaters(root)
+    expect(() => summarise(raters, [0, 1, 2])).toThrow(/rater3\/scores.md .*missing rows for shots 1, 2; rows for unknown shots 7/)
+    expect(await readExpected(root)).toEqual([0, 1, 2])
+    expect(summarise(raters.slice(0, 2), await readExpected(root)).majority).toEqual([0, 1, 2])
+  })
+})
+
+describe('gate-c packets: end to end with a fake ffmpeg', () => {
+  it('builds identical rater folders with only the rater files, and packet.json outside them', async () => {
+    const work = join(root, 'secret-run-slug')
+    await mkdir(work)
+    const shots = [{ index: 0, startMs: 0, endMs: 3000 }, { index: 1, startMs: 3000, endMs: 6000 }]
+    await writeFile(join(work, 'shots.json'), JSON.stringify(shots))
+    await writeFile(join(work, 'described.json'), JSON.stringify(shots.map((s) => ({ ...s, description: `d${s.index}`, sameAsPrev: false, tokens: 0, outputTokens: 0 }))))
+    await writeFile(join(work, 'gaps.json'), JSON.stringify([{ startMs: 0, endMs: 2500 }]))
+    await writeFile(join(work, 'words.json'), '[]')
+    await writeFile(join(work, 'cues.json'), JSON.stringify([{ startMs: 100, endMs: 1900, text: 'A man walks.', extended: false, wordCount: 3, shotIndex: 0, limitMs: 2500 }]))
+    const calls: string[][] = []
+    const ffmpeg = async (args: string[]) => { calls.push(args); await writeFile(args.at(-1)!, `img ${args.join(' ').length}`) }
+    const out = join(root, 'packets')
+    const r = await buildPackets({ work, outDir: out, raters: 3, offsetMs: 90_000 }, { ffmpeg, speechMs: async () => 1500, log: () => {} })
+    expect(r.shots).toBe(2)
+    expect((await readdir(out)).sort()).toEqual(['packet.json', 'rater1', 'rater2', 'rater3'])
+    const { treeHash } = await import('../src/eval/packets')
+    const hashes = await Promise.all([1, 2, 3].map((k) => treeHash(join(out, `rater${k}`))))
+    expect(new Set(hashes).size).toBe(1)
+    expect((await readdir(join(out, 'rater1'))).sort()).toEqual(['RUBRIC.md', 'frames', 'scores.md', 'sheets', 'shots.md'])
+    expect((await readdir(join(out, 'rater1', 'frames'))).length).toBe(10)
+    for (const f of ['RUBRIC.md', 'shots.md', 'scores.md']) expect(await readFile(join(out, 'rater1', f), 'utf8')).not.toMatch(/secret-run-slug|packet\.json/)
+    expect(await readFile(join(out, 'rater1', 'shots.md'), 'utf8')).toContain('speech end: 1600 ms')
+    expect(JSON.parse(await readFile(join(out, 'packet.json'), 'utf8'))).toMatchObject({ shotIndices: [0, 1], raters: 3, sha256: hashes[0] })
+    expect(calls.length).toBe(2 * 6) // 5 frames + 1 sheet per shot
+  })
+})
+
+describe('gate-c prepare', () => {
+  const pdeps = (over: Partial<PrepareDeps> = {}) => {
+    const calls: string[] = []
+    const d: PrepareDeps = {
+      ...deps({ runStep: async (s) => { calls.push(`step ${s}`); if (s === 'speech') meter()!.add(0.048) } }),
+      env: { S3_BUCKET_MEDIA: 'bkt' },
+      cut: async (i, out, span) => { calls.push(`cut ${i} ${span.startS}-${span.endS}`); await writeFile(out, 'cut') },
+      download: async (uri, f) => { calls.push(`download ${uri}`); await writeFile(f, 'dl') },
+      upload: async (f, uri) => { calls.push(`upload ${uri}`) },
+      ...over,
+    }
+    return { d, calls }
+  }
+  const popts = (o: Partial<Parameters<typeof prepareGateC>[0]> = {}) => ({ workRoot: root, input: 'https://example.org/film.mov', slug: 'tos-390-510', start: '6:30', end: '8:30', cap: 0.1, language: 'en' as const, voice: 'Joanna', ...o })
+  it('prices Transcribe before anything runs and refuses a span the cap cannot cover', () => {
+    expect(preparePlan(popts())).toMatchObject({ startS: 390, endS: 510, seconds: 120, kind: 'https' })
+    expect(preparePlan(popts()).estimateUsd).toBeCloseTo(0.048)
+    expect(() => preparePlan(popts({ cap: 0.04 }))).toThrow(/over the cap/)
+    expect(() => preparePlan(popts({ end: '6:00' }))).toThrow(/after --start/)
+    expect(() => preparePlan(popts({ end: '30:00', cap: 5 }))).toThrow(/min/)
+    expect(() => preparePlan(popts({ slug: 'Bad Slug' }))).toThrow(/slug/)
+  })
+  it('--dry-run cuts, uploads and runs nothing', async () => {
+    const { d, calls } = pdeps()
+    const r = await prepareGateC(popts({ dryRun: true }), d)
+    expect(r.totalUsd).toBe(0)
+    expect(calls).toEqual([])
+    expect(existsSync(join(root, 'tos-390-510'))).toBe(false)
+  })
+  it('cuts, uploads under work/<slug>/ (never sources/), runs only probe → shots → speech, and records the run', async () => {
+    const { d, calls } = pdeps()
+    const r = await prepareGateC(popts({ input: 's3://bkt/sources/full.mp4' }), d)
+    expect(calls).toEqual(['download s3://bkt/sources/full.mp4', `cut ${join(root, 'tos-390-510', 'download.mp4')} 390-510`, 'upload s3://bkt/work/tos-390-510/source.mp4', 'step probe', 'step shots', 'step speech'])
+    expect(r.totalUsd).toBeCloseTo(0.048)
+    expect([...PREPARE_STEPS]).toEqual(['probe', 'shots', 'speech'])
+    const dir = await readdir(join(root, 'tos-390-510'))
+    expect(dir).toEqual(['gate-c.json']) // the cut and the download are removed; probe fetches the upload
+    expect(JSON.parse(await readFile(join(root, 'tos-390-510', 'gate-c.json'), 'utf8'))).toMatchObject({ source: 's3://bkt/work/tos-390-510/source.mp4', startS: 390, endS: 510 })
+  })
+  it('needs S3_BUCKET_MEDIA; a failed cut leaves no work dir; an existing slug is refused', async () => {
+    await expect(prepareGateC(popts(), pdeps({ env: {} }).d)).rejects.toThrow(/S3_BUCKET_MEDIA/)
+    await expect(prepareGateC(popts(), pdeps({ cut: async () => { throw new Error('ffmpeg died') } }).d)).rejects.toThrow(/ffmpeg died/)
+    expect(existsSync(join(root, 'tos-390-510'))).toBe(false)
+    await mkdir(join(root, 'tos-390-510'))
+    await expect(prepareGateC(popts(), pdeps().d)).rejects.toThrow(/exists/)
   })
 })

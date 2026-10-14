@@ -2,9 +2,14 @@ import { resolve } from 'node:path'
 import { Command, InvalidArgumentError } from 'commander'
 import { meter, metered } from '../cost'
 import { runStep } from '../steps'
+import { execa } from 'execa'
+import { cutArgs } from '../own'
+import { download, upload } from '../s3'
+import { resolveLanguageAndVoice } from '../steps/06-voice'
 import { buildPackets } from './packets'
+import { DEFAULT_PREPARE_CAP_USD, prepareGateC } from './prepare'
 import { CapExceeded, DEFAULT_CAP_USD, EVAL_STEPS, parseSteps, runGateC } from './run'
-import { formatSummary, readRaters, summarise } from './score'
+import { formatSummary, readExpected, readRaters, summarise } from './score'
 
 /**
  * `pnpm gate-c …` (root package.json → `pnpm --filter @described/pipeline gate-c`) — the Gate C evaluation, reproducible from the repo
@@ -12,6 +17,7 @@ import { formatSummary, readRaters, summarise } from './score'
  * another root; a relative --work or out dir is resolved where the command was typed (INIT_CWD), the default `work` in packages/pipeline.
  * Bedrock Converse (describe, verify, fit/edit shortening) — https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html
  * Polly SynthesizeSpeech (voice) — https://docs.aws.amazon.com/polly/latest/dg/API_SynthesizeSpeech.html
+ * Transcribe StartTranscriptionJob and S3 PutObject/GetObject (prepare) — see ./prepare.ts
  */
 const WORK_OPT = ['--work <dir>', 'the work root holding <slug>/ folders (default: packages/pipeline/work)'] as const
 const workRoot = (o: { work?: string }) => (o.work ? here(o.work) : resolve('work'))
@@ -26,13 +32,40 @@ program.command('run <sourceSlug> <evalSlug>')
   .option('--steps <list>', `comma-separated, consecutive, from ${EVAL_STEPS.join(',')}`, EVAL_STEPS.join(','))
   .option('--cap <usd>', 'hard spend cap in USD', usd, DEFAULT_CAP_USD)
   .option('--dry-run', 'print what would be copied and run; copy nothing, call nothing')
+  .option('--lang <en|de>', 'description language (as pnpm pipeline describe)')
+  .option('--voice <name>', 'Polly voice (default POLLY_VOICE_EN/DE, else Joanna/Vicki)')
   .option(...WORK_OPT)
-  .action(async (sourceSlug: string, evalSlug: string, o: { steps: string; cap: number; dryRun?: boolean; work?: string }) => {
+  .action(async (sourceSlug: string, evalSlug: string, o: { steps: string; cap: number; dryRun?: boolean; work?: string; lang?: string; voice?: string }) => {
     const WORK_ROOT = workRoot(o)
     try {
-      const r = await runGateC({ workRoot: WORK_ROOT, sourceSlug, evalSlug, steps: parseSteps(o.steps), cap: o.cap, dryRun: o.dryRun, voice: process.env.POLLY_VOICE_EN ?? 'Joanna' },
+      const r = await runGateC({ workRoot: WORK_ROOT, sourceSlug, evalSlug, steps: parseSteps(o.steps), cap: o.cap, dryRun: o.dryRun, ...resolveLanguageAndVoice(o) },
         { runStep, metered, meter, log: (l) => console.log(l) })
       if (!o.dryRun) console.log(`total: $${r.totalUsd.toFixed(4)}; next: pnpm gate-c packets ${evalSlug} <outDir> --raters 3`)
+    } catch (e) {
+      const spent = e instanceof CapExceeded ? e.spentUsd : (e as { costUsd?: number }).costUsd
+      console.error(`stopped: ${(e as Error).message}${spent !== undefined ? ` (spent $${spent.toFixed(4)})` : ''}`)
+      process.exitCode = e instanceof CapExceeded ? 2 : 1
+    }
+  })
+
+program.command('prepare <input> <slug>')
+  .description('cut a NEW segment (https URL, s3:// URI or local file) and run probe → shots → speech into work/<slug>; a source for `run`')
+  .requiredOption('--start <time>', 'segment start in the film (mm:ss, h:mm:ss or seconds)')
+  .requiredOption('--end <time>', 'segment end in the film')
+  .option('--cap <usd>', 'hard spend cap in USD', usd, DEFAULT_PREPARE_CAP_USD)
+  .option('--dry-run', 'print the cut, the steps and the estimate; cut nothing, call nothing')
+  .option('--lang <en|de>', 'transcript language')
+  .option(...WORK_OPT)
+  .action(async (input: string, slug: string, o: { start: string; end: string; cap: number; dryRun?: boolean; work?: string; lang?: string }) => {
+    const src = input.startsWith('s3://') || /^https:\/\//i.test(input) ? input : here(input)
+    try {
+      const r = await prepareGateC({ workRoot: workRoot(o), input: src, slug, start: o.start, end: o.end, cap: o.cap, dryRun: o.dryRun, ...resolveLanguageAndVoice(o) }, {
+        runStep, metered, meter, log: (l) => console.log(l), env: process.env,
+        cut: async (i, out, span) => { await execa('ffmpeg', cutArgs(i, out, span), { stdio: 'inherit' }) },
+        download: (uri, file) => download(uri, file),
+        upload: (file, uri) => upload(file, uri, { ContentType: 'video/mp4' }),
+      })
+      if (!o.dryRun) console.log(`total: $${r.totalUsd.toFixed(4)}; next: pnpm gate-c run ${slug} ${slug}-<run> --dry-run`)
     } catch (e) {
       const spent = e instanceof CapExceeded ? e.spentUsd : (e as { costUsd?: number }).costUsd
       console.error(`stopped: ${(e as Error).message}${spent !== undefined ? ` (spent $${spent.toFixed(4)})` : ''}`)
@@ -56,7 +89,8 @@ program.command('packets <evalSlug> <outDir>')
 program.command('score <outDir>')
   .description('read <outDir>/rater*/scores.md and print usable counts, the majority-usable score, agreement and disagreements')
   .action(async (outDir: string) => {
-    const s = summarise(await readRaters(here(outDir)))
+    const dir = here(outDir)
+    const s = summarise(await readRaters(dir), await readExpected(dir))
     for (const l of formatSummary(s)) console.log(l)
     if (s.perRater.some((r) => r.unrated.length)) process.exitCode = 1
   })

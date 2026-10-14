@@ -191,6 +191,6 @@ export async function buildPackets(o: { work: string; outDir: string; raters: nu
   }
   await rm(stage, { recursive: true })
   if (new Set(hashes).size !== 1) throw new Error('rater packets differ; this is a bug')
-  await writeFile(join(o.outDir, 'packet.json'), JSON.stringify({ work: o.work, raters: o.raters, shots: d.shots.length, offsetMs, title, sha256: hashes[0], at: new Date().toISOString() }, null, 2))
+  await writeFile(join(o.outDir, 'packet.json'), JSON.stringify({ work: o.work, raters: o.raters, shots: d.shots.length, shotIndices: d.shots.map((s) => s.index), offsetMs, title, sha256: hashes[0], at: new Date().toISOString() }, null, 2))
   return { shots: d.shots.length, sha256: hashes[0]! }
 }

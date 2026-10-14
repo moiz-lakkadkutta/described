@@ -7,6 +7,7 @@ it reproducible from the repo (DESC-030): before it, the driver and the rater pa
 | File | What |
 |---|---|
 | `gate-c.ts` | the CLI (`pnpm gate-c run · packets · score`) |
+| `prepare.ts` | cut a new segment and run probe/shots/speech into a new work dir (the held-out clip) |
 | `run.ts` | copy step inputs into a new slug; run describe/fit/edit/voice there under the meter with a hard cap |
 | `packets.ts` | N byte-identical blind packets: contact sheets, frames, `shots.md`, `RUBRIC.md`, `scores.md` |
 | `RUBRIC.template.md` | the rubric every rater gets; criterion 5 quotes decision 0009 verbatim (a test checks it) |
@@ -14,9 +15,11 @@ it reproducible from the repo (DESC-030): before it, the driver and the rater pa
 
 ## Commands
 
-From the repo root (AWS profile and env as for `pnpm pipeline`; only `run` without `--dry-run` calls AWS):
+From the repo root (AWS profile and env as for `pnpm pipeline`; `prepare` and `run` call AWS unless given `--dry-run`):
 
 ```sh
+# 0. Once per new clip: cut it and run probe → shots → speech (Transcribe), capped; see "Clips" below
+pnpm gate-c prepare <https-url | s3://… | file> <slug> --start mm:ss --end mm:ss [--cap 0.10] --dry-run
 # 1. What would be copied and run — reads the source dir, writes nothing, $0
 pnpm gate-c run sintel-90-210 sintel-90-210-g10 --dry-run
 # 2. The run: describe → fit → edit → voice on a copy, stopped at $0.30
@@ -27,35 +30,59 @@ pnpm gate-c packets sintel-90-210-g10 ~/gate-c/g10 --raters 3 --offset 90
 pnpm gate-c score ~/gate-c/g10
 ```
 
+- `prepare <input> <slug> --start --end` cuts [start, end) with the catalogue's cut (own.ts `cutArgs`; ffmpeg seeks an https input
+  without downloading the film), uploads it to `s3://$S3_BUCKET_MEDIA/work/<slug>/source.mp4` (not `sources/`: it is no catalogue
+  title), and runs probe → shots → speech into `work/<slug>/`. Transcribe is billed when its job ends, so the cap is checked against
+  its price before anything runs; segments over 10 min are refused. No Title row, no DB, no publish.
 - `run <sourceSlug> <evalSlug>` copies `probe.json shots.json gaps.json words.json transcript.json transcript.src mezz.mp4` (plus
-  `described.json` / `cues.fit.json` / `cues.json` when `--steps` starts at fit, edit or voice) into `work/<evalSlug>/` — never
-  `cache/`, `frames/` or any cue clip, and the source dir is only read. `--steps` takes consecutive steps from
-  `describe,fit,edit,voice`; anything else (mix, package, publish …) is refused, and nothing writes the DB. The cap is checked on
-  every charge to the meter: the charge that crosses it aborts the step (no new Bedrock or Polly call starts) and the command exits 2.
-  Calls already in flight are still billed. `work/<evalSlug>/gate-c.json` records the source, steps, cost per step, commit and
-  `DESCRIBE_MODEL_ID` / `DESCRIBE_VERIFY`. The eval slug must be new. `--work <dir>` points at another work root (the default is
+  `described.json` / `cues.fit.json` when `--steps` starts at fit or edit) into `work/<evalSlug>/` — never `cache/`, `frames/` or
+  any cue clip, and the source dir is only read. `--steps` takes consecutive steps from `describe,fit,edit,voice`, never starting
+  at voice (06-voice rewrites `cues.json`, so it runs only after edit); anything else (mix, package, publish …) is refused, and
+  nothing writes the DB. Every Bedrock model the steps will call (describe, verify, the Nova Lite shortener, edit — from
+  `DESCRIBE_MODEL_ID`, `VERIFY_MODEL_ID`, `NOVA_LITE_MODEL_ID`, `EDIT_MODEL_ID`, `DESCRIBE_VERIFY`, `DESCRIBE_EDIT`) must have a price
+  in `src/cost.ts`, or the run is refused: an unpriced model is metered as $0 and the cap could not stop it. The cap is checked on
+  every charge to the meter: the charge that crosses it aborts the step (no new Bedrock or Polly call starts) and the command exits
+  2. Calls already in flight are still billed. `--lang` / `--voice` resolve as in `pnpm pipeline describe`. A copy that fails
+  part-way removes the eval dir. `work/<evalSlug>/gate-c.json` records the source, steps, cost per step, commit and whether the tree
+  was dirty, language and voice, the models, the env switches above plus `DESCRIBE_CONCURRENCY`, and `VERIFY_PROMPT_VERSION` /
+  describe cache versions. The eval slug must be new. `--work <dir>` points at another work root (the default is
   `packages/pipeline/work`; a sibling worktree has none, so pass the main checkout's).
 - `packets <evalSlug> <outDir> --raters N` (N odd, default 3) refuses a non-empty out dir, so a filled sheet is never overwritten.
   Frames are sampled as in every earlier packet (5 per shot at 8/30/50/70/92 % of the shot, stopping 120 ms before the next cut).
   Speech ends are measured with 06-voice's own silencedetect (−45 dB, d = 0.05). `--title` names the clip in `shots.md`; keep model
-  and run names out of it. Hand each rater **only** their `rater<k>/` folder; `packet.json` (outside them) records the source.
+  and run names out of it. Hand each rater **only** their `rater<k>/` folder; `packet.json` (outside them) records the source and
+  the shot list.
 - `score <outDir>` prints each rater's usable count, the majority-usable count against the 70 % gate, the all-raters-usable count,
-  how many shots all raters agree on, and every disagreement with the raters' notes. Unrated rows count as not usable and make the
-  command exit 1.
+  how many shots all raters agree on, and every disagreement with the raters' notes. It checks every sheet against `packet.json`'s
+  shots and names missing or unknown rows. A row marked usable with a failed criterion is inconsistent: it counts as unrated and is
+  warned about. Unrated rows count as not usable and make the command exit 1.
 
-## Held-out clip
+**TODO(DESC-029):** when the `scenes` step and the per-title glossary land, add the step to `EVAL_STEPS` (a test fails until the
+list is decided on) and make `evalCtx` pass the **source** slug's glossary: the eval slug has none.
 
-Gate C has been tuned on `sintel-90-210` (Sintel 1:30–3:30, 29 shots) since decision 0003, so its score is no longer independent.
-Every evaluation also rates a **held-out clip** and reports it separately:
+## Clips
 
-**`tears-of-steel-40-100`** — Tears of Steel 0:40–1:40, **16 shots**, 3 dialogue-free gaps (4.5 s, 6.7 s, 37.4 s) around 21
-dialogue words, live action mixed with CG and on-screen interface text (a different film, look and kind of shot from Sintel).
-`--offset 40` for the packets. It has been through the pipeline as a DESC-010 title but has never been rated or tuned on in Gate C.
-At 16 shots the 70 % bar is 12 majority-usable shots.
+At 16–30 shots one shot moves the score by 3–6 points, so each clip's score is a coarse check; read the disagreements, not only
+the percentage.
+
+**Primary — `sintel-90-210`** (Sintel 1:30–3:30, 29 shots; one shot ≈ 3.4 points). The Gate C clip since decision 0003. Every
+prompt and step change since has been checked on it, so it is a **tuned** clip and is reported as such.
+
+**Held-out — `tos-390-510`** (Tears of Steel 6:30–8:30, not yet prepared). Nothing in the repo has looked at this stretch: the
+pipeline has only seen Tears of Steel 0:40–1:40 and Sintel. From the film's English subtitles
+(https://download.blender.org/demo/movies/ToS/subtitles/TOS-en.srt), it has 8 short lines between 6:30 and 7:11 with gaps of 3–10 s
+between them, 62 s with no subtitled dialogue (7:11–8:13, action), then 4 lines to 8:28 and silence to the end. That is placed
+cues in short gaps, a long action gap and extended cues, in live action with CG. It avoids 4:52–6:00, which replays the opening dialogue the 0:40–1:40
+clip contains. The shot count is known after `prepare`; at ~25 shots one shot ≈ 4 points. Cutting it from the public 720p file
+(CC-BY 3.0, © Blender Foundation) costs Transcribe for 120 s (≈ $0.048); the evaluation run on it is ≈ $0.10 (2 min at the
+measured per-minute rates plus the verify pass).
 
 ```sh
-pnpm gate-c run tears-of-steel-40-100 tears-of-steel-40-100-g10 --cap 0.30
-pnpm gate-c packets tears-of-steel-40-100-g10 ~/gate-c/g10-heldout --raters 3 --offset 40
+pnpm gate-c prepare https://download.blender.org/demo/movies/ToS/tears_of_steel_720p.mov tos-390-510 --start 6:30 --end 8:30 --cap 0.10
+pnpm gate-c run tos-390-510 tos-390-510-g10 --cap 0.30
+pnpm gate-c packets tos-390-510-g10 ~/gate-c/g10-heldout --raters 3 --offset 390
 ```
 
-`sintel-90-150*` is not held out: it is the first minute of the Gate C clip.
+**Less tuned, not held out — `tears-of-steel-40-100`** (16 shots; one shot ≈ 6 points). It shaped decision 0008, appears in 0006
+and 0011, is pinned in `test/text-fixes.test.ts` and `test/cues.test.ts`, and is a DESC-010 title (all five are in DESC-029's
+fixtures). Use it only as an extra data point, labelled "less tuned". `sintel-90-150*` is the first minute of the primary clip.
