@@ -491,6 +491,25 @@ describe('deterministic repeat guard (a lead sentence the previous cues already 
     for (const [before, lead] of keeps) expect(after(before, `${lead} A dog barks.`)[1]).toBe(`${lead} A dog barks.`)
   })
 
+  it('compares word for word with only articles removed: no stop list, no stemming, so direction words and number keep the lead', () => {
+    const keeps: [string, string][] = [
+      ['Das Licht geht an.', 'Das Licht geht aus.'],
+      ['Die Tür geht auf.', 'Die Tür geht zu.'],
+      ['Er steigt in das Auto.', 'Er steigt aus dem Auto.'],
+      ['Ein Mann läuft zum Haus.', 'Ein Mann läuft vom Haus.'],
+      ['A bird flies to the tree.', 'A bird flies from the tree.'],
+      ['A man runs for the door.', 'A man runs from the door.'],
+      ['A cup sits in the box.', 'A cup sits on the box.'],
+      ['A man takes this cup.', 'A man takes that cup.'],
+      ['A man and a woman wait.', 'A man or a woman waits.'],
+      ['A dog barks.', 'Dogs bark.'],
+    ]
+    for (const [before, lead] of keeps) expect(after(before, `${lead} A cat hisses.`)[1]).toBe(`${lead} A cat hisses.`)
+    expect(after('It glows.', 'They glow. A cat hisses.')[1]).toBe('They glow. A cat hisses.')
+    expect(after('Ein Wald. Ein Mann rennt.', 'Der Wald. Eine Frau steht.')[1]).toBe('Eine Frau steht.') // only the article differs
+    expect(after('A red light glows.', 'The red light, glowing! A cat hisses.')[1]).toBe('The red light, glowing! A cat hisses.') // glows ≠ glowing
+  })
+
   it('compares with the immediately previous action cue only, so a cut back to a place keeps the place', () => {
     expect(after('Dark room. Man sits.', 'Forest. Woman runs.', 'Dark room. Man stands.')[2]).toBe('Dark room. Man stands.')
     const text: FitCue = { startMs: 1000, endMs: 1100, text: 'Words appear: SINTEL.', extended: true, wordCount: 3, shotIndex: 1 }

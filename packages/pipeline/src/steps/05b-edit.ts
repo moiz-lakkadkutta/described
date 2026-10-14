@@ -179,23 +179,28 @@ function units(text: string): Unit[] {
 }
 /** A negation (en, de): "The car is not burning." and "The car is burning." share every content word in order but say opposite things. */
 const NEGATION = /(?:^|[^\p{L}])(?:not|no|never|cannot|nobody|nothing|none|nowhere|neither|nor|without|\p{L}+n['’]t|nicht|kein\p{L}*|nie|niemals|niemand|nichts|nirgends|ohne)(?![\p{L}])/iu
+/** The only words the repeat guard ignores: articles (en, de). Everything else — direction, number, conjunctions, pronouns — must match. */
+const ARTICLES = new Set(['a', 'an', 'the', 'der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einen', 'einem', 'einer', 'eines'])
+/** A sentence's words for the repeat guard: lower-cased, punctuation stripped (apostrophes and hyphens inside a word kept), articles removed. */
+const repeatWords = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}\s'’-]/gu, ' ').split(/\s+/).map((w) => w.replace(/^['’-]+|['’-]+$/g, '')).filter((w) => w && !ARTICLES.has(w))
 /**
- * Does `earlier` say `unit`: exactly the same content words, by stem, in the same order — none missing, none extra on either side.
- * A subset is not enough: "The man opens the door." after "The man tries to open the door." drops the outcome, and so would "almost",
- * "stops", "refuses", "half", "fast" (decided 2026-10-14, PR #44 round 3). The negation check is kept as a second, explicit guard.
+ * Does `earlier` say `unit`: the same words in the same order, only articles may differ (human decision 2026-10-14, PR #44 rounds 3–4).
+ * Deliberately not ../contentWords: its STOP list drops direction words ("Das Licht geht an." / "…aus.", "flies to" / "from the tree")
+ * and its Porter stem folds number ("A dog barks." / "Dogs bark."), so either would let an opposite or a new fact pass as a repeat.
+ * The negation check is kept as a second, explicit guard.
  */
 const saidIn = (unit: string, earlier: string) => {
   if (NEGATION.test(unit) !== NEGATION.test(earlier)) return false
-  const want = contentWords(unit).map(stem), have = contentWords(earlier).map(stem)
+  const want = repeatWords(unit), have = repeatWords(earlier)
   return want.length > 0 && want.length === have.length && want.every((w, k) => w === have[k])
 }
 
 /**
  * The deterministic repeat guard (DESC-010 follow-up, ADR 0006): every shot is described from scratch, so two shots of one place both
  * open with it ("Snowy mountains. A lone figure walks left." / "Snowy mountains. A figure walks, falls. Logo fades."). A cue's leading
- * sentences are dropped, in order, while each one is said by ONE sentence of the previous action cue: exactly the same content words
- * (by stem, ../contentWords) in the same order, none extra or missing on either side, and both negated or neither. Only the immediately previous action cue (on-screen text cues skipped), and only
- * when it starts within REPEAT_WINDOW_MS: a cut back to a place after another place keeps the place. The trim stops at the first unit
+ * sentences are dropped, in order, while each one is said by ONE sentence of the previous action cue: the same words in the same
+ * order with only articles allowed to differ (saidIn: no stop list, no stemming), and both negated or neither. Only the immediately
+ * previous action cue (on-screen text cues skipped), and only when it starts within REPEAT_WINDOW_MS: a cut back to a place after another place keeps the place. The trim stops at the first unit
  * that is not a whole plain sentence (an on-screen text clause, or a piece cut by a mid-sentence one, which does not end in . ! ? …),
  * and nothing is dropped when the text left would not open with a capital letter or would open with a pronoun ("He stops."), or when
  * no plain sentence would be left. The rest of the text is kept verbatim; timing never changes. Pure: returns copies.

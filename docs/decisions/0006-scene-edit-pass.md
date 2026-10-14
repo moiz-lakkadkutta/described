@@ -85,17 +85,20 @@ failed) the exact rule is:
   abbreviation (Mr., Dr., St., …) joined to the next plain unit.
 - **Dropped**: the cue's leading units, in order, while each one is a whole plain sentence (not on-screen text; `sentences()` splits
   after . ! ? only, so a unit must end in one of those, or in … when it is the last text before a clause, with optional closing
-  quotes) and its content-word sequence (stop words removed, Porter stem, `contentWords`) is EXACTLY EQUAL to that of ONE plain
-  sentence of the previous cue — none missing and none extra on either side (human decision 2026-10-14, PR #44 round 3: a subset
-  match dropped "The man opens the door." after "The man tries to open the door.", and likewise almost, nearly, stops, pretends,
-  refuses, about to, fakes, barely, half, DE "stürzt fast"; "Red light." after "A red light glows." is therefore kept) — and both
-  sentences negated or neither (not, no, never, cannot, -n't, nobody, nothing, without, nicht, kein…, nie, niemand, nichts, ohne, …;
-  redundant with exact equality, kept as an explicit guard): "Snow falls." after "No snow falls." stays, and so does "The car is burning." after "The car is not burning.".
-  Words spread over several sentences or cues never count: "The cat chases the dog." after "The dog chases the cat." stays, and so
-  does "A woman walks left." after "A man walks left. A woman runs right.".
+  quotes) and its words are IDENTICAL, in the same order, to those of ONE plain sentence of the previous cue after lower-casing,
+  stripping punctuation and removing only articles (en a, an, the; de der, die, das, den, dem, des, ein, eine, einen, einem, einer,
+  eines). The guard has its own normalisation: no stop list and no stemming (human decision 2026-10-14, PR #44 rounds 3–4). A subset
+  match dropped outcomes ("The man opens the door." after "The man tries to open the door."; almost, nearly, stops, pretends, refuses,
+  about to, fakes, barely, half, DE "stürzt fast"); the shared STOP list (`contentWords`, still used by the faithful and keeps-facts
+  guards) dropped direction words ("Das Licht geht an." / "…aus.", "auf" / "zu", "in das" / "aus dem", "zum" / "vom", "flies to" /
+  "from the tree", "for" / "from the door", in / on, this / that, and / or, it / they); the Porter stem folded number ("A dog
+  barks." / "Dogs bark."). All of these now keep their lead; so does "Red light." after "A red light glows.". Both sentences must
+  also be negated or neither (not, no, never, cannot, -n't, nobody, nothing, without, nicht, kein…, nie, niemand, nichts, ohne, …;
+  redundant with identity, kept as an explicit guard). Words spread over several sentences or cues never count: "The cat chases the
+  dog." after "The dog chases the cat." stays, and so does "A woman walks left." after "A man walks left. A woman runs right.".
 - **Kept whole** when the trim would leave no plain sentence, or the text left would not open with a capital letter (a piece cut by a
-  mid-sentence on-screen text clause) or would open with a pronoun (he, she, it, they, er, sie, es, ihn, ihm, …: "A forest. He stops." keeps
-  "A forest.").
+  mid-sentence on-screen text clause) or would open with a pronoun (he, she, it, they, er, sie, es, ihn, ihm, …:
+  "A forest. He stops." keeps "A forest.").
 - The text after the dropped units is kept verbatim; timing never changes; on-screen text cues are never trimmed.
 
 Each trim is logged in `edit.json` `applied` with `by: "repeat"`, as its own entry after the model's edit of the same cue (from = the
