@@ -116,7 +116,7 @@ Follow-ups from this batch (not fixed before the freeze):
   sintel-90-150-r2 (gains Rich captions) and tears-of-steel-40-100 (its published Rich captions hold the invented cues and lose them).
   The "sdh" badge now follows the TextTrack row (#35).
   Review of #38 tightened the evidence: the agent ("man", "robot") is not evidence of a sound, and the sound word itself must be in the
-  description, or be a known sound of a described source or action (`SOURCE_SOUNDS`: "A fire burns" → [fire crackling], "walks" →
+  description, or be a sound that a described source or action always makes (`SOURCE_SOUNDS`: "A fire burns" → [fire crackling], "walks" →
   [footsteps]), so "[tent rustles]" beside "The tent glows" is dropped; a speaker name must be said in another caption by another voice
   (a name in the tagged line itself is usually the listener: "Sintel, run!").
   Known limits and clean-up:

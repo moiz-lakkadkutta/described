@@ -189,17 +189,18 @@ const NOT_A_NAME = /^(name|speaker|unknown|voice|person|man|woman|narrator|spk_?
 const AGENT = new Set(['man', 'woman', 'girl', 'boy', 'person', 'people', 'figure', 'robot', 'he', 'she', 'they', 'mann', 'frau', 'mädchen', 'junge'])
 /**
  * Sounds a described source or action makes though the description does not name the sound ("A fire burns" → [fire crackling], the
- * prompt's own example; "walks" → [footsteps]). Keys and values are words, compared by stem. Small on purpose: anything else needs the
- * sound word itself in the description. English only, like SOUND_WORDS.
+ * prompt's own example; "walks" → [footsteps]). Keys and values are words, compared by stem. Only sources and actions that always
+ * make that sound: a dog may sleep, a bell may hang, water "runs" and stone "steps" are not feet (PR #38 review). Anything else needs
+ * the sound word itself in the description ("A dog barks"). English only, like SOUND_WORDS.
  */
 const SOURCE_SOUNDS: Record<string, string[]> = {
   fire: ['crackling', 'crackles'], flame: ['crackling', 'crackles'], campfire: ['crackling', 'crackles'],
-  lightning: ['thunder', 'rumbles', 'rumbling'], storm: ['thunder', 'wind', 'rumbling'],
-  walks: ['footsteps'], runs: ['footsteps', 'panting'], steps: ['footsteps'], climbs: ['footsteps'],
-  bell: ['rings', 'ringing'], dog: ['barks'], bird: ['chirps', 'birdsong'], birds: ['chirps', 'birdsong'],
-  sword: ['clangs', 'clanging', 'clash', 'clashes', 'unsheathes'], swords: ['clangs', 'clanging', 'clash', 'clashes'],
+  lightning: ['thunder', 'rumbles', 'rumbling'],
+  walks: ['footsteps'], climbs: ['footsteps'],
 }
 const SOURCE_SOUND_STEMS = new Map(Object.entries(SOURCE_SOUNDS).map(([k, v]) => [stem(k), new Set(v.map(stem))]))
+/** SOUND_WORDS that name an object, not its sound: "A bell hangs in the tower" shows a bell, not a ring. In grounding they are sources. */
+const SOUNDING_OBJECTS = new Set(['bell', 'bells', 'drums'])
 /**
  * A description grounds a sound tag when every other word of the tag (its source: "door", "broth") is in the description, agents
  * aside, and one of its sound words is either in the description too ("slams", "pours", "explosion") or a known sound of a described
@@ -207,7 +208,8 @@ const SOURCE_SOUND_STEMS = new Map(Object.entries(SOURCE_SOUNDS).map(([k, v]) =>
  */
 export function groundsSound(tag: string, description: string): boolean {
   const ws = contentWords(tag).filter((w) => !AGENT.has(w))
-  const sound = ws.filter((w) => SOUND_WORDS.has(w)).map(stem), source = ws.filter((w) => !SOUND_WORDS.has(w)).map(stem)
+  const isSound = (w: string) => SOUND_WORDS.has(w) && !SOUNDING_OBJECTS.has(w)
+  const sound = ws.filter(isSound).map(stem), source = ws.filter((w) => !isSound(w)).map(stem)
   const d = new Set(contentWords(description).map(stem))
   if (!sound.length || !source.every((w) => d.has(w))) return false
   return sound.some((w) => d.has(w) || [...d].some((k) => SOURCE_SOUND_STEMS.get(k)?.has(w)))

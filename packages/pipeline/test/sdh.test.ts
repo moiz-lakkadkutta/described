@@ -404,6 +404,13 @@ describe('SDH grounding, review round 1', () => {
     ['[robot footsteps]', 'A robot stands still.'],
     ['[tent rustles]', 'The tent glows.'],
     ['[glass shatters]', 'A door slams.'], // the sound's source is not the described one
+    // Round 2: a source that only sometimes makes a sound, or a word that is not the action ("runs" of water, stone "steps").
+    ['[dog barks]', 'A dog sleeps by the fire.'],
+    ['[bell rings]', 'A bell hangs in the tower.'],
+    ['[swords clash]', 'Two swords lie on a table.'],
+    ['[panting]', 'The girl runs toward the gate.'],
+    ['[footsteps]', 'Water runs down the wall.'],
+    ['[footsteps]', 'Stone steps lead to a temple.'],
   ])('drops %s next to "%s"', (tag, description) => {
     expect(kept(tag, description)).toEqual([])
   })
@@ -414,6 +421,9 @@ describe('SDH grounding, review round 1', () => {
     ['[door slams]', 'She slams the door.'],
     ['[man screams]', 'A man screams.'],
     ['[footsteps]', 'The girl walks across the ice.'],
+    ['[dog barks]', 'A dog barks.'],
+    ['[bell rings]', 'The bell rings.'],
+    ['[swords clash]', 'Swords clash.'],
   ])('keeps %s next to "%s"', (tag, description) => {
     expect(kept(tag, description)).toEqual([tag])
   })
