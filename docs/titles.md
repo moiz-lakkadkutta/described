@@ -63,6 +63,7 @@ From the CLI meter (`src/cost.ts` list prices, unverified — each still marked 
 | re-run after #37/#39: sintel-90-150-r2 `--from fit` | — | — | — | $0.0003 | $0.0060 | **$0.0063** |
 | re-run after #37/#39: tears-of-steel-40-100 from the start (work dir not on this machine, see below) | 16 | $0.0240 | $0.0171 | $0.0004 | $0.0145 | **$0.0559** |
 | **Re-runs after #37/#39** | | | | | | **$0.0622** (cap $1.00); two CloudFront invalidations (`/published/<slug>/*`, inside the free 1,000 paths a month) |
+| re-run after #41/#42: tears-of-steel-40-100 `--from fit` (2026-10-14) | — | — | — | $0.0002 | $0.0117 | **$0.0119** (cap $0.30); one CloudFront invalidation |
 
 Transcribe is the floor: $0.024 for 60 s (billed per second, 15 s minimum) even when the clip has no speech (Caminandes). Every
 title took 4–5 minutes wall clock, four in parallel with `DESCRIBE_CONCURRENCY=2`; no throttling. Sintel's earlier figure,
@@ -115,6 +116,31 @@ master.m3u8 showed no `sdh` reference; CloudFront now answers 403 for them. The 
 below are live again (this run overwrote all 15 segments and the master names them), so they were not deleted. Still unreferenced
 and left in S3: `published/tears-of-steel-40-100/descriptions/16.vtt` (the old run had one more segment) and the previous run's
 `cues/cue_*.<hash>.mp3` clips whose hash changed (immutable keys, nothing points at them).
+
+## Re-run after #41 and #42 (2026-10-14)
+
+tears-of-steel-40-100 `--from fit` (its work dir was on this machine this time; voice Matthew, same source), so #41 (on-screen
+text is not cut at an ellipsis) and #42 (no voice spans in published caption VTTs) reach the published title. Cost **$0.0119**
+(edit $0.0002, voice $0.0117; no describe or Transcribe call).
+
+- d5/d6 before → after: the pause "Words appear: SIMULATION READY..." (0:16.885) and the AD cue "LOCKED. Two people at glowing
+  tech tables." (0:17.285) → the pause "Words appear: SIMULATION READY... LOCKED." (0:16.635, extended, 5 words) and the AD cue
+  "Two people at tables." (0:17.035–0:18.379). fit now keeps the whole description as one cue and shortened its action clause
+  to fit the slot ("glowing tech" dropped); 06-voice split the text clause off as before.
+- No other cue changed: the edit pass revised 0 of 14 cues and rejected one edit (d2 "Words show: 40 YEARS LATER.": on-screen
+  text clause changed), so descriptions.vtt differs from the previous run only in d5 and d6. The headline pause (d11, 0:41.629,
+  extended) is unchanged.
+- captions.vtt and captions/1.vtt–6.vtt carry no `<v ` tags (the previous captions.vtt had `<v spk_0>`, `<v spk_1>`, `<v spk_2>`);
+  the caption text is otherwise unchanged, 4 cues.
+- Rich captions: still omitted. This time not for lack of evidence: Nova Lite answered the SDH window c1–c4 with
+  `ModelErrorException` ("Model produced invalid sequence as part of ToolUse") twice, so the window stayed plain and sdh.json is
+  `{"degraded":true}`. No `sdh*` object in S3; CloudFront answers 403 for sdh.vtt and sdh.m3u8. The local sdh.vtt has no
+  `[footsteps]` and no `[Name]`.
+- Checks: `validate` reported no problems (2 audio + Captions, Description text); master.m3u8 names no sdh; descriptions.vtt and
+  captions.vtt from CloudFront after the invalidation are byte-identical to the work dir; the new clips `cue_4.ecbc0d77bffd.mp3`,
+  `cue_5.53740ac99339.mp3` and `audio_ad/5.m4s` answer 200; no description cue starts lowercase, none is a bare "LOCKED.", no
+  "Darkness." prefix. DB: the title's 15 DescriptionCue rows and both TextTrack rows (captions 4 cues, descriptions 15) were
+  replaced (new ids), status published, voice Matthew.
 
 Pipeline-side notes from these runs (not fixed here):
 - ~~Captions and Rich captions carry Transcribe's speaker labels as WebVTT voice spans (`<v spk_0>`), as before; valid VTT, and the
