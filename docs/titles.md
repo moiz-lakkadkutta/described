@@ -115,6 +115,19 @@ Follow-ups from this batch (not fixed before the freeze):
   Rich captions — honest SDH for them needs audio-event data we do not have (feature-requests P1). Re-run `--from text` for
   sintel-90-150-r2 (gains Rich captions) and tears-of-steel-40-100 (its published Rich captions hold the invented cues and lose them).
   The "sdh" badge now follows the TextTrack row (#35).
+  Review of #38 tightened the evidence: the agent ("man", "robot") is not evidence of a sound, and the sound word itself must be in the
+  description, or be a known sound of a described source or action (`SOURCE_SOUNDS`: "A fire burns" → [fire crackling], "walks" →
+  [footsteps]), so "[tent rustles]" beside "The tent glows" is dropped; a speaker name must be said in another caption by another voice
+  (a name in the tagged line itself is usually the listener: "Sintel, run!").
+  Known limits and clean-up:
+  - `SOUND_WORDS` and `SOURCE_SOUNDS` are English only: a `de` title gets no sound cues until German sound words are added.
+  - The SDH cache (`work/{slug}/cache/sdh/`) replays a valid-but-wrong reply for as long as the input is unchanged; delete that
+    directory to sample Nova Lite again.
+  - After the Tears of Steel re-run, delete the stale Rich captions objects by hand: `published/tears-of-steel-40-100/sdh.vtt`,
+    `sdh.m3u8` and the 6 segments under `sdh/` (checked with `aws s3 ls` on 2026-10-14; no master names them once 09-package omits
+    the track).
+  - Follow-up idea, not built: an onset rule (momentary loudness jumping 6–10 LU above the short-term level) would be stronger evidence
+    of a discrete sound than the −55 LUFS audibility floor, which a music bed also passes.
 - The six `grid-test-*` filler rows from the 2026-10 device run are still published (poster-less, no stream, "Test row." in About).
   They come only from docs/device-checks/RUN-2026-10.md §17 (`POST /admin/titles`, then a manual `UPDATE … status='published'`); its §18
   clean-up was not run. A fresh seed cannot create them: prisma/titles.json has the five films only, and `TitleSeed` rejects a

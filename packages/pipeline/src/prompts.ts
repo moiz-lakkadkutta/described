@@ -185,6 +185,33 @@ export async function sdhWithNovaLite(captions: Cue[], descriptions: FitCue[], l
 export const SOUND_WORDS = new Set(['crackles', 'crackling', 'crunches', 'crunching', 'clatters', 'clangs', 'clanging', 'clanks', 'slams', 'creaks', 'creaking', 'rustles', 'rustling', 'footsteps', 'wind', 'roars', 'growls', 'thuds', 'thud', 'splashes', 'splash', 'screams', 'laughs', 'laughter', 'sighs', 'gasps', 'music', 'drums', 'knocks', 'knocking', 'bangs', 'bang', 'thunder', 'explosion', 'gunshot', 'gunshots', 'bell', 'bells', 'rings', 'ringing', 'whistles', 'howls', 'barks', 'chirps', 'birdsong', 'buzzes', 'hums', 'humming', 'beeps', 'shatters', 'crashes', 'crash', 'rumbles', 'rumbling', 'hisses', 'squeaks', 'whooshes', 'groans', 'coughs', 'cries', 'sobs', 'shouts', 'whispers', 'panting', 'breathing', 'applause', 'cheering', 'silence', 'clinks', 'rattles', 'sizzles', 'drips', 'dripping', 'pours', 'pouring', 'swoosh', 'clicks', 'snaps', 'unsheathes', 'clash', 'clashes', 'flapping', 'flaps', 'screeches', 'screech'])
 /** Words a model put in a speaker tag that are not a name (Tears of Steel 2026-10-14 published "[Name] This is pretty freaky."). */
 const NOT_A_NAME = /^(name|speaker|unknown|voice|person|man|woman|narrator|spk_?\d*)$/i
+/** Who makes a sound is not evidence of it: "[man screams]" beside "A man gestures" shares only the agent (PR #38 review). */
+const AGENT = new Set(['man', 'woman', 'girl', 'boy', 'person', 'people', 'figure', 'robot', 'he', 'she', 'they', 'mann', 'frau', 'mädchen', 'junge'])
+/**
+ * Sounds a described source or action makes though the description does not name the sound ("A fire burns" → [fire crackling], the
+ * prompt's own example; "walks" → [footsteps]). Keys and values are words, compared by stem. Small on purpose: anything else needs the
+ * sound word itself in the description. English only, like SOUND_WORDS.
+ */
+const SOURCE_SOUNDS: Record<string, string[]> = {
+  fire: ['crackling', 'crackles'], flame: ['crackling', 'crackles'], campfire: ['crackling', 'crackles'],
+  lightning: ['thunder', 'rumbles', 'rumbling'], storm: ['thunder', 'wind', 'rumbling'],
+  walks: ['footsteps'], runs: ['footsteps', 'panting'], steps: ['footsteps'], climbs: ['footsteps'],
+  bell: ['rings', 'ringing'], dog: ['barks'], bird: ['chirps', 'birdsong'], birds: ['chirps', 'birdsong'],
+  sword: ['clangs', 'clanging', 'clash', 'clashes', 'unsheathes'], swords: ['clangs', 'clanging', 'clash', 'clashes'],
+}
+const SOURCE_SOUND_STEMS = new Map(Object.entries(SOURCE_SOUNDS).map(([k, v]) => [stem(k), new Set(v.map(stem))]))
+/**
+ * A description grounds a sound tag when every other word of the tag (its source: "door", "broth") is in the description, agents
+ * aside, and one of its sound words is either in the description too ("slams", "pours", "explosion") or a known sound of a described
+ * source or action (SOURCE_SOUNDS). So "[tent rustles]" beside "The tent glows" fails: the tent is there, the rustle is not.
+ */
+export function groundsSound(tag: string, description: string): boolean {
+  const ws = contentWords(tag).filter((w) => !AGENT.has(w))
+  const sound = ws.filter((w) => SOUND_WORDS.has(w)).map(stem), source = ws.filter((w) => !SOUND_WORDS.has(w)).map(stem)
+  const d = new Set(contentWords(description).map(stem))
+  if (!sound.length || !source.every((w) => d.has(w))) return false
+  return sound.some((w) => d.has(w) || [...d].some((k) => SOURCE_SOUND_STEMS.get(k)?.has(w)))
+}
 /** Seconds a sound may sit outside the description that grounds it (fit places a description in the nearest gap, not on the action). */
 const SOUND_SLACK_S = 2
 
@@ -202,24 +229,27 @@ export function replyCues(reply: unknown): ReplyCue[] | undefined {
 /**
  * Deterministic merge: caption cues always come from the input (by id; the reply may only add a leading "[Name] " tag), reply cues
  * with unknown ids are candidate sounds. Nothing is kept that the evidence does not support:
- * - a speaker tag needs a real name: one spoken in the captions (so never "[Name]" or "[spk_1]"), used for one voice label only, and
- *   that voice label tagged with one name only (a conflict drops every tag involved);
+ * - a speaker tag needs a real name: one said in another caption by another voice (so never "[Name]" or "[spk_1]", and not the
+ *   listener: "Sintel, run!" names who is spoken to), used for one voice label only, and that voice label tagged with one name only
+ *   (a conflict drops every tag involved);
  * - a sound must be bracketed (or sound: true), ≤ 3 words, 0 < length ≤ 2 s, clear of every caption and earlier-accepted sound, name a
- *   SOUND_WORDS sound, share a word stem with a description overlapping its time (± 2 s) — its source or action, so "[footsteps]" beside
- *   "A man gestures" is dropped — and, when evidence.audible is given, be over audible audio.
+ *   SOUND_WORDS sound, be grounded (groundsSound) by a description overlapping its time (± 2 s) — so "[footsteps]" beside "A man
+ *   gestures" is dropped — and, when evidence.audible is given, be over audible audio.
  * Sorted by start, trackId 'sdh'.
  */
 export function mergeSdh(captions: Cue[], reply: Array<Pick<ReplyCue, 'id' | 'start' | 'end' | 'text' | 'sound'>>, evidence: SdhEvidence): Cue[] {
   const byId = new Map<string, (typeof reply)[number]>()
   for (const c of reply) if (!byId.has(c.id)) byId.set(c.id, c)
-  const spoken = new Set(captions.flatMap((c) => contentWords(c.text)))
+  const said = captions.map((c) => ({ c, words: new Set(contentWords(c.text)) }))
   const tags = new Map<string, string>() // caption id → name
   for (const c of captions) {
-    const tag = /^\[([A-Z][\w'.-]*(?: [A-Z][\w'.-]*){0,2})\]\s+/.exec(byId.get(c.id)?.text ?? '')?.[1]
+    const tag = /^\[(\p{Lu}[\p{L}'.-]*(?: \p{Lu}[\p{L}'.-]*){0,2})\]\s+/u.exec(byId.get(c.id)?.text ?? '')?.[1]
     if (!tag || c.text.startsWith('[')) continue
-    const ws = tag.toLowerCase().split(' ')
-    if (ws.some((w) => SOUND_WORDS.has(w))) continue // "[Wind] …" is a sound, not a speaker
-    if (ws.some((w) => NOT_A_NAME.test(w)) || !ws.every((w) => spoken.has(w))) continue
+    const ws = contentWords(tag) // "Dr. Ford" → dr, ford: the same words as "Dr. Ford is late."
+    if (!ws.length || ws.some((w) => SOUND_WORDS.has(w))) continue // "[Wind] …" is a sound, not a speaker
+    if (ws.some((w) => NOT_A_NAME.test(w))) continue
+    // Said by someone else: another caption, and not one diarized as the same voice.
+    if (!said.some(({ c: k, words }) => k.id !== c.id && !(k.speaker && c.speaker && k.speaker === c.speaker) && ws.every((w) => words.has(w)))) continue
     tags.set(c.id, tag)
   }
   // Consistency is checked on diarized captions only: a caption without a voice label cannot contradict another.
@@ -240,8 +270,7 @@ export function mergeSdh(captions: Cue[], reply: Array<Pick<ReplyCue, 'id' | 'st
     if (ws.length > 3 || !(c.start < c.end) || c.end - c.start > 2) continue
     if ([...captions, ...sounds].some((k) => c.start < k.end && c.end > k.start)) continue // also drops duplicates and overlapping sounds (first wins)
     if (!ws.some((w) => SOUND_WORDS.has(w.replace(/[^a-z]/g, '')))) continue
-    const stems = new Set(contentWords(inner).map(stem))
-    const grounded = evidence.descriptions.some((d) => c.start < d.end + SOUND_SLACK_S && c.end > d.start - SOUND_SLACK_S && contentWords(d.text).some((w) => stems.has(stem(w))))
+    const grounded = evidence.descriptions.some((d) => c.start < d.end + SOUND_SLACK_S && c.end > d.start - SOUND_SLACK_S && groundsSound(inner, d.text))
     if (!grounded || (evidence.audible && !evidence.audible(c.start, c.end))) continue
     sounds.push({ trackId: 'sdh', id: '', start: c.start, end: c.end, text: `[${inner}]`, sound: true })
   }

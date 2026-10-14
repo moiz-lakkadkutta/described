@@ -7,7 +7,7 @@ import { parseVtt, serializeVtt } from '@moizp/vega-media-kit/core'
 import type { Cue } from '@moizp/vega-media-kit/core'
 import { replyCues, mergeSdh, chunkCaptions, sdhWithNovaLite, SDH_CHUNK_CAPTIONS, type SdhConverse, type SdhDescription } from '../src/prompts'
 import type { FitCue } from '../src/steps/05-fit'
-import { sdh, parseMomentary, audibleFrom, AUDIBLE_LUFS } from '../src/steps/08-text'
+import { sdh, parseMomentary, audibleFrom, loudnessFrames, AUDIBLE_LUFS } from '../src/steps/08-text'
 import { metered, bedrockUsd } from '../src/cost'
 
 const captions: Cue[] = [
@@ -297,7 +297,11 @@ describe('SDH grounding (recorded Nova Lite replies, 2026-10-14)', () => {
     expect(texts([{ ...tag('c2', 'Emo'), text: "[spk_1] I'm awake." }])).toEqual(caps.map((c) => c.text))
   })
   it('drops speaker tags that give one voice two names or one name two voices', () => {
-    expect(texts([tag('c2', 'Emo'), tag('c3', 'Emo')])).toEqual(caps.map((c) => c.text)) // spk_1 and spk_0 both "Emo"
+    // A third voice also says "Emo", so each tag alone passes; together they give spk_1 and spk_0 the same name.
+    const four: Cue[] = [...caps, { trackId: 'captions', id: 'c4', start: 40, end: 42, text: 'Emo!', speaker: 'spk_2' }]
+    const one = mergeSdh(four, [tag('c3', 'Emo')], { descriptions: [] }).map((c) => c.text)
+    expect(one[2]).toBe('[Emo] Get up.')
+    expect(mergeSdh(four, [tag('c2', 'Emo'), tag('c3', 'Emo')], { descriptions: [] }).map((c) => c.text)).toEqual(four.map((c) => c.text))
   })
 
   const quiet: Cue[] = [{ trackId: 'captions', id: 'c1', start: 0, end: 2, text: 'Hello.', speaker: 'spk_0' }]
@@ -385,5 +389,65 @@ describe('SDH repeatability and model errors', () => {
   })
   it('other errors still fail the step', async () => {
     await expect(sdhWithNovaLite(caps, everySound, 'en', async () => { throw Object.assign(new Error('denied'), { name: 'AccessDeniedException' }) })).rejects.toThrow('denied')
+  })
+})
+
+// PR #38 review round 1.
+describe('SDH grounding, review round 1', () => {
+  const quiet: Cue[] = [{ trackId: 'captions', id: 'c1', start: 0, end: 2, text: 'Hello.', speaker: 'spk_0' }]
+  const kept = (tag: string, description: string) => mergeSdh(quiet, [{ id: 's1', start: 11, end: 12, text: tag, sound: true }], { descriptions: [{ start: 10, end: 13, text: description }], audible: () => true }).filter((c) => c.sound).map((c) => c.text)
+
+  // S1: a shared agent noun ("man", "robot") or a shared source noun with a sight ("tent glows") is not evidence of the sound.
+  it.each([
+    ['[man screams]', 'A man gestures while speaking.'],
+    ['[woman gasps]', 'A woman holds a bowl.'],
+    ['[robot footsteps]', 'A robot stands still.'],
+    ['[tent rustles]', 'The tent glows.'],
+    ['[glass shatters]', 'A door slams.'], // the sound's source is not the described one
+  ])('drops %s next to "%s"', (tag, description) => {
+    expect(kept(tag, description)).toEqual([])
+  })
+  it.each([
+    ['[broth pours]', 'Old man pours broth.'],
+    ['[explosion]', 'An explosion rips through the bridge.'],
+    ['[fire crackling]', 'A fire burns.'], // the prompt's own example: a source whose sound is known
+    ['[door slams]', 'She slams the door.'],
+    ['[man screams]', 'A man screams.'],
+    ['[footsteps]', 'The girl walks across the ice.'],
+  ])('keeps %s next to "%s"', (tag, description) => {
+    expect(kept(tag, description)).toEqual([tag])
+  })
+
+  // S2, N1, N2: a speaker tag's name must be said in another caption, by another voice; names may be non-ASCII or titled.
+  const tagged = (caps: Cue[], id: string, name: string) => mergeSdh(caps, [{ id, start: 0, end: 0, text: `[${name}] ${caps.find((c) => c.id === id)!.text}` }], { descriptions: [] }).map((c) => c.text)
+  it('drops a name said only in the tagged caption itself (it names the listener)', () => {
+    const caps: Cue[] = [
+      { trackId: 'captions', id: 'c1', start: 0, end: 2, text: 'Sintel, run!', speaker: 'spk_0' },
+      { trackId: 'captions', id: 'c2', start: 3, end: 5, text: 'Where?', speaker: 'spk_1' },
+    ]
+    expect(tagged(caps, 'c1', 'Sintel')).toEqual(['Sintel, run!', 'Where?'])
+  })
+  it('drops a name said only by the same voice elsewhere', () => {
+    const caps: Cue[] = [
+      { trackId: 'captions', id: 'c1', start: 0, end: 2, text: 'Sintel, run!', speaker: 'spk_0' },
+      { trackId: 'captions', id: 'c2', start: 3, end: 5, text: 'Go now.', speaker: 'spk_0' },
+    ]
+    expect(tagged(caps, 'c2', 'Sintel')).toEqual(['Sintel, run!', 'Go now.'])
+  })
+  it('accepts a non-ASCII name and a titled name said by another voice', () => {
+    const caps: Cue[] = [
+      { trackId: 'captions', id: 'c1', start: 0, end: 2, text: 'Jürgen, wo bist du?', speaker: 'spk_0' },
+      { trackId: 'captions', id: 'c2', start: 3, end: 5, text: 'Hier.', speaker: 'spk_1' },
+      { trackId: 'captions', id: 'c3', start: 6, end: 8, text: 'Dr. Ford is late.', speaker: 'spk_0' },
+      { trackId: 'captions', id: 'c4', start: 9, end: 11, text: 'I am here.', speaker: 'spk_2' },
+    ]
+    expect(tagged(caps, 'c2', 'Jürgen')[1]).toBe('[Jürgen] Hier.')
+    expect(tagged(caps, 'c4', 'Dr. Ford')[3]).toBe('[Dr. Ford] I am here.')
+  })
+
+  // S3: no frames means the measurement failed, not that the title is silent.
+  it('loudness with no momentary frames throws instead of dropping every sound', () => {
+    expect(() => loudnessFrames('Input #0, mov,mp4 … no ebur128 lines', 'mezz.mp4')).toThrow('ebur128: no momentary frames parsed from mezz.mp4')
+    expect(loudnessFrames('[Parsed_ebur128_0 @ 0x1] t: 0.1  TARGET:-23 LUFS    M: -30.4 S:-120.7', 'mezz.mp4')).toEqual([{ t: 0.1, m: -30.4 }])
   })
 })
