@@ -27,8 +27,11 @@ const RUNNERS: Record<Step, (ctx: Ctx) => Promise<void>> = {
 /** One step, in-process. Each step reads/writes work/{slug}/ and overwrites its own outputs, so re-running it is safe. */
 export const runStep = (step: Step, ctx: Ctx) => RUNNERS[step](ctx)
 
-/** The whole product in one function (the CLI; the worker runs the same steps as pg-boss jobs, src/jobs.ts). --from resumes. */
-export async function runDescribe(input: DescribeInput) {
+/**
+ * The whole product in one function (the CLI; the worker runs the same steps as pg-boss jobs, src/jobs.ts). --from resumes.
+ * Returns the metered USD of the steps it ran; when a step fails, the error carries the cost so far (err.costUsd, src/cost.ts).
+ */
+export async function runDescribe(input: DescribeInput): Promise<number> {
   if (!SLUG_RE.test(input.slug)) throw new Error(`invalid slug "${input.slug}": must match ${SLUG_RE.source}`)
   const start = input.fromStep ? STEPS.indexOf(input.fromStep as Step) : 0
   if (start < 0) throw new Error(`unknown step "${input.fromStep}"; valid steps: ${STEPS.join(', ')}`)
@@ -36,12 +39,16 @@ export async function runDescribe(input: DescribeInput) {
   let total = 0
   for (const s of STEPS.slice(start)) {
     console.time(s)
-    const { costUsd } = await metered(() => runStep(s, ctx))
+    const { costUsd } = await metered(() => runStep(s, ctx)).catch((e: unknown) => {
+      if (e && typeof e === 'object') (e as { costUsd?: number }).costUsd = total + ((e as { costUsd?: number }).costUsd ?? 0)
+      throw e
+    })
     console.timeEnd(s)
     if (costUsd) console.log(`${s}: $${costUsd.toFixed(4)}`)
     total += costUsd
   }
   console.log(`total: $${total.toFixed(4)}`)
+  return total
 }
 /** signal: aborted when the job's time is up (src/jobs.ts); steps that loop or wait stop early, ffmpeg is killed. */
 export type Ctx = DescribeInput & { work: string; signal?: AbortSignal }

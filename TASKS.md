@@ -118,3 +118,10 @@ checks 1–13 passed; check 14 (Alexa) failed for fast forward / rewind and was 
 - [ ] DESC-022 · follow-up · Device run 2026-10-10: removing a title from My list after a relaunch sent no `DELETE /me/list/:slug`; the human logged check 11 as passed. A change that fails with no answer is now sent once more before it is undone (needs: device re-check of check 11 after a relaunch)
 - [ ] DESC-023 · follow-up · About screen heading sits inside its scroll view (`packages/shared-ui/src/screens/About.tsx`), the clipping pattern #30 fixed for the Grid heading (Described, My list); heading now above the scroll view (needs: device re-check)
 - [ ] DESC-024 · follow-up · Re-check Gate C on sintel-90-210 with the 0008 prompt (on-screen text always "Words appear:", "Darkness." only when nothing is visible, "dim" for a dim scene) — **blocks the next full-length describe** (#37, decision 0008)
+- [ ] DESC-025 · follow-up · One command from a video you own to a described stream: `pnpm describe <file|https-url> --title …` (#45)
+  - [x] done: estimate before spending (measured per-minute rates, `estimateUsd`), confirm or `--yes`, `--dry-run` with no AWS call;
+    cut and upload to `sources/<slug>.mp4`, Title row, every step, rows and status published; refuses a slug in use (Title row, another
+    title's source key, S3 objects with no row); `--replace` keeps licence and credit, drafts the title and invalidates CloudFront;
+    over 15 min needs `--long`; "Cost per hour of film" in the README (≈ $3.28, $3.08–3.52)
+  - [ ] pending: a paid end-to-end run of the command (only dry runs so far); the measured line at the end is unseen on a real run
+  - [ ] pending: drop the `--long` gate once DESC-024 passes; re-derive the hourly figure from a full-length run

@@ -25,6 +25,18 @@ describe('runDescribe', () => {
     expect(calls).toEqual(['validate', 'publish'])
     vi.restoreAllMocks()
   })
+  it('returns the metered total, and a failing step carries the cost so far (DESC-025)', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {}); vi.spyOn(console, 'time').mockImplementation(() => {}); vi.spyOn(console, 'timeEnd').mockImplementation(() => {})
+    const { meter } = await import('../src/cost')
+    const { pack } = await import('../src/steps/09-package')
+    const { publish } = await import('../src/steps/10-publish')
+    vi.mocked(pack).mockImplementationOnce(async () => { meter()!.add(0.25) })
+    expect(await runDescribe({ ...input, fromStep: 'package' })).toBeCloseTo(0.25)
+    vi.mocked(pack).mockImplementationOnce(async () => { meter()!.add(0.25) })
+    vi.mocked(publish).mockImplementationOnce(async () => { meter()!.add(0.5); throw new Error('S3 down') })
+    await expect(runDescribe({ ...input, fromStep: 'package' })).rejects.toMatchObject({ message: 'S3 down', costUsd: 0.75 })
+    vi.restoreAllMocks()
+  })
   it('the finish job runs edit first and validate too (edit … package, validate, publish)', async () => {
     calls.length = 0
     const runStep = await import('../src/steps')

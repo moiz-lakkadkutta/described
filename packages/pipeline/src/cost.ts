@@ -42,3 +42,41 @@ export async function metered<T>(fn: () => Promise<T>, signal?: AbortSignal): Pr
   const m = new Meter(signal)
   try { return { value: await store.run(m, fn), costUsd: m.usd } } catch (e) { if (e && typeof e === 'object') (e as { costUsd?: number }).costUsd = m.usd; throw e }
 }
+
+/**
+ * Measured cost of the five DESC-010 titles (60 s each, CLI meter, first runs on 2026-10-14; Sintel is its re-run that day) —
+ * docs/titles.md "Measured cost per title". The estimate before a run (DESC-025, src/own.ts) is built from these, not from the
+ * unit prices alone: how many shots, cues and characters a minute of film produces is only known from real runs.
+ */
+export const MEASURED_TITLES = [
+  { slug: 'sintel-90-150-r2', seconds: 60, transcribe: 0.0240, describe: 0.0177, nova: 0.0004, polly: 0.0094, total: 0.0514 },
+  { slug: 'big-buck-bunny-0-60', seconds: 60, transcribe: 0.0240, describe: 0.0198, nova: 0.0002, polly: 0.0112, total: 0.0553 },
+  { slug: 'elephants-dream-0-60', seconds: 60, transcribe: 0.0240, describe: 0.0197, nova: 0.0004, polly: 0.0080, total: 0.0521 },
+  { slug: 'caminandes-35-95', seconds: 60, transcribe: 0.0240, describe: 0.0218, nova: 0.0002, polly: 0.0125, total: 0.0586 },
+  { slug: 'tears-of-steel-40-100', seconds: 60, transcribe: 0.0240, describe: 0.0166, nova: 0.0004, polly: 0.0148, total: 0.0557 },
+] as const
+
+/**
+ * Per minute of film, from MEASURED_TITLES: the mean of each metered step except Transcribe (priced exactly by transcribeUsd), and
+ * the lowest and highest per-title figure for everything but Transcribe (Qwen3-VL + Nova Lite + Polly), which sets the range.
+ */
+export function measuredPerMinute() {
+  const perMin = (k: 'describe' | 'nova' | 'polly' | 'other') => MEASURED_TITLES.map((t) => (k === 'other' ? t.total - t.transcribe : t[k]) / (t.seconds / 60))
+  const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
+  const other = perMin('other')
+  return { describe: mean(perMin('describe')), nova: mean(perMin('nova')), polly: mean(perMin('polly')), otherMean: mean(other), otherLow: Math.min(...other), otherHigh: Math.max(...other) }
+}
+
+/**
+ * Estimated USD to describe `seconds` of film, before any AWS call: Transcribe exactly (per second, 15 s minimum), the rest as
+ * minutes × the measured per-minute rates. `low`/`high` use the cheapest and dearest measured title. Excludes S3 storage,
+ * CloudFront delivery and the machine running ffmpeg and Packager.
+ */
+export function estimateUsd(seconds: number) {
+  const r = measuredPerMinute()
+  const min = seconds / 60
+  const transcribe = transcribeUsd(seconds)
+  const describe = min * r.describe, nova = min * r.nova, polly = min * r.polly
+  return { seconds, transcribe, describe, nova, polly, total: transcribe + describe + nova + polly, low: transcribe + min * r.otherLow, high: transcribe + min * r.otherHigh }
+}
+export type Estimate = ReturnType<typeof estimateUsd>

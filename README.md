@@ -84,6 +84,60 @@ All five described end to end by the pipeline on 2026-10-14, ≈ $0.05–0.06 ea
 in the descriptions: [docs/titles.md](docs/titles.md). Rows: `apps/api/prisma/titles.json` (`pnpm titles:seed`). The Gate C
 evaluation also used Sintel 1:30–3:30 (`sintel-90-210`, 29 shots).
 
+## Describe your own video
+
+One command takes a video you own (a local file or an `https://` URL) to an audio-described HLS stream with captions, listed
+in the app's catalogue. It prints an estimate and asks before it spends anything (`packages/pipeline/src/own.ts`).
+
+1. Do steps 1, 2 and 6 of [Run it locally](#run-it-locally-7-steps) (install, Postgres, infra outputs in `.env`), then
+   `set -a; source .env; set +a`. It needs `S3_BUCKET_MEDIA`, `CLOUDFRONT_DOMAIN`, `DATABASE_URL` and AWS credentials.
+2. Check the estimate, with nothing spent: `pnpm describe ./film.mp4 --title "My Film" --dry-run`.
+3. Optional: describe one part with `--start 1:30 --end 11:30`. Set the narration language and voice with
+   `--language de --voice Daniel` (default `en`, Joanna). Set the licence and the credit sentence shown in the app with `--license "CC-BY 4.0" --credit "My Film © 2026 Me, CC-BY 4.0."`
+   (defaults: "All rights reserved", "My Film. Described by Described.").
+4. Run it: `pnpm describe ./film.mp4 --title "My Film"`, then answer `y` (or add `--yes`). It uploads the file (cut first when
+   you give a span) to `sources/<slug>.mp4`, creates the Title row, runs every step from probe to publish, and writes the cue,
+   rendition and text-track rows with status published.
+5. It prints the measured cost and the stream: `https://$CLOUDFRONT_DOMAIN/published/<slug>/master.m3u8`. The title is on the
+   app's Home row at the next `GET /catalog`.
+6. If a step fails, the title is a draft (out of the catalogue) until a run finishes. The error prints what was spent and the
+   `pnpm pipeline describe … --from <step>` line that resumes it. If only the database write fails, the line is `--from validate`,
+   which makes no paid call.
+
+Three rules protect titles that already exist:
+- **Slug in use.** The slug comes from the title (`--slug` overrides it). A slug is refused if any of these is true:
+  - a Title row already has it;
+  - another title's source is `sources/<slug>.mp4`;
+  - files are in S3 under that name with no Title row.
+
+  `--replace` describes an existing title again. It sets the title back to draft while its files are rewritten, and keeps its
+  licence and credit unless you pass `--license`/`--credit`. It needs `CLOUDFRONT_DISTRIBUTION_ID`, because segments are cached
+  for a year and the old ones must be invalidated.
+- **Longer than 15 minutes.** Describing more than 15 minutes of film needs `--long` until DESC-024 re-checks the describe
+  prompt on a full-length title (TASKS.md).
+- **Inputs.** An `https://` input must be the video file itself; playlists (`.m3u8`, `.mpd`) are refused.
+
+### Cost per hour of film
+
+**≈ $3.28 per hour of film ($3.08–3.52)**, list prices, from the CLI meter. This is not an AWS bill.
+
+- Source: the five 60 s DESC-010 titles cost $0.0514–0.0586 each, $0.2731 for all five, so $0.0546 per minute on average
+  ([docs/titles.md](docs/titles.md), "Measured cost per title"; the same rows are in `MEASURED_TITLES` in `packages/pipeline/src/cost.ts`).
+- Transcribe: $0.024 per minute × 60 = **$1.44** per hour. This is exact. It is billed per second (15 s minimum) and does not
+  depend on how much speech the film has.
+- Everything else (Qwen3-VL, Nova Lite, Polly): ($0.2731 − 5 × $0.024) / 5 = $0.0306 per minute × 60 = **$1.84** per hour.
+  The range is $0.0274 (Sintel) to $0.0346 (Caminandes) per minute, so $1.64–2.08 per hour.
+- Total: $1.44 + $1.84 = **$3.28** per hour. A 90-minute feature comes to ≈ $4.92. `pnpm describe --dry-run` prints the same
+  sum for your file.
+
+Not everything scales with length:
+- **Transcribe** is linear in seconds.
+- **Qwen3-VL** is paid per shot (10–16 shots per minute measured), so a fast-cut film costs more per minute than a film of long takes.
+- **Polly** is paid per character spoken, so it grows with the silence there is to describe. A dialogue-heavy film costs less, and every extended cue adds a clip.
+- **Nova Lite** costs under $0.001 per minute.
+- **Not in the figure:** S3 storage, CloudFront delivery, and the machine that runs ffmpeg and Shaka Packager.
+- **Untested:** it is measured on 60 s open-movie segments only. No full-length film has been described yet, and the prices in `cost.ts` are still marked `TODO(price): verify`.
+
 ## Run it locally (7 steps)
 
 Needs Node ≥ 22, pnpm 9, ffmpeg, Shaka Packager (`packager`) for the pipeline, Android platform tools (`adb`) for the stick,
