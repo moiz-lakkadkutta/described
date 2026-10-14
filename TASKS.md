@@ -78,9 +78,14 @@ checks 1–13 passed; check 14 (Alexa) failed for fast forward / rewind and was 
   - pipeline follow-ups from the batch (docs/titles.md): a split text clause leaves its modifier behind ("Darkness. in metallic silver, centered.");
     on-screen text phrased as `headline: "…"` is not a text clause and can be dropped; "Darkness." prefixed to a visible scene; the
     `grid-test-*` filler rows are still published (device run §18 clean-up not run; a seed cannot create them)
+  - [x] re-runs after #37/#39 (2026-10-14, $0.0622): sintel-90-150-r2 `--from fit` (Rich captions now published, with `[broth pours]`);
+    tears-of-steel-40-100 from the start (work dir gone; headline now spoken, no "Darkness." prefix, invented Rich captions gone); the
+    other three checked, no #37 fault, not re-run; stale Tears of Steel `sdh*` objects deleted (docs/titles.md "Re-runs after #37 and #39")
+  - [ ] textClause: bare on-screen text ending in "..." is cut at the ellipsis ("Words appear: SIMULATION READY... LOCKED." voices
+    "LOCKED." as description, Tears of Steel d6); needs a fix and a Tears of Steel re-run `--from fit`
   - [x] SDH (claude/desc-010-sdh-fixes): additions need evidence (a description naming the sound's source, audible audio, a spoken name);
     greedy decoding and a per-window reply cache make re-runs repeatable; a 424 is retried once, then the window stays plain. Re-run
-    `--from text`: sintel-90-150-r2, tears-of-steel-40-100. The other titles stay without Rich captions (no audio-event data)
+    sintel-90-150-r2 and tears-of-steel-40-100: done 2026-10-14 (from fit / from the start). The other titles stay without Rich captions (no audio-event data)
   - [x] #33 review follow-ups: the `sdh` badge comes from the title's Rich captions TextTrack row (`/catalog`, `/titles/:slug`); filmEnds
     and 06-voice (before any Polly call, and after pauses move) drop a cue starting at or after the title's end and ends an extended cue sharing its start 1 ms later; stale sintel-90-150-r2 sdh
     objects listed in docs/titles.md; batch cost split (first runs + prompt clips $0.293, re-runs $0.0003)
