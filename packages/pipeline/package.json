@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "cli": "tsx src/cli.ts",
+    "own": "tsx src/own-cli.ts",
     "worker": "tsx src/worker.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"

@@ -118,3 +118,4 @@ checks 1–13 passed; check 14 (Alexa) failed for fast forward / rewind and was 
 - [ ] DESC-022 · follow-up · Device run 2026-10-10: removing a title from My list after a relaunch sent no `DELETE /me/list/:slug`; the human logged check 11 as passed. Not fixed
 - [ ] DESC-023 · follow-up · About screen heading sits inside its scroll view (`packages/shared-ui/src/screens/About.tsx`), the clipping pattern #30 fixed for the Grid heading (Described, My list)
 - [ ] DESC-024 · follow-up · Re-check Gate C on sintel-90-210 with the 0008 prompt (on-screen text always "Words appear:", "Darkness." only when nothing is visible, "dim" for a dim scene) — **blocks the next full-length describe** (#37, decision 0008)
+- [ ] DESC-025 · follow-up · One command from a video you own to a described stream (`pnpm describe <file|https-url> --title …`): estimate before spending, Title row, every step, rows and status; cost per hour of film in the README
