@@ -7,7 +7,7 @@ Tickets: DESC-002, DESC-004, DESC-010 · Follows: 0001 (Gate B: Fire OS primary,
 
 DESC-002 asked for `pnpm vega` to build the Vega app. Two facts make that unreachable before the Oct 15 freeze:
 
-- No Vega SDK is installed (≈ 20 GB plus an unknown day of setup); the Vega Virtual Device has never run.
+- No Vega SDK is installed (a multi-gigabyte SDK plus a day of setup); the Vega Virtual Device has never run.
 - `@moizp/vega-media-kit`, which every screen plays through, labels its Vega adapter experimental and "does not work as
   written": the rewrite onto `VideoPlayer` / `KeplerVideoSurfaceView` (KIT-010) and the Vega platform bindings (KIT-007)
   are deferred — kit decision 0001, https://github.com/moiz-lakkadkutta/vega-media-kit/blob/main/docs/decisions/0001-week0-gates.md
