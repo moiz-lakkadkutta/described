@@ -66,7 +66,7 @@ export function textSpans(text: string, onTooLong?: (match: string) => void): Te
       end = bareEnd(text, i)
       const join = BARE_JOIN.exec(text.slice(i, end)) // "OPEN, and a man enters.": the text ends before the next action
       if (join) end = i + join.index
-      body = text.slice(i, end).replace(/[.!?]$/, '').trim()
+      body = text.slice(i, end).replace(/(?<!\.)[.!?]$/, '').trim() // an ellipsis that ends the text is part of it ("LOADING...")
     }
     // Unlabelled: no text after the cue word, a bare body that does not open with an all-caps word or a digit ("Monitors: Thom types."),
     // or one too long to be legible text.
@@ -89,7 +89,7 @@ const words = (t: string) => t.trim().split(/\s+/).filter(Boolean).length
  */
 function carrierStart(text: string, at: number, from: number): number {
   let start = from
-  for (const m of text.slice(from, at).matchAll(new RegExp(String.raw`[.!?;:]["”“»«]?\s+|,\s+|\b(?:${JOINERS})\s+`, 'giu'))) start = from + m.index + m[0].length
+  for (const m of text.slice(from, at).matchAll(new RegExp(String.raw`[.!?…;:]["”“»«]?\s+|,\s+|\b(?:${JOINERS})\s+`, 'giu'))) start = from + m.index + m[0].length
   while (start < at && /\s/.test(text[start]!)) start++
   return start
 }
@@ -110,7 +110,7 @@ export function withoutSpans(text: string, spans: readonly TextSpan[]): string {
   parts.push(text.slice(at))
   return parts.map((p, k) => {
     let t = k > 0 ? capitalise(p.replace(LEADING_JOIN, '')) : p
-    if (k < parts.length - 1) { t = t.replace(TRAILING_JOIN, ''); if (t.trim() && !/[.!?]["”“»«]?$/u.test(t)) t += '.' }
+    if (k < parts.length - 1) { t = t.replace(TRAILING_JOIN, ''); if (t.trim() && !/[.!?…]["”“»«]?$/u.test(t)) t += '.' }
     return t.trim()
   }).filter(Boolean).join(' ').replace(/\s+/g, ' ').trim()
 }
@@ -133,19 +133,25 @@ export function stripDarkness(text: string): string {
   return rest === t ? t : capitalise(rest)
 }
 
+/** After an ellipsis, an all-caps word or a number may go on with the text ("SIMULATION READY... LOCKED."); "A", "Thom" do not. */
+const TEXT_GOES_ON = /^["“„«»]?(?:\p{Lu}{2,}(?!\p{Ll})|\p{N})/u
+
 /**
- * End (exclusive) of bare on-screen text starting at `from`: after the first . ! ? that ends a sentence. Not a sentence end: punctuation
- * followed by a non-space ("3.14", "U.S.A"), a period after an abbreviation ("Mr. Smith"), a period after a single letter before
- * a capitalised word that is not an article ("J. Smith", but "I. A forest." ends at "I."), or a period between two all-caps words ("DR. NO.").
+ * End (exclusive) of bare on-screen text starting at `from`: after the first . ! ? or ellipsis ("..." "…") that ends a sentence. Not a
+ * sentence end: an ellipsis before an all-caps run (an all-caps word or a number, no lowercase up to the sentence end; Tears of
+ * Steel d6: "SIMULATION READY... LOCKED.", but "STANDBY... TV static fills the screen." ends at "..."), punctuation followed by
+ * a non-space ("3.14", "U.S.A"), a period after an abbreviation ("Mr. Smith"), a period after a single letter before a capitalised word that is not an article ("J. Smith", but "I. A forest." ends at "I."), or a period between two all-caps words ("DR. NO.").
  */
 function bareEnd(text: string, from: number): number {
   for (let j = from; j < text.length; j++) {
-    if (!/[.!?]/.test(text[j]!)) continue
+    if (!/[.!?…]/.test(text[j]!)) continue
     const next = text.slice(j + 1)
     if (next && !/^\s/.test(next)) continue
+    const nextWord = /^\s*(\S+)/.exec(next)?.[1] ?? ''
+    const run = /^\s*([^.!?…]*)/u.exec(next)?.[1] ?? '' // up to the next sentence end: "TV static fills the screen" is the next sentence
+    if (next.trim() && (text[j] === '…' || text.slice(j - 2, j + 1) === '...') && TEXT_GOES_ON.test(nextWord) && !/\p{Ll}/u.test(run)) continue
     if (!next.trim() || text[j] !== '.') return j + 1
     const prev = /(\S+)$/.exec(text.slice(from, j))?.[1] ?? ''
-    const nextWord = /^\s*(\S+)/.exec(next)?.[1] ?? ''
     if (ABBR.has(prev.toLowerCase())) continue
     if (/^\p{L}$/u.test(prev) && /^\p{Lu}/u.test(nextWord) && !ARTICLES.has(nextWord.replace(/[^\p{L}]/gu, '').toLowerCase())) continue
     if (/^\p{Lu}{2,}$/u.test(prev) && /^\p{Lu}{2,}[.!?]?$/u.test(nextWord)) continue
@@ -157,7 +163,7 @@ function bareEnd(text: string, from: number): number {
 /** The description cut into sentences, each on-screen text clause one unit, in order. */
 export function sentences(text: string): string[] {
   const out: string[] = []
-  const plain = (t: string) => out.push(...t.split(/(?<=[.!?])\s+/).map((x) => x.trim()).filter(Boolean))
+  const plain = (t: string) => out.push(...t.split(/(?<=[.!?…])\s+/).map((x) => x.trim()).filter(Boolean))
   let at = 0
   for (const s of textSpans(text)) { plain(text.slice(at, s.start)); out.push(text.slice(s.start, s.end).trim()); at = s.end }
   plain(text.slice(at))

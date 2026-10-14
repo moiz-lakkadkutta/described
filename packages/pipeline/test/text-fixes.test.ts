@@ -1,10 +1,10 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { stripDarkness, textSpans } from '../src/textClause'
+import { sentences, stripDarkness, textSpans } from '../src/textClause'
 import { fit, introducesNew, safeShorten, shortenDeterministic, textClauses, type FitCue } from '../src/steps/05-fit'
 import { voice, withoutSaidText } from '../src/steps/06-voice'
-import { parseDescription, type Described } from '../src/steps/04-describe'
+import { newSentences, parseDescription, type Described } from '../src/steps/04-describe'
 import { describeSystemPrompt, type EditConverse } from '../src/prompts'
 import { plotEvents } from '../src/plotEvent'
 import { editScene } from '../src/steps/05b-edit'
@@ -226,5 +226,60 @@ describe('PR #37 review round 2', () => {
       expect(parseDescription(t, '').description).toBe(t)
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('longer than 8 words'), expect.stringContaining('TARGET LOCKED'))
     } finally { warn.mockRestore() }
+  })
+})
+
+/** Tears of Steel d6 (2026-10-14 re-run): the AD track voiced "LOCKED. Two people at glowing tech tables." — the text was cut at "...". */
+const D6 = 'Words appear: SIMULATION READY... LOCKED. Two people at glowing tech tables.'
+
+describe('on-screen text with an ellipsis inside it is one clause (Tears of Steel d6)', () => {
+  it('bare text keeps "SIMULATION READY... LOCKED." whole; the rest is the action', () => {
+    expect(textSpans(D6).map((s) => s.body)).toEqual(['SIMULATION READY... LOCKED'])
+    expect(textClauses(D6)).toMatchObject({ clause: 'Words appear: SIMULATION READY... LOCKED.', rest: 'Two people at glowing tech tables.' })
+    expect(sentences(D6)).toEqual(['Words appear: SIMULATION READY... LOCKED.', 'Two people at glowing tech tables.'])
+  })
+  it('the Unicode ellipsis "…" too', () => {
+    const t = 'Words appear: SIMULATION READY… LOCKED. Two people at glowing tech tables.'
+    expect(textClauses(t)).toMatchObject({ clause: 'Words appear: SIMULATION READY… LOCKED.', rest: 'Two people at glowing tech tables.' })
+    expect(sentences(t)).toEqual(['Words appear: SIMULATION READY… LOCKED.', 'Two people at glowing tech tables.'])
+  })
+  it('an ellipsis that ends the text before the next sentence still ends it', () => {
+    expect(textClauses('Words appear: LOADING... A man walks in.')).toMatchObject({ clause: 'Words appear: LOADING...', rest: 'A man walks in.' })
+    expect(textClauses('Words appear: LOADING… A man walks in.')).toMatchObject({ clause: 'Words appear: LOADING…', rest: 'A man walks in.' })
+    expect(textClauses('A screen reads LOADING... Thom types.')).toMatchObject({ clause: 'A screen reads LOADING...', rest: 'Thom types.' })
+  })
+  it('quoted text with an ellipsis inside', () => {
+    for (const t of ['Words appear: "SIMULATION READY... LOCKED." Two people at glowing tech tables.', 'The screen reads “SIMULATION READY… LOCKED.” Two people at glowing tech tables.']) {
+      expect(textClauses(t)!.rest).toBe('Two people at glowing tech tables.')
+      expect(sentences(t)).toEqual([t.slice(0, t.indexOf(' Two')), 'Two people at glowing tech tables.'])
+    }
+    expect(textSpans('Words appear: "WAIT… WHAT?" A man turns.')[0]!.body).toBe('WAIT… WHAT?')
+  })
+  it('outside on-screen text, an ellipsis ends a sentence as before ("..." and "…")', () => {
+    expect(sentences('He waits... The door opens.')).toEqual(['He waits...', 'The door opens.'])
+    expect(sentences('He waits… The door opens.')).toEqual(['He waits…', 'The door opens.'])
+    expect(textClauses('He waits... The door opens.')).toBeUndefined()
+  })
+  it('German', () => {
+    const t = 'Text erscheint: SIMULATION BEREIT... GESPERRT. Zwei Personen an leuchtenden Tischen.'
+    expect(textClauses(t)).toMatchObject({ clause: 'Text erscheint: SIMULATION BEREIT... GESPERRT.', rest: 'Zwei Personen an leuchtenden Tischen.' })
+    expect(sentences(t)).toEqual(['Text erscheint: SIMULATION BEREIT... GESPERRT.', 'Zwei Personen an leuchtenden Tischen.'])
+    expect(textClauses('Text erscheint: LADEN… Ein Mann tritt ein.')).toMatchObject({ clause: 'Text erscheint: LADEN…', rest: 'Ein Mann tritt ein.' })
+    expect(sentences('Er wartet… Die Tür geht auf.')).toEqual(['Er wartet…', 'Die Tür geht auf.'])
+  })
+  it('PR #41 review: an acronym or number after an ellipsis that opens a sentence with lowercase words is the next sentence', () => {
+    expect(textClauses('Words appear: STANDBY... TV static fills the screen.')).toMatchObject({ clause: 'Words appear: STANDBY...', rest: 'TV static fills the screen.' })
+    expect(textClauses('Words appear: STANDBY... 3 men enter.')).toMatchObject({ clause: 'Words appear: STANDBY...', rest: '3 men enter.' })
+    expect(textClauses('A sign reads OPEN... NASA logo glows.')).toMatchObject({ clause: 'A sign reads OPEN...', rest: 'NASA logo glows.' })
+    expect(textClauses('Words appear: COUNTDOWN... 10. A man runs.')).toMatchObject({ clause: 'Words appear: COUNTDOWN... 10.', rest: 'A man runs.' })
+  })
+  it('PR #41 review: "…" now ends a description sentence, so plotEvents sees the second one', () => {
+    expect(plotEvents('He waits… The door opens.', '')).toEqual(['opens'])
+    expect(plotEvents('He waits... The door opens.', '')).toEqual(['opens'])
+  })
+  it('callers (plotEvents, withoutSaidText, newSentences) never see "LOCKED." as description', () => {
+    expect(plotEvents(D6, '')).toEqual([])
+    expect(withoutSaidText(D6, ['simulation ready... locked'])).toBe('Two people at glowing tech tables.')
+    expect(newSentences(D6, 'Words appear: SIMULATION READY... LOCKED.')).toBe('Two people at glowing tech tables.')
   })
 })
