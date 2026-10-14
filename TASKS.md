@@ -128,3 +128,5 @@ checks 1–13 passed; check 14 (Alexa) failed for fast forward / rewind and was 
   - [ ] pending: drop the `--long` gate once DESC-024 passes; re-derive the hourly figure from a full-length run
 - [ ] DESC-026 · follow-up · Log a line on each audio-track switch in the Fire OS player (from and to track, fade and hold timings), so
   RUN-2026-10 check 6 can be checked from logcat; the 2026-10-14 run had no line to read (docs/device-checks/RUN-2026-10.md)
+- [ ] DESC-027 · follow-up · Visual verify pass: each Qwen3-VL description is checked against its own key frames by one more call that only deletes or generalises (decision 0010); deterministic guards keep the draft on any new word, changed on-screen text, empty or longer reply; `verify.json` audit; `DESCRIBE_VERIFY=0` off
+  - [ ] pending: evaluation on sintel-90-210 (describe+verify → fit → edit → voice, two blind raters) against g9's 14/29; measure the real cost per minute and add it to `MEASURED_TITLES` / `estimateUsd`
