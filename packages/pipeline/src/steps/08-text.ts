@@ -20,17 +20,26 @@ export async function sdh(ctx: Ctx, send?: SdhConverse, audible?: SdhEvidence['a
   const words = JSON.parse(await readFile(`${ctx.work}/words.json`, 'utf8')) as Word[]
   const cues = JSON.parse(await readFile(`${ctx.work}/cues.json`, 'utf8')) as FitCue[]
   const captions = segment(words)
-  await writeFile(`${ctx.work}/captions.vtt`, serializeVtt(captions))
+  await writeFile(`${ctx.work}/captions.vtt`, textTrackVtt(captions))
   // No dialogue → nothing for Nova Lite to annotate; write header-only files rather than spend a call on an empty array.
   const { cues: sdhCues, degraded, added } = captions.length
     ? await sdhWithNovaLite(captions, cues, ctx.language, send, { audible: audible ?? audibleFrom(await momentaryLoudness(`${ctx.work}/mezz.mp4`, ctx.signal)), cacheDir: `${ctx.work}/cache/sdh` })
     : { cues: [], degraded: false, added: 0 }
   const problems = lintCues(sdhCues)
   if (problems.length) console.warn('SDH lint', problems)
-  await writeFile(`${ctx.work}/sdh.vtt`, serializeVtt(sdhCues))
+  await writeFile(`${ctx.work}/sdh.vtt`, textTrackVtt(sdhCues))
   await writeFile(`${ctx.work}/sdh.json`, JSON.stringify({ degraded: degraded || (captions.length > 0 && added === 0) }))
   await writeFile(`${ctx.work}/descriptions.vtt`, descriptionsVtt(cues, await probeDurationMs(ctx.work))) // ids d{n}, ends within the title: see ../cues
 }
+
+/**
+ * A published caption track: the cues without their Transcribe voice label. `speaker` (spk_0, spk_1 …) is an anonymous diarization
+ * label, kept on the in-memory cues for mergeSdh's same-voice rule (it reads words.json, never a VTT); the kit's serializeVtt would
+ * write it as `<v spk_0>`, which its parseVtt reads back as the speaker and CueOverlay draws as "[spk_0] ". A real name mergeSdh
+ * accepted is already in the SDH text as the leading "[Name] " tag, the one form every renderer shows the same: the kit reads it as
+ * the speaker and draws "[Name] ", and a native WebVTT renderer draws the text (ExoPlayer keeps a voice only as a non-drawn VoiceSpan).
+ */
+export const textTrackVtt = (cues: readonly Cue[]) => serializeVtt(cues.map(({ speaker: _voice, ...c }) => c))
 
 /** Momentary loudness (LUFS, 400 ms window) at or above this is audible: the speech gaps of Sintel 1:30–2:30 (fire, wind) measure −45 to −52, its near-silences −56 to −59. */
 export const AUDIBLE_LUFS = -55

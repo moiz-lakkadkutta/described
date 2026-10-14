@@ -249,6 +249,32 @@ describe('08-text sdh step', () => {
     await sdh({ slug: 't', source: 's', language: 'en', voice: 'Joanna', work }, async () => { throw new Error('no call expected') })
     expect(JSON.parse(await readFile(`${work}/sdh.json`, 'utf8'))).toEqual({ degraded: false })
   })
+  // DESC-010 follow-up: published VTTs carried `<v spk_0>`; the kit's parseVtt reads it as the speaker and CueOverlay draws "[spk_0] ".
+  it('writes no voice spans: plain captions are text only, a speaker name stays the SDH bracket tag', async () => {
+    const work = await mkdtemp(join(tmpdir(), 'sdh-'))
+    const words = [
+      { start: 0, end: 1, text: 'Proog,', speaker: 'spk_0' }, { start: 1, end: 2, text: 'wait.', speaker: 'spk_0' },
+      { start: 3, end: 4, text: 'I', speaker: 'spk_1' }, { start: 4, end: 5, text: 'am', speaker: 'spk_1' }, { start: 5, end: 6, text: 'here.', speaker: 'spk_1' },
+    ]
+    await writeFile(`${work}/words.json`, JSON.stringify(words))
+    await writeFile(`${work}/cues.json`, JSON.stringify([]))
+    // the diarization rule still applies: "Proog" is said by spk_0, so it may name spk_1's caption
+    await sdh({ slug: 't', source: 's', language: 'en', voice: 'Joanna', work }, async () => toolReply([{ id: 'c2', start: 3, end: 6, text: '[Proog] I am here.' }]), () => true)
+    const captionsVtt = await readFile(`${work}/captions.vtt`, 'utf8'), sdhVtt = await readFile(`${work}/sdh.vtt`, 'utf8')
+    for (const vtt of [captionsVtt, sdhVtt]) { expect(vtt).not.toMatch(/<\/?v[\s.>]/); expect(vtt).not.toContain('spk_') }
+    expect(captionsVtt).toContain('00:00:03.000 --> 00:00:06.000\nI am here.\n')
+    expect(sdhVtt).toContain('00:00:03.000 --> 00:00:06.000\n[Proog] I am here.\n')
+    expect(parseVtt(captionsVtt, { trackId: 'captions' }).map((c) => c.speaker)).toEqual([undefined, undefined])
+    expect(parseVtt(sdhVtt, { trackId: 'sdh' }).map((c) => [c.speaker, c.text])).toEqual([[undefined, 'Proog, wait.'], ['Proog', 'I am here.']])
+    expect(JSON.parse(await readFile(`${work}/sdh.json`, 'utf8'))).toEqual({ degraded: false })
+  })
+  it('the same reply tags nothing when both captions are one voice (the diarization rule reads the words, not the VTT)', async () => {
+    const work = await mkdtemp(join(tmpdir(), 'sdh-'))
+    await writeFile(`${work}/words.json`, JSON.stringify([{ start: 0, end: 2, text: 'Proog, wait.', speaker: 'spk_0' }, { start: 3, end: 6, text: 'I am here.', speaker: 'spk_0' }]))
+    await writeFile(`${work}/cues.json`, JSON.stringify([]))
+    await sdh({ slug: 't', source: 's', language: 'en', voice: 'Joanna', work }, async () => toolReply([{ id: 'c2', start: 3, end: 6, text: '[Proog] I am here.' }]), () => true)
+    expect(await readFile(`${work}/sdh.vtt`, 'utf8')).not.toContain('[Proog]')
+  })
 })
 
 // DESC-010 follow-up (2026-10-14): SDH degraded on every title with speech. Nova Lite, given only visual descriptions, returned
