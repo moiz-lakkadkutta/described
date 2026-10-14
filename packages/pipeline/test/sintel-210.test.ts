@@ -51,9 +51,10 @@ describe('sintel-90-210 run A2 golden replay', () => {
     const cues = await fit(described, gaps, shorten)
     // The run's fit (300 ms overhead) placed 23 cues; 06-voice then dropped shots 8 and 24 and shot 27, whose clips ran past their slots.
     // With 450 ms, the 4-word "Red-haired girl accepts bowl." has no room in 37240–38989 and becomes fit's own event pause (DESC-020);
+    // the pause starts at the estimated end of shot 7's placed cue, not inside it (decision 0009 review);
     // shot 3 (1449 ms left in 0–16720) and shot 27 are not placed; longer lines are estimated longer, so later cues start later and
     // shot 22 loses its slot to 23.
-    expect(cues.map((c) => [c.shotIndex, c.extended])).toEqual([[0, false], [1, false], [2, false], [4, false], [8, true], [7, false], [9, false], [12, false], [13, false], [14, false],
+    expect(cues.map((c) => [c.shotIndex, c.extended])).toEqual([[0, false], [1, false], [2, false], [4, false], [7, false], [8, true], [9, false], [12, false], [13, false], [14, false],
       [15, false], [16, false], [17, false], [18, false], [19, false], [20, false], [21, false], [23, false], [24, false], [25, false], [26, false]])
     expect(cues.find((c) => c.shotIndex === 8)).toMatchObject({ text: 'Red-haired girl accepts bowl.', event: true })
     // DESC-010 follow-up: fit strips a "Darkness." prefix in front of a visible scene (shot 2)

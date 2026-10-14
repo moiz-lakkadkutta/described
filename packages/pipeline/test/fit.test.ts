@@ -157,6 +157,7 @@ describe('fit', () => {
   })
 })
 describe('clip estimate (decision 0009)', () => {
+  /** 3-word clips measure 1440–1968 ms across the sintel-90-210 runs; the fixtures below are g8's. */
   /** sintel-90-210-g8: measured Joanna clips (cue_N.json durationMs; "Figure leans forward." from its 231 ms overrun past 16720 ms at 15271 ms). */
   const measured: Array<[string, number]> = [['Man pours liquid.', 1512], ['Bearded man speaks.', 1560], ['Figure leans forward.', 1680], ['Bearded man holds staff.', 1800], ['Red-haired girl accepts bowl.', 2016]]
   const sh = (index: number, startMs: number, endMs: number, description: string): Described => ({ index, startMs, endMs, description, sameAsPrev: false, tokens: 0, outputTokens: 0 })
@@ -179,6 +180,11 @@ describe('clip estimate (decision 0009)', () => {
   it('g8 shot 3: a 3-word cue is not placed in the 1449 ms left of its gap', async () => {
     const cues = await fit([sh(3, 15271, 19333, 'Figure leans forward.')], [{ startMs: 0, endMs: 16720 }, { startMs: 19509, endMs: 21209 }], shorten)
     expect(cues.find((c) => !c.extended && c.startMs < 16720)).toBeUndefined()
+  })
+  it('g9 shots 8 and 9: an event pause never starts before the estimated end of an earlier shot\'s placed cue', async () => {
+    const cues = await fit([sh(8, 33125, 36333, 'Girl accepts bowl.'), sh(9, 36333, 41000, 'Woman offers bowl to man.')], [{ startMs: 37240, endMs: 38989 }], shorten)
+    expect(cues.map((c) => [c.shotIndex, c.extended, c.startMs])).toEqual([[8, false, 37240], [9, true, 37240 + estimateClipMs(3)]])
+    expect(cues[1]).toMatchObject({ event: true })
   })
   it('a 3-word cue still fits a gap with room for its estimate', async () => {
     const cues = await fit([sh(0, 0, 3000, 'Man pours liquid.')], [{ startMs: 0, endMs: estimateClipMs(3) }], shorten)

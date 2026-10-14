@@ -87,10 +87,12 @@ export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, max
         break
       }
       if (placed) continue
-      if (introducesNew(s.description)) { out.push({ ...extended(s), ...await capExtended(s.description, shorten) }); continue }
+      /** A pause never starts before the estimated end of an earlier shot's placed cue (g9: shot 9's event pause inside shot 8's cue). */
+      const pause = (): FitCue => ({ ...extended(s), startMs: Math.max(s.startMs, ...out.filter((x) => !x.extended && x.shotIndex < s.index).map((x) => x.endMs)) })
+      if (introducesNew(s.description)) { out.push({ ...pause(), ...await capExtended(s.description, shorten) }); continue }
       const previous = [...out].reverse().find((x) => !x.extended)?.text ?? '' // the previous placed cue: what the AD track said, whatever the mode
       const verbs = plotEvents(s.description, previous)
-      if (verbs.length) events.push({ cue: { ...extended(s), ...await capExtended(s.description, shorten), event: true }, verbs: verbs.length, fresh: newWords(s.description, previous) })
+      if (verbs.length) events.push({ cue: { ...pause(), ...await capExtended(s.description, shorten), event: true }, verbs: verbs.length, fresh: newWords(s.description, previous) })
     }
     return [...out, ...capEvents(events)].sort(byStart)
   }

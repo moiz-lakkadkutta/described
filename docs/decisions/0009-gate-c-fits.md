@@ -24,7 +24,8 @@ Three causes were found after the result:
    - its **speech** ends by its limit — the speech end is the clip with its trailing silence trimmed, measured with
      `ffmpeg -af silencedetect=noise=-45dB:d=0.05` (the start of the last silence that runs to the end of the clip), added to
      the cue's start; and
-   - the clip **file** ends by limit + `OVERRUN_TOLERANCE_MS` (200 ms), and before the next dialogue word starts.
+   - the clip **file** ends by limit + `OVERRUN_TOLERANCE_MS` (200 ms), before the next dialogue word starts, and before the next
+     placed cue starts.
 
    The limit is the one 06-voice uses: the end of the cue's gap, or the next placed cue's start − 150 ms when that is earlier.
    An **extended** cue fits when it is at most 25 words.
@@ -50,3 +51,13 @@ Three causes were found after the result:
 - Gate C is re-run (`sintel-90-210-g9`: describe → fit → edit → voice on the g8 inputs, the same 29 shots) and re-rated by two
   independent raters with this rubric. The g8 ratings stay as they are; they are not re-scored under the new rule.
 - Short gaps (< ~1.6 s of room) no longer take a 3-word placed cue; such a shot becomes an extended or event cue, or none.
+- Longer lines are now estimated longer too (a 10-word line 4200 ms; Joanna measured 3072–4776 ms), so later cues in a long gap start
+  later: replaying fit on run A2's inputs, shots 22 and 27 lose their slots (and shot 3, with 1449 ms of room).
+- **06-voice enforces this rule** (review of PR #47): a placed clip is kept only when its speech ends by the limit and its file by
+  min(limit + 200 ms, the next placed cue's start); otherwise it is shortened, split, made a pause or dropped as before. The speech is
+  measured with the silencedetect above and stored in the clip sidecar (`speechMs`); when ffmpeg cannot measure it, it is the clip's
+  duration − `TAIL_SILENCE_MS` (150 ms). So no two placed clips overlap any more (the 200 ms tolerance had allowed up to 50 ms over the
+  150 ms spacing; g9 shot 15 ran 38 ms into shot 16).
+- **Pauses follow the shots they describe.** An extended or event pause never starts before the estimated (05-fit) or measured
+  (06-voice) end of a placed cue of an earlier shot; 06-voice orders that check by shot, then start. g9 had shot 9's event pause
+  ("Woman offers bowl to man.") at its shot start, before shot 8's later "Girl accepts bowl."
