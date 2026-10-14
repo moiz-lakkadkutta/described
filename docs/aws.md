@@ -67,4 +67,3 @@ Cost rule ([0005](decisions/0005-describe-direct-bedrock.md)): no paid Bedrock, 
 go-ahead; tests use recorded fixtures and mocks.
 
 Dev tooling: Claude Code.
-<!-- TODO(human): add Kiro Crew / Builder Tools MCP only if actually used -->
