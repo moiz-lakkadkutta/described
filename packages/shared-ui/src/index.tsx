@@ -46,6 +46,11 @@ const refused = (e: unknown) => e instanceof ApiError && e.status >= 400 && e.st
 export class TimeoutError extends Error { constructor() { super('api timeout') } }
 /** RN Android's own fetch timeout is about 2 minutes; the offline screen should come much sooner. */
 export const FETCH_TIMEOUT_MS = 10_000
+/**
+ * Wait before resending a My list change that got no answer (DESC-022), so a dropped or stale connection, or the stick's
+ * network waking up, has time to recover. Short enough that the ✓ does not flicker back for long if it never does.
+ */
+export const LIST_RESEND_DELAY_MS = 750
 /** While playing, the position is saved after it has moved this far (and always on Back). */
 export const PROGRESS_SAVE_S = 10
 
@@ -269,8 +274,8 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   // My list: the change shows at once; PUT/DELETE /me/list/:slug go through `requests`, in order after any save before
   // them. A failed change is undone and announced — unless a newer press on the same title already decided it. Each
   // answer is the server's whole list; once no change is pending the app settles on it (another session's changes too).
-  // A change that fails with no answer at all (fetch rejected: a dropped connection, the stick's network waking up) is
-  // sent once more before it is undone — DESC-022: on the stick a DELETE failed this way and never reached the API.
+  // A change that fails with no usable answer (fetch rejected — a dropped connection, the stick's network waking up — or
+  // a reply that is not the API's JSON) is sent once more, after LIST_RESEND_DELAY_MS, before it is undone — DESC-022: on the stick a DELETE failed this way and never reached the API.
   // PUT and DELETE are idempotent on the API. Not resent: an answer (ApiError), a timeout (the slow-API case keeps its
   // 10 s), or a change a newer press on the same title has already replaced.
   const listPresses = useRef(new Map<string, number>())
@@ -285,7 +290,13 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
     listPresses.current.set(s, press)
     listPending.current++
     const send = () => api<MyListData>(`/me/list/${encodeURIComponent(s)}`, { method: adding ? 'PUT' : 'DELETE' })
-    const resend = (e: unknown) => (e instanceof ApiError || e instanceof TimeoutError || listPresses.current.get(s) !== press ? Promise.reject(e) : send())
+    const replaced = () => listPresses.current.get(s) !== press
+    const resend = async (e: unknown) => {
+      if (e instanceof ApiError || e instanceof TimeoutError || replaced()) throw e
+      await new Promise((r) => setTimeout(r, LIST_RESEND_DELAY_MS))
+      if (replaced()) throw e // a newer press during the wait decides it; its own request follows in the queue
+      return send()
+    }
     requests(() => send().catch(resend)).then(
       (l) => { if (--listPending.current === 0 && l?.slugs) setMyList(new Set(l.slugs)) },
       () => {

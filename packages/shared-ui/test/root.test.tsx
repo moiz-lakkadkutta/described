@@ -1,6 +1,6 @@
 import React from 'react'
 import TestRenderer, { act } from 'react-test-renderer'
-import { FETCH_TIMEOUT_MS, Root } from '../src/index'
+import { FETCH_TIMEOUT_MS, LIST_RESEND_DELAY_MS, Root } from '../src/index'
 import { ANNOUNCE_DEBOUNCE_MS, _setScreenReader } from '../src/a11y'
 import { Player } from '../src/screens/Player'
 import { Title } from '../src/screens/Title'
@@ -419,11 +419,36 @@ describe('Root', () => {
       await onTitle(r)
       s.failOnce.push('/me/list/sintel-90-210')
       a11yCalls.length = 0
-      press(r, 'Remove Sintel from My list'); await flush()
-      expect(s.writes).toEqual(['DELETE /me/list/sintel-90-210', 'DELETE /me/list/sintel-90-210'])
-      expect(s.list).toEqual([])
-      expect(labels(r)).toContain('Add Sintel to My list')
-      expect(a11yCalls).not.toContain(strings.a11y.listNotSaved)
+      vi.useFakeTimers()
+      try {
+        press(r, 'Remove Sintel from My list'); await flush()
+        expect(s.writes).toEqual(['DELETE /me/list/sintel-90-210'])
+        await act(async () => { await vi.advanceTimersByTimeAsync(LIST_RESEND_DELAY_MS - 1) })
+        expect(s.writes).toHaveLength(1) // waits before resending, so the connection can recover
+        await act(async () => { await vi.advanceTimersByTimeAsync(1) }); await flush()
+        expect(s.writes).toEqual(['DELETE /me/list/sintel-90-210', 'DELETE /me/list/sintel-90-210'])
+        expect(s.list).toEqual([])
+        expect(labels(r)).toContain('Add Sintel to My list')
+        expect(a11yCalls).not.toContain(strings.a11y.listNotSaved)
+      } finally { vi.useRealTimers() }
+    })
+
+    it('a newer press during the wait replaces the failed change: no resend, nothing undone', async () => {
+      const s = api(); s.list = ['sintel-90-210']
+      const r = await mount()
+      await onTitle(r)
+      s.failOnce.push('/me/list/sintel-90-210')
+      a11yCalls.length = 0
+      vi.useFakeTimers()
+      try {
+        press(r, 'Remove Sintel from My list'); await flush() // fails with no answer; the resend waits
+        press(r, 'Add Sintel to My list'); await flush() // newer press on the same title
+        await act(async () => { await vi.advanceTimersByTimeAsync(LIST_RESEND_DELAY_MS) }); await flush()
+        expect(s.writes).toEqual(['DELETE /me/list/sintel-90-210', 'PUT /me/list/sintel-90-210'])
+        expect(s.list).toEqual(['sintel-90-210'])
+        expect(labels(r)).toContain('Remove Sintel from My list')
+        expect(a11yCalls).not.toContain(strings.a11y.listNotSaved)
+      } finally { vi.useRealTimers() }
     })
 
     it('a My list change with the API down is tried twice, then undone and announced once', async () => {
@@ -431,10 +456,14 @@ describe('Root', () => {
       const r = await mount()
       await onTitle(r)
       s.down = true; a11yCalls.length = 0
-      press(r, 'Remove Sintel from My list'); await flush()
-      expect(s.writes).toEqual(['DELETE /me/list/sintel-90-210', 'DELETE /me/list/sintel-90-210'])
-      expect(labels(r)).toContain('Remove Sintel from My list')
-      expect(a11yCalls.filter((c) => c === strings.a11y.listNotSaved)).toHaveLength(1)
+      vi.useFakeTimers()
+      try {
+        press(r, 'Remove Sintel from My list'); await flush()
+        await act(async () => { await vi.advanceTimersByTimeAsync(LIST_RESEND_DELAY_MS) }); await flush()
+        expect(s.writes).toEqual(['DELETE /me/list/sintel-90-210', 'DELETE /me/list/sintel-90-210'])
+        expect(labels(r)).toContain('Remove Sintel from My list')
+        expect(a11yCalls.filter((c) => c === strings.a11y.listNotSaved)).toHaveLength(1)
+      } finally { vi.useRealTimers() }
     })
 
     it('a My list change that times out is not sent again (the slow-API check keeps its 10 s)', async () => {
