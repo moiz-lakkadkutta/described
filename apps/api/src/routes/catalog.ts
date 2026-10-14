@@ -12,10 +12,10 @@ const cdn = (key: string | null) => (key && env.CLOUDFRONT_DOMAIN ? `https://${e
 catalog.get('/', async (req, res, next) => {
   try {
     const deviceId = String(req.header('x-device-id') ?? 'anon')
-    const titles = await db.title.findMany({ where: { status: 'published' }, orderBy: { createdAt: 'desc' }, include: { cues: { where: { extended: true }, select: { id: true } }, progress: { where: { profile: { deviceId } } } } })
+    const titles = await db.title.findMany({ where: { status: 'published' }, orderBy: { createdAt: 'desc' }, include: { cues: { where: { extended: true }, select: { id: true } }, tracks: { where: { kind: 'sdh' }, select: { id: true } }, progress: { where: { profile: { deviceId } } } } })
     const items: CatalogItem[] = titles.map((t: (typeof titles)[number]) => ({
       slug: t.slug, name: t.name, year: t.year, durationS: t.durationS, posterUrl: cdn(t.posterKey), synopsis: t.synopsis,
-      badges: ['ad', 'sdh', ...(t.cues.length ? (['extended'] as const) : [])], extendedCount: t.cues.length,
+      badges: ['ad', ...(t.tracks.length ? (['sdh'] as const) : []), ...(t.cues.length ? (['extended'] as const) : [])], extendedCount: t.cues.length, // sdh: only a title with a Rich captions track (09-package can leave it out)
       resumeS: t.progress[0]?.positionS ?? null,
     }))
     ok(res, { continue: items.filter((i) => i.resumeS && i.resumeS > 30), newlyDescribed: items.slice(0, 6), all: items })

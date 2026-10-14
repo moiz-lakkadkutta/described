@@ -29,10 +29,15 @@ describe('GET /titles/:slug', () => {
     expect(findUnique.mock.calls.at(-1)![0].include.progress).toEqual({ where: { profile: { deviceId: 'fireos-abc' } } })
   })
   it("badges carry 'extended' when the title has extended cues, as /catalog does", async () => {
-    findUnique.mockResolvedValueOnce(row)
+    const sdh = { ...row, tracks: [{ kind: 'sdh', language: 'en', s3Key: 'published/x/sdh.m3u8' }] }
+    findUnique.mockResolvedValueOnce(sdh)
     expect((await http().get('/titles/sintel-90-210')).body.data.badges).toEqual(['ad', 'sdh', 'extended'])
-    findUnique.mockResolvedValueOnce({ ...row, _count: { cues: 0 } })
+    findUnique.mockResolvedValueOnce({ ...sdh, _count: { cues: 0 } })
     expect((await http().get('/titles/sintel-90-210')).body.data.badges).toEqual(['ad', 'sdh'])
+  })
+  it("badges carry 'sdh' only when the title has a Rich captions (sdh) text track, as /catalog does", async () => {
+    findUnique.mockResolvedValueOnce({ ...row, tracks: [{ kind: 'captions', language: 'en', s3Key: 'published/x/captions.m3u8' }] })
+    expect((await http().get('/titles/sintel-90-210')).body.data.badges).toEqual(['ad', 'extended'])
   })
 })
 

@@ -82,6 +82,27 @@ describe('cue ids', () => {
     expect(filmEnds([cue(0, 6792, true), cue(5330, 7514)]).map((c) => c.endMs)).toEqual([5330, 7514])
     expect(filmEnds([cue(0, 3000), cue(1000, 2000)], 1500).map((c) => c.endMs)).toEqual([1500, 1500])
   })
+  it('a cue starting at or after the title\'s end is dropped (it cannot be heard); the rest keep their own clips', () => {
+    const cues = [cue(1000, 2000), cue(60000, 61000), cue(59000, 59500, true), cue(60400, 60500, true)]
+    expect(filmEnds(cues, 60000).map((c) => [c.startMs, c.endMs])).toEqual([[1000, 2000], [59000, 59500]])
+    const rows = descriptionCueRows('t', cues, new Map([[0, 'k0'], [1, 'k1'], [2, 'k2'], [3, 'k3']]), 60000)
+    expect(rows.map((r) => [r.startMs, r.endMs, r.pollyKey])).toEqual([[1000, 2000, 'k0'], [59000, 59500, 'k2']])
+    for (const r of rows) expect(r.endMs).toBeLessThanOrEqual(60000)
+    const parsed = parseVtt(descriptionsVtt(cues, 60000), { trackId: 'd' })
+    expect(parsed.map((c) => [c.id, c.start])).toEqual([['d1', 1], ['d2', 59]])
+    // without a duration nothing is dropped
+    expect(filmEnds(cues)).toHaveLength(4)
+  })
+  it('an extended cue sharing its start with another cue ends 1 ms later (the shortest a cue may be) and stays first; nothing moves', () => {
+    // The film is paused while the extended clip plays, so on the film's clock it has no length: it ends at the next cue's start,
+    // here its own start, floored to start + 1 ms. Starts never move; sorting by end keeps the extended cue first (d1).
+    const cues = [cue(1000, 4000), cue(1000, 1100, true, 'Words appear: Berlin.'), cue(5000, 5100, true), cue(5000, 5100, true, 'Words appear: Paris.')]
+    expect(filmEnds(cues).map((c) => [c.startMs, c.endMs])).toEqual([[1000, 4000], [1000, 1001], [5000, 5001], [5000, 5001]])
+    const parsed = parseVtt(descriptionsVtt(cues), { trackId: 'd' })
+    expect(parsed.slice(0, 2).map((c) => c.text)).toEqual(['Words appear: Berlin.', 'A dragon lands.'])
+    const vtt = descriptionsVtt(cues)
+    expect([...vtt.matchAll(/^(d\d+)\n(\S+) --> (\S+)$/gm)].map((m) => [m[1], m[2], m[3]]).slice(0, 2)).toEqual([['d1', '00:00:01.000', '00:00:01.001'], ['d2', '00:00:01.000', '00:00:04.000']])
+  })
   it('pollyKey is null for a cue whose clip was not published', () => {
     expect(descriptionCueRows('t', [cue(0, 2000), cue(5000, 5100, true)], new Map([[0, 'k0']])).map((r) => r.pollyKey)).toEqual(['k0', null])
   })

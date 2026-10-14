@@ -55,7 +55,7 @@ figures come from its printed totals.
 
 | Source | Figure |
 |---|---|
-| Measured (CLI meter): the five DESC-010 titles, 60 s each, 2026-10-14 | $0.0514 (Sintel re-run) – $0.0586 (Caminandes) per title; ≈ $0.29 for the batch with the prompt clips and re-runs ([titles.md](titles.md)) |
+| Measured (CLI meter): the five DESC-010 titles, 60 s each, 2026-10-14 | $0.0514 (Sintel re-run) – $0.0586 (Caminandes) per title; $0.293 for the five first runs and the prompt clips, plus $0.0003 for the `--from text` re-runs ([titles.md](titles.md)) |
 | Measured (CLI meter): sintel-90-150-r2, CLI run 2026-10-04 (before DESC-017/018/020) | $0.0499 total |
 | Measured: describe on 29 shots / 2 min (0003) | $0.034 Qwen3-VL |
 | Per minute of film, from the prices in `cost.ts` | Transcribe $0.024 + describe ≈ $0.017 + Polly ≈ $0.006 + Nova Lite < $0.002 ≈ **$0.05** |
