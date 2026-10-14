@@ -27,15 +27,15 @@ describe('prisma/titles.json (the catalogue, DESC-010)', () => {
 })
 
 describe('seedTitles', () => {
-  it('upserts by slug: creates a draft with its source asset, updates metadata only (status, art, duration, assets untouched)', () => {
+  it('upserts by slug: creates a draft with its source asset, updates metadata only (status, art, duration, assets, voice, language untouched)', () => {
     expect(titleUpsert(sintel, 'eu-central-1')).toEqual({
       where: { slug: 'sintel-90-150-r2' },
       create: { slug: 'sintel-90-150-r2', name: 'Sintel', year: 2010, license: 'CC-BY 3.0', attribution: sintel.attribution, synopsis: 'A girl and a dragon.', language: 'en', voice: 'Joanna', assets: { create: { kind: 'source', s3Key: 'sources/sintel-90-150.mp4', region: 'eu-central-1' } } },
-      update: { name: 'Sintel', year: 2010, license: 'CC-BY 3.0', attribution: sintel.attribution, synopsis: 'A girl and a dragon.', language: 'en', voice: 'Joanna' },
+      update: { name: 'Sintel', year: 2010, license: 'CC-BY 3.0', attribution: sintel.attribution, synopsis: 'A girl and a dragon.' },
     })
     const u = titleUpsert({ ...sintel, year: undefined, synopsis: undefined }, 'eu-central-1')
     expect(u.update).toMatchObject({ year: null, synopsis: null })
-    for (const k of ['status', 'durationS', 'posterKey', 'heroKey', 'assets']) expect(u.update).not.toHaveProperty(k)
+    for (const k of ['status', 'durationS', 'posterKey', 'heroKey', 'assets', 'voice', 'language']) expect(u.update).not.toHaveProperty(k) // voice/language: what the run spoke
   })
   it('seeds every entry in order and refuses a duplicate slug before writing anything', async () => {
     const upsert = vi.fn<(args: ReturnType<typeof titleUpsert>) => Promise<unknown>>(async () => ({}))

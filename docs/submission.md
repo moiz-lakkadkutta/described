@@ -74,8 +74,9 @@ sheets, not people — see Honest limits.
 
 **What it costs.** Describing 2 minutes of film cost ≈ $0.03 on Bedrock (61,495 input tokens;
 [docs/aws.md](aws.md), [0003](decisions/0003-gate-c.md)). A full 2-minute run, including Transcribe and Polly, is
-estimated at ≈ $0.10–0.15 ([DESC-007 device check](device-checks/DESC-007.md) §0).
-TODO(human): replace the estimate with the measured `costUsd` from the DESC-010 batch.
+estimated at ≈ $0.10–0.15 ([DESC-007 device check](device-checks/DESC-007.md) §0). Measured on the five catalogue titles
+(2026-10-14, 60 s each, the pipeline's own meter at `cost.ts` list prices): $0.051–0.059 per title end to end, Transcribe
+$0.024 of it ([titles](titles.md)).
 
 ## Who it is for
 

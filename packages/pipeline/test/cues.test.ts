@@ -5,7 +5,7 @@ import { parseVtt } from '@moizp/vega-media-kit/core'
 import { EXTENDED_WORDS, fit } from '../src/steps/05-fit'
 import type { Described } from '../src/steps/04-describe'
 import type { FitCue } from '../src/steps/05-fit'
-import { CLIPS_FILE, clipHash, cueAudioKey, descriptionCueRows, descriptionsVtt, writeDescriptionCues, persistForCli } from '../src/cues'
+import { CLIPS_FILE, clipHash, cueAudioKey, descriptionCueRows, descriptionsVtt, filmEnds, writeDescriptionCues, persistForCli } from '../src/cues'
 import { publish } from '../src/steps/10-publish'
 // The Player's own scheduler (pure, no React): the last hop of fit → VTT → kit parseVtt → app.
 import { ExtendedScheduler, extendedCues } from '../../shared-ui/src/extended'
@@ -66,6 +66,21 @@ describe('cue ids', () => {
     expect(parsed.map((c) => [c.id, c.text])).toEqual([['d1', 'Words appear: Berlin.'], ['d2', 'A dragon lands.']])
     expect(extendedCues(parsed).map((c) => c.id)).toEqual(['d1'])
     expect(descriptionCueRows('t', cues, new Map([[0, 'k0'], [1, 'k1']])).map((r) => r.pollyKey)).toEqual(['k1', 'k0'])
+  })
+  it('no cue ends after the title, and an extended cue ends by the next cue\'s start (tears-of-steel-40-100 d7/d8, d15)', () => {
+    // From the ToS run: d7 text pause 26004–28116 (clip length; the film is paused while it plays) and d8 placed 26404–29524;
+    // d15 extended 59958–62862 on a 60.0 s title.
+    const cues = [cue(22579, 25195), cue(26004, 28116, true, 'Words appear: "TEARS OF STEEL"'), cue(26404, 29524), cue(59958, 62862, true)]
+    expect(filmEnds(cues, 60000).map((c) => [c.startMs, c.endMs])).toEqual([[22579, 25195], [26004, 26404], [26404, 29524], [59958, 60000]])
+    const vtt = descriptionsVtt(cues, 60000)
+    expect([...vtt.matchAll(/^(d\d+)\n(\S+) --> (\S+)$/gm)].map((m) => [m[1], m[2], m[3]])).toEqual([
+      ['d1', '00:00:22.579', '00:00:25.195'], ['d2', '00:00:26.004', '00:00:26.404'], ['d3', '00:00:26.404', '00:00:29.524'], ['d4', '00:00:59.958', '00:01:00.000'],
+    ]) // the file as written; the kit's parseVtt still lengthens a cue to its 833 ms minimum where nothing follows it
+    const rows = descriptionCueRows('t', cues, new Map(), 60000)
+    expect(rows.map((r) => r.endMs)).toEqual([25195, 26404, 29524, 60000])
+    // without a duration only the next-start cap applies; a placed cue keeps its measured end (voice warns about placed overlaps)
+    expect(filmEnds([cue(0, 6792, true), cue(5330, 7514)]).map((c) => c.endMs)).toEqual([5330, 7514])
+    expect(filmEnds([cue(0, 3000), cue(1000, 2000)], 1500).map((c) => c.endMs)).toEqual([1500, 1500])
   })
   it('pollyKey is null for a cue whose clip was not published', () => {
     expect(descriptionCueRows('t', [cue(0, 2000), cue(5000, 5100, true)], new Map([[0, 'k0']])).map((r) => r.pollyKey)).toEqual(['k0', null])
@@ -134,6 +149,14 @@ describe('publish and DescriptionCue rows (no AWS, no Postgres: upload and datab
     expect(f.rows()[0]!.pollyKey).toBe(`published/x/cues/cue_0.${h0}.mp3`) // unchanged clip, same key
     expect(f.rows()[1]!.pollyKey).toBe(`published/x/cues/cue_1.${clipHash(Buffer.from('clip one, voiced again'))}.mp3`)
   })
+  it('publish leaves out a text track 09-package did not advertise (degraded SDH: no TextTrack row, no sdh.vtt in S3)', async () => {
+    const upload = vi.fn(async () => {})
+    const dir = work(); writeFileSync(join(dir, 'package.json'), JSON.stringify({ language: 'en', tracks: { captions: true, sdh: false, descriptions: true } }))
+    await publish(ctx(dir), { upload })
+    const keys = upload.mock.calls.map((c) => (c as unknown as [string, string])[1])
+    expect(keys).toEqual(expect.arrayContaining(['s3://media/published/x/captions.vtt', 's3://media/published/x/descriptions.vtt']))
+    expect(keys).not.toContain('s3://media/published/x/sdh.vtt')
+  })
   it('CLI: without DATABASE_URL, or without a Title row for the slug, it warns and writes nothing', async () => {
     const dir = work(); await publish(ctx(dir), { upload: vi.fn(async () => {}) })
     vi.stubEnv('DATABASE_URL', '')
@@ -141,7 +164,7 @@ describe('publish and DescriptionCue rows (no AWS, no Postgres: upload and datab
     await persistForCli('x', dir)
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('no DATABASE_URL'))
     const none = fakeDb(null)
-    await persistForCli('x', dir, async () => none.db as never)
+    await persistForCli('x', dir, undefined, async () => none.db as never)
     expect(none.db.title.findUnique).toHaveBeenCalledWith({ where: { slug: 'x' }, select: { id: true } })
     expect(none.db.$transaction).not.toHaveBeenCalled(); expect(none.db.$disconnect).toHaveBeenCalled()
     warn.mockRestore()

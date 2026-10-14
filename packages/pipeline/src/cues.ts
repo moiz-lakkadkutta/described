@@ -22,26 +22,56 @@ export const cueAudioFile = (i: number) => `cue_${i}.mp3`
 export const clipHash = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex').slice(0, 12)
 export const cueAudioKey = (slug: string, i: number, hash: string) => `published/${slug}/cues/cue_${i}.${hash}.mp3`
 
-/** cues.json in canonical order (start, then end), each with its cues.json index (its clip). */
-export function ordered(cues: readonly FitCue[]): (FitCue & { i: number })[] {
-  return cues.map((c, i) => ({ ...c, i })).sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs)
+/**
+ * The latest a cue may end on the film's clock: the title's duration (probe.json), and for an extended cue also the next cue's start.
+ * An extended cue's endMs from 06-voice is start + clip length, but the film is paused while that clip plays, so on the film's
+ * clock it has no length of its own: left as is it overlaps the cue the voice step placed TEXT_LEAD_MS after it (tears-of-steel
+ * d7/d8) and can end after the film does (tears-of-steel d15, 62.9 s on a 60.0 s title). Infinity when neither applies.
+ */
+function endCap(c: FitCue, starts: readonly number[], durationMs?: number): number {
+  const next = c.extended ? (starts.find((s) => s > c.startMs) ?? Infinity) : Infinity
+  return Math.min(next, durationMs ?? Infinity)
+}
+/** cues with endMs clamped to endCap, never to or before the start (a cue keeps ≥ 1 ms). Pure (tested). */
+export function filmEnds(cues: readonly FitCue[], durationMs?: number): FitCue[] {
+  const starts = [...new Set(cues.map((c) => c.startMs))].sort((a, b) => a - b)
+  return cues.map((c) => ({ ...c, endMs: Math.max(c.startMs + 1, Math.min(c.endMs, endCap(c, starts, durationMs))) }))
+}
+
+/**
+ * cues.json in canonical order (start, then end — ends clamped by filmEnds first, so the order matches the DescriptionCue rows the
+ * API sorts), each with its cues.json index (its clip).
+ */
+export function ordered(cues: readonly FitCue[], durationMs?: number): (FitCue & { i: number })[] {
+  return filmEnds(cues, durationMs).map((c, i) => ({ ...c, i })).sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs)
+}
+
+/** The title's length in ms from work/probe.json; undefined when the file or the number is missing. */
+export async function probeDurationMs(work: string): Promise<number | undefined> {
+  const probe = JSON.parse(await readFile(`${work}/probe.json`, 'utf8').catch(() => '{}')) as { format?: { duration?: string } }
+  const s = parseFloat(probe.format?.duration ?? '')
+  return Number.isFinite(s) ? Math.round(s * 1000) : undefined
 }
 
 /** One line of cue text: whitespace collapsed, no `-->` or `{…}` a parser would read as timing or meta (as apps/api does). */
 export const vttText = (t: string) => t.replace(/-->/g, '→').replace(/[{}]/g, '').replace(/\s+/g, ' ').trim()
 
-/** descriptions.vtt: every cue (≥ 833 ms on screen), extended ones with `{extended=1;words=N}` meta. */
-export function descriptionsVtt(cues: readonly FitCue[]): string {
-  return serializeVtt(ordered(cues).map((c, n) => ({
-    trackId: 'desc', id: vttCueId(n), start: c.startMs / 1000, end: Math.max(c.endMs, c.startMs + 833) / 1000, text: vttText(c.text),
+/**
+ * descriptions.vtt: every cue ≥ 833 ms on screen where that fits under its endCap (an extended cue never past the next cue's start,
+ * no cue past the title's end), extended ones with `{extended=1;words=N}` meta.
+ */
+export function descriptionsVtt(cues: readonly FitCue[], durationMs?: number): string {
+  const starts = [...new Set(cues.map((c) => c.startMs))].sort((a, b) => a - b)
+  return serializeVtt(ordered(cues, durationMs).map((c, n) => ({
+    trackId: 'desc', id: vttCueId(n), start: c.startMs / 1000, end: Math.max(c.endMs, Math.min(c.startMs + 833, endCap(c, starts, durationMs))) / 1000, text: vttText(c.text),
     ...(c.extended ? { meta: { extended: '1', words: String(c.wordCount) } } : {}),
   })))
 }
 
 export interface DescriptionCueRow { titleId: string; startMs: number; endMs: number; text: string; extended: boolean; wordCount: number; pollyKey: string | null }
 /** DescriptionCue rows in canonical order; pollyKey only where the clip was published (`published`: cues.json index → key). */
-export function descriptionCueRows(titleId: string, cues: readonly FitCue[], published: ReadonlyMap<number, string>): DescriptionCueRow[] {
-  return ordered(cues).map((c) => ({
+export function descriptionCueRows(titleId: string, cues: readonly FitCue[], published: ReadonlyMap<number, string>, durationMs?: number): DescriptionCueRow[] {
+  return ordered(cues, durationMs).map((c) => ({
     titleId, startMs: c.startMs, endMs: c.endMs, text: c.text, extended: c.extended, wordCount: c.wordCount,
     pollyKey: published.get(c.i) ?? null,
   }))
@@ -57,37 +87,45 @@ export interface CueDb {
   descriptionCue: { deleteMany(a: { where: { titleId: string } }): unknown; createMany(a: { data: DescriptionCueRow[] }): unknown }
   $transaction(ops: never[]): Promise<unknown>
 }
+/** The two writes that replace the title's DescriptionCue rows from cues.json, clips.json and probe.json, not yet run (Prisma's are lazy). */
+export async function descriptionCueOps(db: CueDb, titleId: string, work: string): Promise<unknown[]> {
+  const cues = JSON.parse(await readFile(`${work}/cues.json`, 'utf8')) as FitCue[]
+  const rows = descriptionCueRows(titleId, cues, await readClips(work), await probeDurationMs(work))
+  return [db.descriptionCue.deleteMany({ where: { titleId } }), db.descriptionCue.createMany({ data: rows })]
+}
 /**
- * Replaces the title's DescriptionCue rows from cues.json and clips.json. The worker calls it from persist('finish') (src/jobs.ts):
+ * Replaces the title's DescriptionCue rows in one transaction. The worker calls it from persist('finish') (src/jobs.ts):
  * only after steps 6–10 succeeded inside the job's deadline, with the job's own db and titleId.
  */
 export async function writeDescriptionCues(db: CueDb, titleId: string, work: string) {
-  const cues = JSON.parse(await readFile(`${work}/cues.json`, 'utf8')) as FitCue[]
-  const rows = descriptionCueRows(titleId, cues, await readClips(work))
-  await db.$transaction([db.descriptionCue.deleteMany({ where: { titleId } }), db.descriptionCue.createMany({ data: rows })] as never[])
+  await db.$transaction((await descriptionCueOps(db, titleId, work)) as never[])
 }
 
 /** What the CLI path needs: the worker's Db plus a lookup by slug and a disconnect (Prisma's client satisfies it). */
 export type CliDb = import('./jobs').Db & { $disconnect(): Promise<void> }
+/** What the run spoke: --lang and the resolved --voice. */
+export interface Spoken { language: string; voice: string }
 
 /**
  * The CLI's path (no job, no titleId): looks the title up by slug and writes what the worker's jobs write —
- * DescriptionCue rows, Rendition and TextTrack rows, the art keys (src/jobs.ts writeTrackRows), Title.durationS from probe.json
- * (persist('probe')) and, last, status = published (the finish job's last act), so a CLI run puts the title in the catalogue
- * as a worker run does (DESC-010). Without DATABASE_URL, or without a Title row, it warns and skips.
+ * DescriptionCue rows, Rendition and TextTrack rows, the art keys (src/jobs.ts trackRowOps), Title.durationS from probe.json
+ * (persist('probe')) — plus Title.voice and Title.language from the run (`spoken`: what was actually spoken, which labels the AD
+ * track; the worker reads them from the row, so there they already agree), and status = published last. All of it in one
+ * transaction: a failure leaves the previous rows, and a --from re-run of a published title never serves a mix of old and new
+ * rows. Without DATABASE_URL, or without a Title row, it warns and skips.
  */
-export async function persistForCli(slug: string, work: string, open?: () => Promise<CliDb>) {
+export async function persistForCli(slug: string, work: string, spoken?: Spoken, open?: () => Promise<CliDb>) {
   if (!open && !process.env.DATABASE_URL) { console.warn('no DATABASE_URL: DescriptionCue, Rendition and TextTrack rows not written'); return }
   const db = open ? await open() : (new (await import('@prisma/client')).PrismaClient() as CliDb)
   try {
     const t = await db.title.findUnique({ where: { slug }, select: { id: true } })
     if (!t) { console.warn(`no Title row for ${slug}: DescriptionCue, Rendition and TextTrack rows not written`); return }
-    const { writeTrackRows } = await import('./jobs') // dynamic: jobs.ts imports this module
-    await writeDescriptionCues(db as never, t.id, work)
-    await writeTrackRows(t.id, work, db)
-    const probe = JSON.parse(await readFile(`${work}/probe.json`, 'utf8').catch(() => '{}')) as { format?: { duration?: string } }
-    const durationS = parseFloat(probe.format?.duration ?? '')
-    await db.title.update({ where: { id: t.id }, data: { ...(Number.isFinite(durationS) ? { durationS } : {}), status: 'published' } })
-    console.log(`${slug}: published${Number.isFinite(durationS) ? ` (${durationS.toFixed(1)} s)` : ''}`)
+    const { trackRowOps } = await import('./jobs') // dynamic: jobs.ts imports this module
+    const durationMs = await probeDurationMs(work)
+    const durationS = durationMs === undefined ? undefined : durationMs / 1000
+    const rows = [...(await descriptionCueOps(db as never, t.id, work)), ...(await trackRowOps(t.id, work, db))]
+    const title = db.title.update({ where: { id: t.id }, data: { ...(durationS !== undefined ? { durationS } : {}), ...(spoken ? { voice: spoken.voice, language: spoken.language } : {}), status: 'published' } })
+    await db.$transaction([...rows, title] as never) // Prisma runs a batch in order: status is the last write
+    console.log(`${slug}: published${durationS !== undefined ? ` (${durationS.toFixed(1)} s)` : ''}`)
   } finally { await db.$disconnect() }
 }

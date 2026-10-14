@@ -25,12 +25,14 @@ export type TitleSeed = z.infer<typeof TitleSeed>
 export interface SeedDb { title: { upsert(args: ReturnType<typeof titleUpsert>): Promise<unknown> } }
 
 /**
- * Pure (tested). Upsert by slug: a new title is a draft with its source Asset; an existing one gets only its metadata updated,
- * so status, durationS, art keys and assets written by the pipeline or set by the admin are never touched by a re-seed.
+ * Pure (tested). Upsert by slug: a new title is a draft with its source Asset and the voice and language to describe it in; an
+ * existing one gets only its metadata updated, so status, durationS, art keys and assets written by the pipeline or set by the
+ * admin are never touched by a re-seed — nor voice and language: once a run has published the title they name the voice that
+ * was actually spoken (the CLI's persistForCli writes them from --voice / --lang), which labels the AD track.
  */
 export function titleUpsert(t: TitleSeed, region: string) {
-  const meta = { name: t.name, year: t.year ?? null, license: t.license, attribution: t.attribution, synopsis: t.synopsis ?? null, language: t.language, voice: t.voice }
-  return { where: { slug: t.slug }, create: { slug: t.slug, ...meta, assets: { create: { kind: 'source' as const, s3Key: t.sourceS3Key, region } } }, update: meta }
+  const meta = { name: t.name, year: t.year ?? null, license: t.license, attribution: t.attribution, synopsis: t.synopsis ?? null }
+  return { where: { slug: t.slug }, create: { slug: t.slug, ...meta, language: t.language, voice: t.voice, assets: { create: { kind: 'source' as const, s3Key: t.sourceS3Key, region } } }, update: meta }
 }
 
 export async function seedTitles(db: SeedDb, entries: readonly TitleSeed[], region: string): Promise<string[]> {

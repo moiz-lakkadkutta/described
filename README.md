@@ -74,9 +74,15 @@ and draws captions with its `CueOverlay`. The AD rendition is just another audio
 
 | Title | Year | Published excerpt | Licence | Slug | Description cues |
 |---|---|---|---|---|---|
-| Sintel (© Blender Foundation) | 2010 | 1:30–2:30 (60 s) | CC-BY 3.0 | `sintel-90-150-r2` | 9, none extended ([RUN-2026-10](docs/device-checks/RUN-2026-10.md)) |
+| Sintel (© Blender Foundation) | 2010 | 1:30–2:30 (60 s) | CC-BY 3.0 | `sintel-90-150-r2` | 11, 2 extended |
+| Big Buck Bunny (© Blender Foundation) | 2008 | 0:00–1:00 (60 s) | CC-BY 3.0 | `big-buck-bunny-0-60` | 9, 0 extended |
+| Elephants Dream (© Blender Foundation / Netherlands Media Art Institute) | 2006 | 0:00–1:00 (60 s) | CC-BY 2.5 | `elephants-dream-0-60` | 7, 1 extended |
+| Caminandes: Gran Dillama (© Blender Foundation) | 2013 | 0:35–1:35 (60 s) | CC-BY 3.0 | `caminandes-35-95` | 13, 0 extended |
+| Tears of Steel (© Blender Foundation) | 2012 | 0:40–1:40 (60 s) | CC-BY 3.0 | `tears-of-steel-40-100` | 15, 3 extended |
 
-More titles land with DESC-010. The Gate C evaluation also used Sintel 1:30–3:30 (`sintel-90-210`, 29 shots).
+All five described end to end by the pipeline on 2026-10-14, ≈ $0.05–0.06 each; sources, segments, costs and the faults found
+in the descriptions: [docs/titles.md](docs/titles.md). Rows: `apps/api/prisma/titles.json` (`pnpm titles:seed`). The Gate C
+evaluation also used Sintel 1:30–3:30 (`sintel-90-210`, 29 shots).
 
 ## Run it locally (7 steps)
 
@@ -98,13 +104,14 @@ vega-media-kit is linked from a sibling checkout (`link:../vega-media-kit` in `p
    $PG/pg_ctl -D ~/described-pg -l ~/described-pg/log.txt -o "-p 5432 -k /tmp" start
    $PG/createdb -h /tmp -U postgres described
    ```
-   Then `pnpm db:migrate`.
+   Then `pnpm db:migrate`. When it creates or resets the database it also runs the title seed (`apps/api/package.json`
+   `prisma.seed`), as `prisma migrate reset` always does: the five catalogue titles, drafts until the pipeline publishes them.
 3. **API** — `pnpm api` (Express + Prisma + pg-boss; `GET /health`). It listens on port 4000 (`PORT` in `.env`). If 4000 is taken,
    set PORT and use the same port in EXPO_PUBLIC_API_URL. The stick must reach this port over the LAN.
 4. **Pipeline worker** (optional) — `pnpm --filter @described/pipeline worker`. Create a title with `POST /admin/titles`
    (header `x-admin-token: $ADMIN_TOKEN`), then `POST /admin/titles/<id>/describe`; the worker marks it published when publish finishes.
    Or run it in-process: `pnpm pipeline describe --title <slug> --source s3://$S3_BUCKET_MEDIA/sources/<file>.mp4 [--lang de] [--from <step>]`
-   (the CLI writes cue and track rows but does not change the title's status). No paid run without the owner's go-ahead (decision 0005).
+   (the CLI writes cue and track rows, durationS, voice and language, and marks the title published, in one transaction). No paid run without the owner's go-ahead (decision 0005).
 5. **Release build on the stick** (the JS bundle is inside, so no Metro):
    ```sh
    adb connect <stick-ip>:5555 && adb shell input keyevent KEYCODE_WAKEUP
@@ -147,7 +154,10 @@ TODO(DESC-011): screenshots from the stick — list and capture recipe in [docs/
 - Font: Atkinson Hyperlegible (Braille Institute), SIL Open Font License 1.1, in `apps/expo/assets/fonts`.
 - Films (one attribution sentence per published title, as the app's About & licenses screen shows them, `GET /about`):
   - Sintel © Blender Foundation, CC-BY 3.0. Described by Described.
-  - More titles land with DESC-010.
+  - Big Buck Bunny © 2008 Blender Foundation, CC-BY 3.0. Described by Described.
+  - Elephants Dream © 2006 Blender Foundation / Netherlands Media Art Institute, CC-BY 2.5. Described by Described.
+  - Caminandes: Gran Dillama © 2013 Blender Foundation (a Blender Institute production, www.caminandes.org), CC-BY 3.0. Described by Described.
+  - Tears of Steel © 2012 Blender Foundation, CC-BY 3.0. Described by Described.
 
 ## What's new since Aug 31, 2026
 

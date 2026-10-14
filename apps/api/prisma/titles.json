@@ -9,7 +9,7 @@
     "language": "en",
     "voice": "Joanna",
     "sourceS3Key": "sources/sintel-90-150.mp4",
-    "source": { "film": "Sintel (Durian open movie, 2010)", "url": "https://download.blender.org/demo/movies/", "segment": "1:30–2:30" }
+    "source": { "film": "Sintel (Durian open movie, 2010)", "url": "https://download.blender.org/durian/movies/Sintel.2010.1080p.mkv", "segment": "1:30–2:30" }
   },
   {
     "slug": "big-buck-bunny-0-60",
@@ -40,7 +40,7 @@
     "name": "Caminandes: Gran Dillama",
     "year": 2013,
     "license": "CC-BY 3.0",
-    "attribution": "Caminandes: Gran Dillama © 2013 Blender Institute, CC-BY 3.0. Described by Described.",
+    "attribution": "Caminandes: Gran Dillama © 2013 Blender Foundation (a Blender Institute production, www.caminandes.org), CC-BY 3.0. Described by Described.",
     "synopsis": "Koro the llama wants the grass on the other side of a fence that fights back.",
     "language": "en",
     "voice": "Joanna",
