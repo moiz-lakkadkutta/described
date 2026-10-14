@@ -39,7 +39,8 @@ function endCaps(cues: readonly FitCue[], durationMs?: number): number[] {
 }
 /**
  * cues with endMs clamped to their endCaps, never to or before the start (a cue keeps ≥ 1 ms). A cue starting at or after the
- * title's end is dropped: nothing plays there, so it cannot be heard, and every cue left ends by the duration. Pure (tested).
+ * title's end is dropped: nothing plays there, so it cannot be heard, and every cue left ends by the duration (06-voice already
+ * leaves such cues out, so neither Polly nor 07-mix sees them; this keeps cues.json from an older run consistent). Pure (tested).
  */
 export function filmEnds<T extends FitCue>(cues: readonly T[], durationMs?: number): T[] {
   const kept = durationMs === undefined ? [...cues] : cues.filter((c) => c.startMs < durationMs)

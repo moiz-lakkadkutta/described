@@ -79,7 +79,7 @@ checks 1–13 passed; check 14 (Alexa) failed for fast forward / rewind and was 
     on-screen text phrased as `headline: "…"` is not a text clause and can be dropped; "Darkness." prefixed to a visible scene; SDH degraded
     (no additions) on most titles, so Rich captions is omitted; the `grid-test-*` filler rows are still published
   - [x] #33 review follow-ups: the `sdh` badge comes from the title's Rich captions TextTrack row (`/catalog`, `/titles/:slug`); filmEnds
-    drops a cue starting at or after the title's end and ends an extended cue sharing its start 1 ms later; stale sintel-90-150-r2 sdh
+    and 06-voice (before any Polly call, and after pauses move) drop a cue starting at or after the title's end and ends an extended cue sharing its start 1 ms later; stale sintel-90-150-r2 sdh
     objects listed in docs/titles.md; batch cost split (first runs + prompt clips $0.293, re-runs $0.0003)
 - [ ] DESC-011 · week 4 · Polish, docs/screens, README, docs/aws.md, feedback, feature requests, ≥ 8 friction logs · freeze Oct 15 (needs: screenshots)
   - [x] rail: Described (described titles grid) and My list screens + `GET/PUT/DELETE /me/list` (#12); device run checks 9–11 passed
