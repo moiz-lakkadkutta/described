@@ -4,6 +4,7 @@ import type { Described } from './04-describe'
 import type { Gap } from './03-speech'
 import { clauseText, stripDarkness, textSpans, withoutSpans } from '../textClause'
 import { eventSpaced, newWords, plotEvents } from '../plotEvent'
+import { readsAsSentences } from '../sentenceGuard'
 
 /**
  * endMs: fit's estimate (estimateClipMs: words / WPS + CLIP_OVERHEAD_MS) until 06-voice measures the Polly clip and rewrites it as startMs + clip duration (DESC-013).
@@ -40,7 +41,8 @@ const MIN_WORDS = 3
  * previous voiced cue did not say — "accepts bowl", "kneels beside…"; not a setting, light or expression) becomes an extended cue with
  * `event: true`, its own description capped like any extended cue — at most one per EVENT_SPACING_MS (capEvents: the most new action
  * verbs first). The plain AD track is unchanged: extended cues play only in Extended mode.
- * fitDescriptions passes safeShorten, so a model shortening that changes a fact falls back to shortenDeterministic.
+ * fitDescriptions passes safeShorten, so a model shortening that changes a fact or stops reading as sentences (DESC-028) falls back to
+ * shortenDeterministic, and a deterministic one that stops reading as sentences to the unshortened text.
  */
 export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, maxWords: number) => Promise<string> | string): Promise<FitCue[]> | FitCue[] {
   const free = gaps.map((g) => ({ ...g, cursor: g.startMs }))
@@ -263,8 +265,11 @@ function shortenPlain(text: string, maxWords: number): string {
 }
 
 /**
- * The model's shortening is used only when it fits and adds no content word; otherwise the deterministic one. The model never sees an
- * on-screen text clause: it shortens the rest to the words left beside the clause, which is then put back (DESC-017).
+ * The model's shortening is used only when it fits, adds no content word (preservesFacts) and still reads as sentences
+ * (../sentenceGuard readsAsSentences: content words in order, no new list comma, a verb kept when the original had one — DESC-028);
+ * otherwise the deterministic one, under the same sentence guard; when that fails too, the text comes back unshortened, and fit places
+ * it only where it fits whole (else the next gap, an extended cue or a drop, as for any text that does not fit). The model never sees
+ * an on-screen text clause: it shortens the rest to the words left beside the clause, which is then put back (DESC-017).
  */
 export async function safeShorten(text: string, maxWords: number, model: (text: string, maxWords: number) => Promise<string> | string): Promise<string> {
   const c = words(text) > maxWords ? textClauses(text) : undefined
@@ -275,9 +280,15 @@ export async function safeShorten(text: string, maxWords: number, model: (text: 
 }
 async function safeShortenPlain(text: string, maxWords: number, model: (text: string, maxWords: number) => Promise<string> | string): Promise<string> {
   const m = (await model(text, maxWords)).trim()
-  if (m && words(m) <= maxWords && preservesFacts(text, m)) return m
-  if (m && !preservesFacts(text, m)) console.warn('fit: shortener changed a fact, using deterministic shortening:', JSON.stringify(text), '→', JSON.stringify(m))
-  return shortenDeterministic(text, maxWords)
+  if (m && words(m) <= maxWords) {
+    const why = preservesFacts(text, m) ? readsAsSentences(text, m) : 'changed a fact'
+    if (!why) return m
+    console.warn(`fit: shortener reply rejected (${why}), using deterministic shortening:`, JSON.stringify(text), '→', JSON.stringify(m))
+  }
+  const d = shortenDeterministic(text, maxWords)
+  const why = d === text ? undefined : readsAsSentences(text, d)
+  if (why) console.warn(`fit: deterministic shortening rejected (${why}), keeping the text unshortened:`, JSON.stringify(text), '→', JSON.stringify(d))
+  return why ? text : d
 }
 
 export async function fitDescriptions(ctx: Ctx) {

@@ -261,7 +261,8 @@ describe('on-screen text clause', () => {
     expect(model).toHaveBeenCalledWith('Snowy mountains. A lone figure walks left, carrying a spear.', 7)
     // a model reply that drops or rewrites the text is impossible: it only shortens the rest
     expect(await safeShorten(SHOT0, 10, () => 'Snowy mountains. A lone figure walks.')).toBe('Snowy mountains. A lone figure walks. Words appear: SINTEL.') // 6 of 10 kept
-    expect(await safeShorten(SHOT0, 10, () => 'Snowy mountains.')).toBe(SHOT0) // 2 of 10 kept: split instead
+    // DESC-028: a reply with none of the action's verbs is rejected; the deterministic shortening keeps "walks" (7 of 10 kept)
+    expect(await safeShorten(SHOT0, 10, () => 'Snowy mountains.')).toBe('Snowy mountains. A lone figure walks left. Words appear: SINTEL.')
     expect(await safeShorten(SHOT0, 4, () => 'Mountains.')).toBe(SHOT0)
     // no room for the action beside the text: the text comes back whole, and fit / 06-voice split it
     expect(shortenDeterministic(SHOT0, 3)).toBe(SHOT0)
@@ -305,9 +306,14 @@ describe('on-screen text clause', () => {
       { startMs: 0, endMs: 100, text: 'Words appear: "The Hunt for the Dragon".', extended: true, wordCount: 7, shotIndex: 0 },
       expect.objectContaining({ startMs: 0, text: 'A girl runs.', extended: false, limitMs: 1750 }),
     ])
-    // the text fits but not beside any of the action: still split, the action shortened
-    const two = await fit([shot(SHOT0), shot('Smoke rises.', 1, 3000)], [{ startMs: 0, endMs: 1950 }, { startMs: 3000, endMs: 6000 }], (t, n) => safeShorten(t, n, () => 'Mountains walk.'))
-    expect(two.map((c) => [c.startMs, c.extended, c.text])).toEqual([[0, true, 'Words appear: SINTEL.'], [400, false, 'Snowy mountains.'], [3000, false, 'Smoke rises.']])
+    // the text fits but not beside any of the action: still split, the action shortened (both at the gap start: a 4-word gap has no room to delay 3 words)
+    const gaps2 = [{ startMs: 0, endMs: 1950 }, { startMs: 3000, endMs: 6000 }]
+    const two = await fit([shot(SHOT0), shot('Smoke rises.', 1, 3000)], gaps2, (t, n) => safeShorten(t, n, () => 'Figure walks left.'))
+    expect(two.map((c) => [c.startMs, c.extended, c.text])).toEqual([[0, true, 'Words appear: SINTEL.'], [0, false, 'Figure walks left.'], [3000, false, 'Smoke rises.']])
+    // DESC-028: when the action cannot be shortened to the room with one of its verbs (the deterministic shortening is "Snowy
+    // mountains."), nothing of it is placed: the shot is one extended cue, the text and the action whole
+    const verbless = await fit([shot(SHOT0), shot('Smoke rises.', 1, 3000)], gaps2, (t, n) => safeShorten(t, n, () => 'Mountains walk.'))
+    expect(verbless.map((c) => [c.startMs, c.extended, c.text])).toEqual([[0, true, SHOT0], [3000, false, 'Smoke rises.']])
   })
   // PR #25 round 2, M2 (reviewer's repro)
   it('places the whole text in a later gap of the shot window before splitting it', async () => {

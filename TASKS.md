@@ -128,3 +128,6 @@ checks 1–13 passed; check 14 (Alexa) failed for fast forward / rewind and was 
   - [ ] pending: drop the `--long` gate once DESC-024 passes; re-derive the hourly figure from a full-length run
 - [ ] DESC-026 · follow-up · Log a line on each audio-track switch in the Fire OS player (from and to track, fade and hold timings), so
   RUN-2026-10 check 6 can be checked from logcat; the 2026-10-14 run had no line to read (docs/device-checks/RUN-2026-10.md)
+- [ ] DESC-028 · follow-up · fit's shortener keeps sentences: a shortening (Nova Lite's, then the deterministic one) must keep its content words in order, add no list comma and keep one of the original's verbs; otherwise the text stays unshortened and fit moves on (decision 0011; g9 shot 14 "City, central pyramid.")
+  - [ ] pending: g9 shot 26 "Scaled creature, horns, bloodied wing, stares." came from the edit pass (05b), not fit — the same list check there is a separate change
+  - [ ] pending: 06-voice's overrun shortening calls `shortenDeterministic` without the check
