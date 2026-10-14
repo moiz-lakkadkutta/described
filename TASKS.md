@@ -82,8 +82,10 @@ checks 1–13 passed; check 14 (Alexa) failed for fast forward / rewind and was 
     tears-of-steel-40-100 from the start (work dir gone; headline now spoken, no "Darkness." prefix, invented Rich captions gone); the
     other three checked, no #37 fault, not re-run; stale Tears of Steel `sdh*` objects deleted (docs/titles.md "Re-runs after #37 and #39")
   - [ ] textClause: bare on-screen text ending in "..." is cut at the ellipsis ("Words appear: SIMULATION READY... LOCKED." voices
-    "LOCKED." as description, Tears of Steel d6); fixed in claude/desc-010-ellipsis (an ellipsis before an all-caps word or a number
-    goes on with the text; "…" handled like "..."); still needs a Tears of Steel re-run `--from fit`
+    "LOCKED." as description, Tears of Steel d6); fixed in claude/desc-010-ellipsis (after an ellipsis, an all-caps run (no lowercase)
+    up to the sentence end continues the text; "…" handled like "..."). "…" now also ends a description sentence, so plotEvents (and
+    voice placement) change for any published title whose descriptions contain "…" on its next fit run (none of the five published
+    descriptions.vtt does, 2026-10-14); still needs a Tears of Steel re-run `--from fit`
   - [x] SDH (claude/desc-010-sdh-fixes): additions need evidence (a description naming the sound's source, audible audio, a spoken name);
     greedy decoding and a per-window reply cache make re-runs repeatable; a 424 is retried once, then the window stays plain. Re-run
     sintel-90-150-r2 and tears-of-steel-40-100: done 2026-10-14 (from fit / from the start). The other titles stay without Rich captions (no audio-event data)

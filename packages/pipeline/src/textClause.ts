@@ -133,14 +133,14 @@ export function stripDarkness(text: string): string {
   return rest === t ? t : capitalise(rest)
 }
 
-/** After an ellipsis, an all-caps word or a number goes on with the text ("SIMULATION READY... LOCKED."); "A", "Thom" do not. */
+/** After an ellipsis, an all-caps word or a number may go on with the text ("SIMULATION READY... LOCKED."); "A", "Thom" do not. */
 const TEXT_GOES_ON = /^["“„«»]?(?:\p{Lu}{2,}(?!\p{Ll})|\p{N})/u
 
 /**
  * End (exclusive) of bare on-screen text starting at `from`: after the first . ! ? or ellipsis ("..." "…") that ends a sentence. Not a
- * sentence end: an ellipsis before an all-caps word or a number (Tears of Steel d6: "SIMULATION READY... LOCKED."), punctuation
- * followed by a non-space ("3.14", "U.S.A"), a period after an abbreviation ("Mr. Smith"), a period after a single letter before
- * a capitalised word that is not an article ("J. Smith", but "I. A forest." ends at "I."), or a period between two all-caps words ("DR. NO.").
+ * sentence end: an ellipsis before an all-caps run (an all-caps word or a number, no lowercase up to the sentence end; Tears of
+ * Steel d6: "SIMULATION READY... LOCKED.", but "STANDBY... TV static fills the screen." ends at "..."), punctuation followed by
+ * a non-space ("3.14", "U.S.A"), a period after an abbreviation ("Mr. Smith"), a period after a single letter before a capitalised word that is not an article ("J. Smith", but "I. A forest." ends at "I."), or a period between two all-caps words ("DR. NO.").
  */
 function bareEnd(text: string, from: number): number {
   for (let j = from; j < text.length; j++) {
@@ -148,7 +148,8 @@ function bareEnd(text: string, from: number): number {
     const next = text.slice(j + 1)
     if (next && !/^\s/.test(next)) continue
     const nextWord = /^\s*(\S+)/.exec(next)?.[1] ?? ''
-    if (next.trim() && (text[j] === '…' || text.slice(j - 2, j + 1) === '...') && TEXT_GOES_ON.test(nextWord)) continue
+    const run = /^\s*([^.!?…]*)/u.exec(next)?.[1] ?? '' // up to the next sentence end: "TV static fills the screen" is the next sentence
+    if (next.trim() && (text[j] === '…' || text.slice(j - 2, j + 1) === '...') && TEXT_GOES_ON.test(nextWord) && !/\p{Ll}/u.test(run)) continue
     if (!next.trim() || text[j] !== '.') return j + 1
     const prev = /(\S+)$/.exec(text.slice(from, j))?.[1] ?? ''
     if (ABBR.has(prev.toLowerCase())) continue

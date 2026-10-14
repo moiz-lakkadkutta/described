@@ -267,6 +267,16 @@ describe('on-screen text with an ellipsis inside it is one clause (Tears of Stee
     expect(textClauses('Text erscheint: LADEN… Ein Mann tritt ein.')).toMatchObject({ clause: 'Text erscheint: LADEN…', rest: 'Ein Mann tritt ein.' })
     expect(sentences('Er wartet… Die Tür geht auf.')).toEqual(['Er wartet…', 'Die Tür geht auf.'])
   })
+  it('PR #41 review: an acronym or number after an ellipsis that opens a sentence with lowercase words is the next sentence', () => {
+    expect(textClauses('Words appear: STANDBY... TV static fills the screen.')).toMatchObject({ clause: 'Words appear: STANDBY...', rest: 'TV static fills the screen.' })
+    expect(textClauses('Words appear: STANDBY... 3 men enter.')).toMatchObject({ clause: 'Words appear: STANDBY...', rest: '3 men enter.' })
+    expect(textClauses('A sign reads OPEN... NASA logo glows.')).toMatchObject({ clause: 'A sign reads OPEN...', rest: 'NASA logo glows.' })
+    expect(textClauses('Words appear: COUNTDOWN... 10. A man runs.')).toMatchObject({ clause: 'Words appear: COUNTDOWN... 10.', rest: 'A man runs.' })
+  })
+  it('PR #41 review: "…" now ends a description sentence, so plotEvents sees the second one', () => {
+    expect(plotEvents('He waits… The door opens.', '')).toEqual(['opens'])
+    expect(plotEvents('He waits... The door opens.', '')).toEqual(['opens'])
+  })
   it('callers (plotEvents, withoutSaidText, newSentences) never see "LOCKED." as description', () => {
     expect(plotEvents(D6, '')).toEqual([])
     expect(withoutSaidText(D6, ['simulation ready... locked'])).toBe('Two people at glowing tech tables.')
