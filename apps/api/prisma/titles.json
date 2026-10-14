@@ -1,0 +1,62 @@
+[
+  {
+    "slug": "sintel-90-150-r2",
+    "name": "Sintel",
+    "year": 2010,
+    "license": "CC-BY 3.0",
+    "attribution": "Sintel © Blender Foundation, CC-BY 3.0. Described by Described.",
+    "synopsis": "A girl named Sintel searches the snowy mountains for the baby dragon she raised.",
+    "language": "en",
+    "voice": "Joanna",
+    "sourceS3Key": "sources/sintel-90-150.mp4",
+    "source": { "film": "Sintel (Durian open movie, 2010)", "url": "https://download.blender.org/demo/movies/", "segment": "1:30–2:30" }
+  },
+  {
+    "slug": "big-buck-bunny-0-60",
+    "name": "Big Buck Bunny",
+    "year": 2008,
+    "license": "CC-BY 3.0",
+    "attribution": "Big Buck Bunny © 2008 Blender Foundation, CC-BY 3.0. Described by Described.",
+    "synopsis": "A giant rabbit wakes to a spring morning and meets three rodents who test his patience.",
+    "language": "en",
+    "voice": "Joanna",
+    "sourceS3Key": "sources/big-buck-bunny-0-60.mp4",
+    "source": { "film": "Big Buck Bunny (Peach open movie, 2008; 2013 sunflower re-render)", "url": "https://download.blender.org/demo/movies/BBB/bbb_sunflower_1080p_30fps_normal.mp4.zip", "segment": "0:00–1:00" }
+  },
+  {
+    "slug": "elephants-dream-0-60",
+    "name": "Elephants Dream",
+    "year": 2006,
+    "license": "CC-BY 2.5",
+    "attribution": "Elephants Dream © 2006 Blender Foundation / Netherlands Media Art Institute, CC-BY 2.5. Described by Described.",
+    "synopsis": "Proog leads Emo across a vast machine and tries to keep him safe from it.",
+    "language": "en",
+    "voice": "Matthew",
+    "sourceS3Key": "sources/elephants-dream-0-60.mp4",
+    "source": { "film": "Elephants Dream (Orange open movie, 2006)", "url": "https://download.blender.org/ED/elephantsdream-1024-h264-st-aac.mov", "segment": "0:00–1:00" }
+  },
+  {
+    "slug": "caminandes-35-95",
+    "name": "Caminandes: Gran Dillama",
+    "year": 2013,
+    "license": "CC-BY 3.0",
+    "attribution": "Caminandes: Gran Dillama © 2013 Blender Institute, CC-BY 3.0. Described by Described.",
+    "synopsis": "Koro the llama wants the grass on the other side of a fence that fights back.",
+    "language": "en",
+    "voice": "Joanna",
+    "sourceS3Key": "sources/caminandes-35-95.mp4",
+    "source": { "film": "Caminandes 2: Gran Dillama (Blender Institute, 2013)", "url": "https://download.blender.org/demo/movies/caminandes_gran_dillama.mp4.zip", "segment": "0:35–1:35" }
+  },
+  {
+    "slug": "tears-of-steel-40-100",
+    "name": "Tears of Steel",
+    "year": 2012,
+    "license": "CC-BY 3.0",
+    "attribution": "Tears of Steel © 2012 Blender Foundation, CC-BY 3.0. Described by Described.",
+    "synopsis": "Forty years after a breakup on a bridge, scientists stage a simulation to save the world from robots.",
+    "language": "en",
+    "voice": "Matthew",
+    "sourceS3Key": "sources/tears-of-steel-40-100.mp4",
+    "source": { "film": "Tears of Steel (Mango open movie, 2012)", "url": "https://download.blender.org/demo/movies/ToS/tears_of_steel_1080p.mov.zip", "segment": "0:40–1:40" }
+  }
+]

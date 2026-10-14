@@ -121,8 +121,9 @@ describer — and delivers description through the TV's own audio-track selector
   ([0001](decisions/0001-week0-gates.md)).
 - **Device checks pending.** The Player, Extended mode and platform-binding checks on the stick (docs/device-checks/DESC-006–008) had not been run on 2026-10-04. TODO(human): delete this line once they pass, or say what did not.
 - **English only** in the demo titles. TODO(human): confirm; Polly's de-DE voice is wired but not shown.
-- All demo content is CC-BY or public domain (Blender open movies, Internet Archive) with attribution in the app.
-  TODO(human): list the five titles and their licences after the DESC-010 batch.
+- All demo content is CC-BY (Blender open movies) with attribution in the app (Title screen, Settings → About & licenses). The five
+  titles ([docs/titles.md](titles.md)): Sintel (2010, CC-BY 3.0), Big Buck Bunny (2008, CC-BY 3.0), Elephants Dream (2006, CC-BY 2.5),
+  Caminandes: Gran Dillama (2013, CC-BY 3.0), Tears of Steel (2012, CC-BY 3.0) — 60 s segments from download.blender.org.
 
 ## Uniqueness statement (runbook §2)
 

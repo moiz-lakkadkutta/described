@@ -252,9 +252,9 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
     titleFrom.current = 'home' // a deep link starts a new path: its Title Backs to Home
   }
   useLaunchRoute(launches, { catalog, holding: offline || route.name === 'firstRun', adDefault: prefs.adDefault, navigate: launchTo })
-  // App-voice prompts: clips at /prompts/<voice>/<key>.mp3 (API → CloudFront; TODO(DESC-010) generate them with Polly in
-  // the pipeline). FirstRun always announces the text too; with VoiceView on the clip is skipped so two voices never
-  // talk over each other (same rule as earcons, PLAN §8).
+  // App-voice prompts: clips at /prompts/<voice>/<key>.mp3 (API → CloudFront; made by `pnpm pipeline prompts --run`, Polly
+  // in each voice's own language, DESC-010). FirstRun always announces the text too; with VoiceView on the clip is skipped
+  // so two voices never talk over each other (same rule as earcons, PLAN §8).
   const promptUrl = useCallback((voice: Prefs['voice'], key: PromptKey) => `${apiBaseUrl}/prompts/${voice}/${key}.mp3`, [apiBaseUrl])
   const voice = useRef(prefs.voice)
   voice.current = prefs.voice

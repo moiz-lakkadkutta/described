@@ -71,9 +71,10 @@ export async function writeDescriptionCues(db: CueDb, titleId: string, work: str
 export type CliDb = import('./jobs').Db & { $disconnect(): Promise<void> }
 
 /**
- * The CLI's path (no job, no titleId): looks the title up by slug and writes what the worker's persist('finish') writes —
- * DescriptionCue rows, Rendition and TextTrack rows, and the art keys (src/jobs.ts writeTrackRows). Without DATABASE_URL, or
- * without a Title row, it warns and skips.
+ * The CLI's path (no job, no titleId): looks the title up by slug and writes what the worker's jobs write —
+ * DescriptionCue rows, Rendition and TextTrack rows, the art keys (src/jobs.ts writeTrackRows), Title.durationS from probe.json
+ * (persist('probe')) and, last, status = published (the finish job's last act), so a CLI run puts the title in the catalogue
+ * as a worker run does (DESC-010). Without DATABASE_URL, or without a Title row, it warns and skips.
  */
 export async function persistForCli(slug: string, work: string, open?: () => Promise<CliDb>) {
   if (!open && !process.env.DATABASE_URL) { console.warn('no DATABASE_URL: DescriptionCue, Rendition and TextTrack rows not written'); return }
@@ -84,5 +85,9 @@ export async function persistForCli(slug: string, work: string, open?: () => Pro
     const { writeTrackRows } = await import('./jobs') // dynamic: jobs.ts imports this module
     await writeDescriptionCues(db as never, t.id, work)
     await writeTrackRows(t.id, work, db)
+    const probe = JSON.parse(await readFile(`${work}/probe.json`, 'utf8').catch(() => '{}')) as { format?: { duration?: string } }
+    const durationS = parseFloat(probe.format?.duration ?? '')
+    await db.title.update({ where: { id: t.id }, data: { ...(Number.isFinite(durationS) ? { durationS } : {}), status: 'published' } })
+    console.log(`${slug}: published${Number.isFinite(durationS) ? ` (${durationS.toFixed(1)} s)` : ''}`)
   } finally { await db.$disconnect() }
 }

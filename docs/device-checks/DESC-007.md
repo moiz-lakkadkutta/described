@@ -36,7 +36,7 @@ depends on the describe output. If the run yields 0 extended cues, another segme
 - [ ] Run it: through the worker (`POST /admin/titles/:id/describe`; the `finish` job writes the rows and marks the title published), or
       with the CLI and `DATABASE_URL` set: `pnpm --filter @described/pipeline cli describe --title <slug> --source s3://…`.
       The CLI logs nothing about rows when it worked; `no Title row for …` or `no DATABASE_URL…` means they were not written.
-- [ ] CLI runs only: mark the title published as for `sintel-90-210` (`UPDATE "Title" SET status='published' WHERE slug='<slug>'`); the worker does it itself.
+- [ ] Since DESC-010 the CLI also writes `durationS` and marks the title published itself (`persistForCli` logs `<slug>: published (60.0 s)`), as the worker does; no SQL step.
 
 ## 1. Before you start (laptop)
 

@@ -9,7 +9,11 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "prisma": "prisma",
+    "seed:titles": "tsx prisma/seed-titles.ts",
     "lint": "eslint src"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed-titles.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.0.0",
