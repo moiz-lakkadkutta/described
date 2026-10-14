@@ -5,7 +5,7 @@ import type { Described } from './04-describe'
 import type { Word } from './03-speech'
 import { textClauses, type FitCue } from './05-fit'
 import { NEXT_CUE_SPACING_MS } from './06-voice'
-import { stripDarkness, textSpans } from '../textClause'
+import { sentences, stripDarkness, textSpans } from '../textClause'
 import { contentWords, stem } from '../contentWords'
 import { editRequest, editModelId, shortenEditWithNovaLite, stripFence, type EditConverse, type EditCueInput, bedrockEditSend } from '../prompts'
 import { meter } from '../cost'
@@ -61,7 +61,7 @@ export const EDIT_CHUNK_CUES = 30
 export const EDIT_WPS = 2.2
 
 export interface TokenUsage { inputTokens: number; outputTokens: number }
-export interface EditReport { cues: FitCue[]; applied: { i: number; from: string; to: string }[]; rejected: { i: number; text: string; reason: string }[]; model: string; usage: TokenUsage; shorteningCalls: number }
+export interface EditReport { cues: FitCue[]; applied: { i: number; from: string; to: string; by?: 'repeat' }[]; rejected: { i: number; text: string; reason: string }[]; model: string; usage: TokenUsage; shorteningCalls: number }
 
 /** Shortens `text` to maxWords keeping every fact of `keep` (the cue's original text): one Nova Lite call by default (with its usage); tests inject their own. */
 export type ShortenReply = string | { text: string; usage?: Partial<TokenUsage> }
@@ -133,8 +133,108 @@ export async function editScene(cues: FitCue[], shots: Described[], words: Word[
     for (const a of [...out.applied, ...again.applied]) { report.cues[a.i]!.text = a.to; report.cues[a.i]!.wordCount = wordCount(a.to); report.applied.push(a) }
     report.rejected.push(...again.rejected.map((r) => ({ ...r, reason: `${r.reason} (after shortening)` })))
   }
+  // The model's repetition removal is not reliable (sintel-90-150-r2, 2026-10-14: no proposal removed the second "Snowy mountains."),
+  // so a lead sentence the viewer has just heard is dropped deterministically, after the model's edits and whether or not a call worked.
+  // A trim of a cue the model already edited is its own entry (from = the model's text), so edit.json shows both steps.
+  const deduped = dropRepeatedLeads(report.cues, language)
+  deduped.forEach((c, i) => {
+    if (c.text === report.cues[i]!.text) return
+    report.applied.push({ i, from: report.cues[i]!.text, to: c.text, by: 'repeat' })
+    report.cues[i] = c
+  })
+  report.applied.sort((x, y) => x.i - y.i) // stable: a cue's model edit stays before its trim
   for (const r of report.rejected) console.warn(`edit: rejected edit of cue ${r.i} (${r.reason}):`, JSON.stringify(r.text))
   return report
+}
+
+/** The repeat guard compares a cue only with the previous action cue that starts at most this long before it. */
+export const REPEAT_WINDOW_MS = 15_000
+
+/** Words that open a sentence about someone already named: a lead before one is kept, or "He stops." would lose its referent. */
+const PRONOUN_OPENERS = new Set(['he', 'she', 'it', 'they', 'his', 'her', 'its', 'their', 'him', 'them', 'er', 'sie', 'es', 'ihr', 'ihre', 'ihren', 'ihm', 'ihn', 'ihnen', 'sein', 'seine', 'seinen', 'seiner'])
+/** Abbreviations whose period is not a sentence end; ../textClause's plain split cuts after them ("Mr." | "Smith walks."). */
+const ABBREVIATION = /(?:^|\s)(?:mr|mrs|ms|dr|st|jr|sr|prof|mt|lt|sgt|capt|gen|col|no|vs|etc|hr|fr|nr|bzw|ca|str)\.$/i
+/** A unit that ends a sentence: . ! ? or … with optional closing quotes or brackets after it (sentences() splits after . ! ? only; a unit ending in … is one it did not split). */
+const SENTENCE_END = /[.!?…]["'”’»)\]]*$/
+
+interface Unit { start: number; end: number; text: string; onScreen: boolean }
+/**
+ * `text` as units with their positions: ../textClause's sentences(), each on-screen text clause its own unit, with a unit that is
+ * three characters or less or ends in an abbreviation joined to the next plain unit ("Mr. Jones sits." stays one sentence).
+ */
+function units(text: string): Unit[] {
+  const spans = textSpans(text)
+  const out: Unit[] = []
+  let at = 0
+  for (const u of sentences(text)) {
+    const start = text.indexOf(u, at)
+    if (start < 0) return [{ start: 0, end: text.length, text, onScreen: false }] // cannot place: one unit, never trimmed
+    at = start + u.length
+    const onScreen = spans.some((s) => s.start <= start && s.end >= at)
+    const prev = out[out.length - 1]
+    if (prev && !prev.onScreen && !onScreen && (prev.text.length <= 3 || ABBREVIATION.test(prev.text))) { prev.end = at; prev.text = text.slice(prev.start, at); continue }
+    out.push({ start, end: at, text: u, onScreen })
+  }
+  return out
+}
+/** A negation (en, de): "The car is not burning." and "The car is burning." share every content word in order but say opposite things. */
+const NEGATION = /(?:^|[^\p{L}])(?:not|no|never|cannot|nobody|nothing|none|nowhere|neither|nor|without|\p{L}+n['’]t|nicht|kein\p{L}*|nie|niemals|niemand|nichts|nirgends|ohne)(?![\p{L}])/iu
+/** The only words the repeat guard ignores: the articles of the title's language. One set for both would make English "die", "den", "des" articles. */
+const ARTICLES: Record<'en' | 'de', ReadonlySet<string>> = {
+  en: new Set(['a', 'an', 'the']),
+  de: new Set(['der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einen', 'einem', 'einer', 'eines']),
+}
+/**
+ * A sentence's words for the repeat guard: lower-cased, punctuation stripped (apostrophes and hyphens inside a word kept, and a minus
+ * sign before a digit: "-5" ≠ "5"), the language's articles removed.
+ */
+const repeatWords = (t: string, language: 'en' | 'de') => t.toLowerCase().replace(/[^\p{L}\p{N}\s'’\-−]/gu, ' ').split(/\s+/)
+  .map((w) => w.replace(/['’\-−]+$/u, '').replace(/^(?:['’]|[-−](?!\p{N}))+/u, '').replace(/^−/, '-'))
+  .filter((w) => w && !ARTICLES[language].has(w))
+/**
+ * Does `earlier` say `unit`: the same words in the same order, only articles may differ (human decision 2026-10-14, PR #44 rounds 3–4).
+ * Deliberately not ../contentWords: its STOP list drops direction words ("Das Licht geht an." / "…aus.", "flies to" / "from the tree")
+ * and its Porter stem folds number ("A dog barks." / "Dogs bark."), so either would let an opposite or a new fact pass as a repeat.
+ * The negation check is kept as a second, explicit guard.
+ */
+const saidIn = (unit: string, earlier: string, language: 'en' | 'de') => {
+  if (NEGATION.test(unit) !== NEGATION.test(earlier)) return false
+  const want = repeatWords(unit, language), have = repeatWords(earlier, language)
+  return want.length > 0 && want.length === have.length && want.every((w, k) => w === have[k])
+}
+
+/**
+ * The deterministic repeat guard (DESC-010 follow-up, ADR 0006): every shot is described from scratch, so two shots of one place both
+ * open with it ("Snowy mountains. A lone figure walks left." / "Snowy mountains. A figure walks, falls. Logo fades."). A cue's leading
+ * sentences are dropped, in order, while each one is said by ONE sentence of the previous action cue: the same words in the same
+ * order with only articles allowed to differ (saidIn: no stop list, no stemming), and both negated or neither. Only the immediately
+ * previous action cue (on-screen text cues skipped), and only when it starts within REPEAT_WINDOW_MS: a cut back to a place after another place keeps the place. The trim stops at the first unit
+ * that is not a whole plain sentence (an on-screen text clause, or a piece cut by a mid-sentence one, which does not end in . ! ? …),
+ * and nothing is dropped when the text left would not open with a capital letter or would open with a pronoun ("He stops."), or when
+ * no plain sentence would be left. The rest of the text is kept verbatim; timing never changes. Pure: returns copies.
+ */
+export function dropRepeatedLeads(cues: readonly FitCue[], language: 'en' | 'de' = 'en'): FitCue[] {
+  const out = cues.map((c) => ({ ...c }))
+  out.forEach((c, i) => {
+    if (isTextCue(c)) return
+    let k = i - 1
+    while (k >= 0 && isTextCue(out[k]!)) k--
+    if (k < 0 || c.startMs - out[k]!.startMs > REPEAT_WINDOW_MS) return
+    const earlier = units(out[k]!.text).filter((u) => !u.onScreen).map((u) => u.text)
+    const us = units(c.text)
+    let drop = 0
+    while (drop < us.length) {
+      const u = us[drop]!
+      if (u.onScreen || !SENTENCE_END.test(u.text) || !earlier.some((e) => saidIn(u.text, e, language))) break
+      drop++
+    }
+    if (!drop || !us.slice(drop).some((u) => !u.onScreen)) return
+    const text = c.text.slice(us[drop]!.start).trim()
+    const first = text.split(/\s+/)[0]!.replace(/[^\p{L}]/gu, '').toLowerCase()
+    if (!/^["'“„«]?\p{Lu}/u.test(text) || PRONOUN_OPENERS.has(first)) return
+    out[i] = { ...c, text, wordCount: wordCount(text) }
+  })
+  return out
 }
 
 const EditReply = z.object({ edits: z.array(z.object({ cue: z.coerce.number(), text: z.string() }).passthrough()) })

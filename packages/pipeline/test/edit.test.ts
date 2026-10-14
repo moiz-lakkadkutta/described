@@ -3,7 +3,7 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ConverseCommandInput } from '@aws-sdk/client-bedrock-runtime'
-import { applyEdits, cleanShortening, dialogueTurns, EDIT_CHUNK_CUES, editBudgets, editCues, editScene, factWords, FIT_CUES_FILE, isTextCue, replyEdits, stem, unfaithfulWords } from '../src/steps/05b-edit'
+import { applyEdits, cleanShortening, dropRepeatedLeads, REPEAT_WINDOW_MS, dialogueTurns, EDIT_CHUNK_CUES, editBudgets, editCues, editScene, factWords, FIT_CUES_FILE, isTextCue, replyEdits, stem, unfaithfulWords } from '../src/steps/05b-edit'
 import { editRequest, EDIT_TOOL_SCHEMA, shortenEditRequest, type EditConverse } from '../src/prompts'
 import type { FitCue } from '../src/steps/05-fit'
 import type { Described } from '../src/steps/04-describe'
@@ -25,6 +25,8 @@ const toolReply = (edits: unknown, usage = { inputTokens: 1000, outputTokens: 50
 const textReply = (text: string): EditConverse => async () => ({ output: { message: { role: 'assistant', content: [{ text }] } }, usage: { inputTokens: 1000, outputTokens: 10 } }) as unknown as Reply
 const timing = (cs: readonly FitCue[]) => cs.map(({ startMs, endMs, limitMs, extended, shotIndex }) => ({ startMs, endMs, limitMs, extended, shotIndex }))
 const noShorten = (t: string) => t
+/** The edits the model made; the deterministic repeat guard's (`by: 'repeat'`) are tested on their own below. */
+const byModel = <T extends { by?: string }>(applied: T[]) => applied.filter((a) => !a.by)
 /** r2 cues with the broth cue's gap widened so a fold has room (on r2 itself that gap is 1.65 s: 4 words). */
 const roomy = r2cues.map((c, i) => (i === BROTH ? { ...c, limitMs: 38300 } : c))
 const FOLD = 'The man stirs a pot over the fire, then pours broth.' // shot 5 (dropped) + shot 7's cue
@@ -46,9 +48,9 @@ describe('edit (scene-level context pass)', () => {
     expect(editBudgets(roomy)[BROTH]).toBe(11)
     const r = await editScene(roomy, shots, words, 'en', toolReply([{ cue: BROTH, text: FOLD }]), undefined, noShorten)
     expect(r.cues[BROTH]).toMatchObject({ text: FOLD, wordCount: 11, shotIndex: 7, startMs: 33170 })
-    expect(r.applied).toEqual([{ i: BROTH, from: 'Old man pours broth.', to: FOLD }])
+    expect(byModel(r.applied)).toEqual([{ i: BROTH, from: 'Old man pours broth.', to: FOLD }])
     expect(r.rejected).toEqual([])
-    expect(r.cues.filter((_, i) => i !== BROTH).map((c) => c.text)).toEqual(r2cues.filter((_, i) => i !== BROTH).map((c) => c.text))
+    expect(r.cues.filter((_, i) => i !== BROTH).map((c) => c.text)).toEqual(dropRepeatedLeads(r2cues).filter((_, i) => i !== BROTH).map((c) => c.text))
   })
 
   it('rejects an edit that exceeds the cue word budget', async () => {
@@ -66,7 +68,7 @@ describe('edit (scene-level context pass)', () => {
     const r = await editScene(roomy, shots, words, 'en', toolReply([{ cue: BROTH, text: glued }]), undefined, shorten)
     expect(asked).toEqual([[glued, 11, 'Old man pours broth.']])
     expect(r.cues[BROTH]!.text).toBe(FOLD)
-    expect(r.applied).toEqual([{ i: BROTH, from: 'Old man pours broth.', to: FOLD }])
+    expect(byModel(r.applied)).toEqual([{ i: BROTH, from: 'Old man pours broth.', to: FOLD }])
     expect(r.usage).toEqual({ inputTokens: 1300, outputTokens: 70 }) // the shortening call's usage counts too
     expect(r.shorteningCalls).toBe(1)
     // the shortening lost the cue's own fact → the original stays
@@ -86,7 +88,7 @@ describe('edit (scene-level context pass)', () => {
     for (const reply of ['(11 words)', '11 words', ' (11 words) ', '[11 words]', 'Word count: 11', '""', '']) {
       const r = await editScene(roomy, shots, words, 'en', toolReply([{ cue: BROTH, text: glued }]), undefined, () => reply)
       expect(r.cues[BROTH]!.text).toBe('Old man pours broth.')
-      expect(r.applied).toEqual([])
+      expect(byModel(r.applied)).toEqual([])
       expect(r.rejected).toEqual([{ i: BROTH, text: glued, reason: 'over budget (17 > 11 words)' }]) // the edit's own rejection, no "not in any shot description: 11, words"
     }
   })
@@ -95,7 +97,7 @@ describe('edit (scene-level context pass)', () => {
     for (const reply of [`${FOLD} (11 words)`, `(11 words) ${FOLD}`, `"${FOLD}" — 11 words`, `${FOLD}\n11 words`, `${FOLD} [11 words]`, `${FOLD} (Word count: 11)`]) {
       expect(cleanShortening(reply)).toBe(FOLD)
       const r = await editScene(roomy, shots, words, 'en', toolReply([{ cue: BROTH, text: 'A red-haired girl watches a man stir a pot over a fire. The old man pours broth.' }]), undefined, () => reply)
-      expect(r.applied).toEqual([{ i: BROTH, from: 'Old man pours broth.', to: FOLD }])
+      expect(byModel(r.applied)).toEqual([{ i: BROTH, from: 'Old man pours broth.', to: FOLD }])
     }
     expect(cleanShortening('Two men walk 11 words apart.')).toBe('Two men walk 11 words apart.') // only a leading or trailing annotation
     expect(cleanShortening('(9 words)')).toBe('')
@@ -203,8 +205,8 @@ describe('edit (scene-level context pass)', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     for (const send of [textReply('Sorry, I cannot help with that.'), textReply('{"cues":[]}'), toolReply({ not: 'a list' })] as EditConverse[]) {
       const r = await editScene(r2cues, shots, words, 'en', send, undefined, noShorten)
-      expect(r.cues).toEqual(r2cues)
-      expect(r.applied).toEqual([])
+      expect(r.cues).toEqual(dropRepeatedLeads(r2cues)) // only the repeat guard: cue 1 without "Snowy mountains."
+      expect(byModel(r.applied)).toEqual([])
     }
     expect(warn).toHaveBeenCalledTimes(3)
     warn.mockRestore()
@@ -221,7 +223,7 @@ describe('edit (scene-level context pass)', () => {
     expect(modes).toEqual(['tool', 'json'])
     expect(r.cues[BROTH]!.text).toBe(FOLD)
     const r2 = await editScene(roomy, shots, words, 'en', async () => { throw new Error('ServiceUnavailableException') }, undefined, noShorten)
-    expect(r2.cues).toEqual(roomy)
+    expect(r2.cues).toEqual(dropRepeatedLeads(roomy))
     expect(warn).toHaveBeenCalledTimes(3)
     warn.mockRestore()
   })
@@ -241,7 +243,7 @@ describe('edit (scene-level context pass)', () => {
     ]), undefined, noShorten)
     expect(r.cues).toHaveLength(roomy.length)
     expect(timing(r.cues)).toEqual(timing(roomy))
-    expect(r.applied.map((a) => a.i)).toEqual([3, BROTH])
+    expect(byModel(r.applied).map((a) => a.i)).toEqual([3, BROTH])
     expect(r.rejected.map((x) => [x.i, x.reason])).toEqual([[42, 'unknown cue'], [-1, 'unknown cue'], [1.5, 'unknown cue'], [3, 'cue edited twice'], [0, 'empty or multi-line'], [2, 'empty or multi-line']])
     warn.mockRestore()
   })
@@ -378,7 +380,7 @@ describe('edit (scene-level context pass)', () => {
       expect(cues[BROTH]!.text).toBe(short)
       expect(timing(cues)).toEqual(timing(roomy))
       expect(await read(dir, FIT_CUES_FILE)).toEqual(roomy) // fit's copy is never touched
-      expect(JSON.parse(await readFile(join(dir, 'edit.json'), 'utf8'))).toMatchObject({ applied: [{ i: BROTH }], rejected: [], usage: { inputTokens: 1000, outputTokens: 50 }, shorteningCalls: 0 })
+      expect(JSON.parse(await readFile(join(dir, 'edit.json'), 'utf8'))).toMatchObject({ applied: [{ i: 1, by: 'repeat' }, { i: BROTH }], rejected: [], usage: { inputTokens: 1000, outputTokens: 50 }, shorteningCalls: 0 })
     })
     it('is idempotent: running it again starts from cues.fit.json and sends the same input', async () => {
       const dir = await work()
@@ -408,5 +410,169 @@ describe('edit (scene-level context pass)', () => {
       expect((await read(dir))[BROTH]!.text).toBe(short)
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('not idempotent'))
     })
+  })
+})
+
+// sintel-90-150-r2 re-run of 2026-10-14 (PR #40): fit's cues as written to work/sintel-90-150-r2/cues.fit.json. Shots 0 and 1 are two
+// camera shots, each described from scratch, so both cues open with "Snowy mountains."; Nova Lite's only edit of cue 1 dropped the
+// on-screen text clause and was rejected, and the viewer heard "Snowy mountains." twice (d2, d3).
+const fit1014 = fx('2026-10-14.cues.fit') as FitCue[]
+const REPLY_1014 = [
+  { cue: 1, text: 'Snowy mountains. A figure walks, falls. Logo fades.' },
+  { cue: 10, text: 'Red-haired woman stares intently forward.' },
+]
+
+describe('deterministic repeat guard (a lead sentence the previous cues already said)', () => {
+  const action = (startMs: number, text: string, shotIndex: number): FitCue => ({ startMs, endMs: startMs + 2000, text, extended: false, wordCount: text.split(' ').length, shotIndex, limitMs: startMs + 4000 })
+
+  it('drops the repeated "Snowy mountains." from cue 1 of the 2026-10-14 run, keeping its new facts and on-screen text', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const r = await editScene(fit1014, shots, words, 'en', toolReply(REPLY_1014), undefined, noShorten)
+    warn.mockRestore()
+    expect(fit1014[1]!.text).toBe('Snowy mountains. A figure walks, falls. Logo fades. Words appear: SINTEL.')
+    expect(r.cues[1]).toMatchObject({ text: 'A figure walks, falls. Logo fades. Words appear: SINTEL.', wordCount: 9, startMs: 5604, shotIndex: 1 })
+    expect(r.applied).toEqual([{ i: 1, from: fit1014[1]!.text, to: 'A figure walks, falls. Logo fades. Words appear: SINTEL.', by: 'repeat' }])
+    expect(r.rejected.map((x) => [x.i, x.reason])).toEqual([[1, 'on-screen text clause changed'], [10, 'drops a fact: red, sparks, drift, downward']])
+    expect(r.cues.filter((_, i) => i !== 1).map((c) => c.text)).toEqual(fit1014.filter((_, i) => i !== 1).map((c) => c.text))
+    expect(timing(r.cues)).toEqual(timing(fit1014))
+  })
+
+  it('runs when the model proposes nothing, and when both calls fail', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const none = await editScene(fit1014, shots, words, 'en', toolReply([]), undefined, noShorten)
+    const failed = await editScene(fit1014, shots, words, 'en', async () => { throw new Error('throttled') }, undefined, noShorten)
+    warn.mockRestore()
+    for (const r of [none, failed]) expect(r.cues[1]!.text).toBe('A figure walks, falls. Logo fades. Words appear: SINTEL.')
+  })
+
+  it('keeps a model edit that already removed the repeat, and compares with what the viewer heard', async () => {
+    const r = await editScene(fit1014, shots, words, 'en', toolReply([{ cue: 1, text: 'A figure walks, falls. Logo fades. Words appear: SINTEL.' }]), undefined, noShorten)
+    expect(r.applied).toEqual([{ i: 1, from: fit1014[1]!.text, to: 'A figure walks, falls. Logo fades. Words appear: SINTEL.' }])
+  })
+
+  /** The second cue's text after the guard, given the cue texts in order (2 s apart). */
+  const after = (...texts: string[]) => dropRepeatedLeads(texts.map((t, i) => action(i * 2000, t, i))).map((c) => c.text)
+  /** The same for a German title: the German articles are the ones ignored. */
+  const afterDe = (...texts: string[]) => dropRepeatedLeads(texts.map((t, i) => action(i * 2000, t, i)), 'de').map((c) => c.text)
+
+  it('drops only leading sentences one sentence of the previous cue already said, never a new fact, the on-screen text or the last action sentence', () => {
+    expect(after('Snowy mountains. A lone figure walks left.', 'Snowy mountains. A figure falls. Snowy mountains.')[1]).toBe('A figure falls. Snowy mountains.') // a later repeat is not a lead
+    expect(after('Snowy mountains. A figure falls.', 'Mountains, snowy.')[1]).toBe('Mountains, snowy.') // nothing else to say
+    expect(after('Snowy mountains. A figure falls.', 'Snowy peaks. The figure falls again.')[1]).toBe('Snowy peaks. The figure falls again.') // "peaks" is new
+    expect(after('Snowy mountains. A figure falls.', 'Snowy mountains. Words appear: SINTEL.')[1]).toBe('Snowy mountains. Words appear: SINTEL.') // only on-screen text would be left
+    expect(after('A dark hall. A man sits.', 'A dark hall. "EXIT" glows.')[1]).toBe('"EXIT" glows.')
+    const r = dropRepeatedLeads([action(0, 'Snowy mountains. A lone figure walks left.', 0), action(2000, 'Snowy mountains. A figure falls.', 1)])
+    expect(r[1]).toMatchObject({ text: 'A figure falls.', wordCount: 3 })
+  })
+
+  it('needs ONE earlier sentence with the same content words in the same order, not words spread across sentences or cues', () => {
+    expect(after('A man walks left. A woman runs right.', 'A woman walks left. She stops.')[1]).toBe('A woman walks left. She stops.')
+    expect(after('The dog chases the cat.', 'The cat chases the dog. It hides.')[1]).toBe('The cat chases the dog. It hides.')
+    expect(after('Two men sit. A third man stands.', 'Third man sits. He drinks.')[1]).toBe('Third man sits. He drinks.')
+    expect(after('A red light. A car stops.', 'Red car. It speeds away.')[1]).toBe('Red car. It speeds away.')
+    expect(after('A red light glows. A car stops.', 'Red light. A car speeds away.')[1]).toBe('Red light. A car speeds away.') // a subset is not a repeat (exact match only)
+    expect(after('A red light glows. A car stops.', 'The red light glows. A car speeds away.')[1]).toBe('A car speeds away.') // same content words: a repeat
+  })
+
+  it('drops a lead only when its content words EXACTLY equal one earlier sentence\'s: an outcome or degree word on either side keeps it', () => {
+    const keeps: [string, string][] = [
+      ['The man tries to open the door.', 'The man opens the door.'],
+      ['The man fails to open the door.', 'The man opens the door.'],
+      ['The man opens the door.', 'The man tries to open the door.'],
+      ['The boy almost falls.', 'The boy falls.'],
+      ['The boy nearly falls.', 'The boy falls.'],
+      ['The girl stops running.', 'The girl runs.'],
+      ['The girl pretends to sleep.', 'The girl sleeps.'],
+      ['The child refuses to eat.', 'The child eats.'],
+      ['The man is about to jump.', 'The man jumps.'],
+      ['The woman fakes a smile.', 'The woman smiles.'],
+      ['The woman barely moves.', 'The woman moves.'],
+      ['The door is half open.', 'The door is open.'],
+      ['Der Mann stürzt fast.', 'Der Mann stürzt.'],
+    ]
+    for (const [before, lead] of keeps) expect(after(before, `${lead} A dog barks.`)[1]).toBe(`${lead} A dog barks.`)
+  })
+
+  it('compares word for word with only articles removed: no stop list, no stemming, so direction words and number keep the lead', () => {
+    const keeps: [string, string][] = [
+      ['Das Licht geht an.', 'Das Licht geht aus.'],
+      ['Die Tür geht auf.', 'Die Tür geht zu.'],
+      ['Er steigt in das Auto.', 'Er steigt aus dem Auto.'],
+      ['Ein Mann läuft zum Haus.', 'Ein Mann läuft vom Haus.'],
+      ['A bird flies to the tree.', 'A bird flies from the tree.'],
+      ['A man runs for the door.', 'A man runs from the door.'],
+      ['A cup sits in the box.', 'A cup sits on the box.'],
+      ['A man takes this cup.', 'A man takes that cup.'],
+      ['A man and a woman wait.', 'A man or a woman waits.'],
+      ['A dog barks.', 'Dogs bark.'],
+    ]
+    for (const [before, lead] of keeps) expect(after(before, `${lead} A cat hisses.`)[1]).toBe(`${lead} A cat hisses.`)
+    expect(after('It glows.', 'They glow. A cat hisses.')[1]).toBe('They glow. A cat hisses.')
+    expect(afterDe('Ein Wald. Ein Mann rennt.', 'Der Wald. Eine Frau steht.')[1]).toBe('Eine Frau steht.') // only the article differs
+    expect(after('Ein Wald. Ein Mann rennt.', 'Der Wald. Eine Frau steht.')[1]).toBe('Der Wald. Eine Frau steht.') // in English "der" is a word
+    expect(after('A red light glows.', 'The red light, glowing! A cat hisses.')[1]).toBe('The red light, glowing! A cat hisses.') // glows ≠ glowing
+  })
+
+  it('ignores only the articles of the title\'s language: English keeps "die", "den", "des" as words', () => {
+    expect(after('Soldiers.', 'Soldiers die. A dog barks.')[1]).toBe('Soldiers die. A dog barks.')
+    expect(after('Lights out.', 'Lights die out. A dog barks.')[1]).toBe('Lights die out. A dog barks.')
+    expect(after('A fox enters.', 'The fox enters the den. Cubs sleep.')[1]).toBe('The fox enters the den. Cubs sleep.')
+    expect(after('A fox enters the den.', 'The fox enters the den. Cubs sleep.')[1]).toBe('Cubs sleep.')
+    expect(afterDe('Der Fuchs kommt.', 'Ein Fuchs kommt. Die Jungen schlafen.')[1]).toBe('Die Jungen schlafen.')
+  })
+
+  it('keeps the sign of a number', () => {
+    expect(after('The thermometer shows 5 degrees.', 'The thermometer shows -5 degrees. Snow falls.')[1]).toBe('The thermometer shows -5 degrees. Snow falls.')
+    expect(after('The thermometer shows 5 degrees.', 'The thermometer shows −5 degrees. Snow falls.')[1]).toBe('The thermometer shows −5 degrees. Snow falls.')
+    expect(after('The thermometer shows -5 degrees.', 'The thermometer shows -5 degrees. Snow falls.')[1]).toBe('Snow falls.')
+  })
+
+  it('keeps the lead when the text left would not open with a capital letter', () => {
+    expect(after('The door opens.', 'The door opens. it closes.')[1]).toBe('The door opens. it closes.')
+  })
+
+  it('compares with the immediately previous action cue only, so a cut back to a place keeps the place', () => {
+    expect(after('Dark room. Man sits.', 'Forest. Woman runs.', 'Dark room. Man stands.')[2]).toBe('Dark room. Man stands.')
+    const text: FitCue = { startMs: 1000, endMs: 1100, text: 'Words appear: SINTEL.', extended: true, wordCount: 3, shotIndex: 1 }
+    const r = dropRepeatedLeads([action(0, 'Dark room. A man sits.', 0), text, action(3000, 'Dark room. Fire burns.', 2)])
+    expect(r.map((c) => c.text)).toEqual(['Dark room. A man sits.', 'Words appear: SINTEL.', 'Fire burns.']) // the text cue is skipped, never trimmed
+    expect(REPEAT_WINDOW_MS).toBe(15_000)
+    expect(dropRepeatedLeads([action(0, 'Dark room. A man sits.', 0), action(15_001, 'Dark room. Fire burns.', 1)])[1]!.text).toBe('Dark room. Fire burns.')
+  })
+
+  it('drops only whole sentences: a unit cut by a mid-sentence on-screen text clause stops the trim', () => {
+    expect(after('A soldier grabs the rifle.', 'A soldier grabs the rifle as a sign reads "OPEN". A man enters.')[1]).toBe('A soldier grabs the rifle as a sign reads "OPEN". A man enters.')
+  })
+
+  it('keeps the lead when the first sentence left would open with a pronoun', () => {
+    expect(after('A forest. A man runs.', 'A forest. He stops.')[1]).toBe('A forest. He stops.')
+    expect(after('Ein Wald. Ein Mann rennt.', 'Ein Wald. Ihn friert.')[1]).toBe('Ein Wald. Ihn friert.')
+    expect(after('Ein Wald. Ein Mann rennt.', 'Ein Wald. Er bleibt stehen.')[1]).toBe('Ein Wald. Er bleibt stehen.')
+  })
+
+  it('never treats a negated sentence and its affirmed form as a repeat, either way round', () => {
+    expect(after('The car is not burning.', 'The car is burning. A man runs.')[1]).toBe('The car is burning. A man runs.')
+    expect(after('No snow falls.', 'Snow falls. A wolf howls.')[1]).toBe('Snow falls. A wolf howls.')
+    expect(after('He cannot get the door open.', 'The door opens. A man enters.')[1]).toBe('The door opens. A man enters.')
+    expect(after('The man is not dead.', 'The man is dead. A woman cries.')[1]).toBe('The man is dead. A woman cries.')
+    expect(after('The door isn’t open.', 'The door is open. A man enters.')[1]).toBe('The door is open. A man enters.')
+    expect(after('Kein Schnee fällt.', 'Schnee fällt. Ein Wolf heult.')[1]).toBe('Schnee fällt. Ein Wolf heult.')
+    expect(after('Snow falls.', 'No snow falls. A wolf howls.')[1]).toBe('No snow falls. A wolf howls.') // vice versa
+    expect(after('Nobody moves. A wolf howls.', 'Nobody moves. A man enters.')[1]).toBe('A man enters.') // both negated: a repeat
+  })
+
+  it('does not split at an abbreviation', () => {
+    expect(after('Mr. Smith walks.', 'Mr. Jones sits. He waits.')[1]).toBe('Mr. Jones sits. He waits.')
+    expect(after('Mr. Smith walks.', 'Mr. Smith walks. A dog barks.')[1]).toBe('A dog barks.')
+  })
+
+  it('records its trim of a cue the model already edited as a separate repeat entry', async () => {
+    const edited = 'Snowy mountains. The figure walks, falls. Logo fades. Words appear: SINTEL.'
+    const r = await editScene(fit1014, shots, words, 'en', toolReply([{ cue: 1, text: edited }]), undefined, noShorten)
+    expect(r.applied).toEqual([
+      { i: 1, from: fit1014[1]!.text, to: edited },
+      { i: 1, from: edited, to: 'The figure walks, falls. Logo fades. Words appear: SINTEL.', by: 'repeat' },
+    ])
+    expect(r.cues[1]!.text).toBe('The figure walks, falls. Logo fades. Words appear: SINTEL.')
   })
 })
