@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fit, safeShorten, type FitCue } from '../src/steps/05-fit'
+import { fit, safeShorten, WPS, type FitCue } from '../src/steps/05-fit'
 import { voice } from '../src/steps/06-voice'
 import { editBudgets, editScene } from '../src/steps/05b-edit'
 import type { Described } from '../src/steps/04-describe'
@@ -49,7 +49,9 @@ afterEach(async () => { await rm(work, { recursive: true, force: true }) })
 describe('sintel-90-210 run A2 golden replay', () => {
   it('fit reproduces the run: 23 cues, none extended, and the shots it could not place carry no plot event', async () => {
     const cues = await fit(described, gaps, shorten)
-    expect(strip(cues)).toEqual(fitCues)
+    // DESC-010 follow-up: fit strips a "Darkness." prefix in front of a visible scene (shot 2), one word less on the same slot
+    const darkness = { text: 'A fire pit glows faintly in a dim room.', wordCount: 9, endMs: 11208 + Math.round((9 / WPS) * 1000) + 300 }
+    expect(strip(cues)).toEqual(fitCues.map((c) => (c.shotIndex === 2 ? { ...c, ...darkness } : c)))
     expect(cues.filter((c) => c.extended)).toEqual([])
     const placed = new Set(cues.map((c) => c.shotIndex))
     // 5 watches … stir; 6 blinks, expression; 10 opens eyes; 11 hands hold … face rises; 23 stares; 28 holds book — none is an event

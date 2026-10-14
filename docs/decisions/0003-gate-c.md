@@ -120,3 +120,5 @@ unusable; read against the frames both raters agree on the 7). 20 voiced (1 exte
 the raters flagged two of those as plot events lost — 8 "accepts bowl", 24 "kneels beside the dragon" — which is DESC-020
 (docs/decisions/0007-dropped-events.md).
 Reports: the session scratchpad `eval-1010b/rater1.md`, `rater2.md`.
+
+**Prompt changed 2026-10-14** (docs/decisions/0008-text-and-darkness.md): on-screen text from signs and headlines also takes "Words appear:", and "Darkness." only when nothing can be made out. Gate C must be re-checked with the new prompt.

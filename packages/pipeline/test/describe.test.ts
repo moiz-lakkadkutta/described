@@ -21,8 +21,8 @@ describe('parseDescription', () => {
     expect(parseDescription('Woman with red hair holds bowl in front of man.', p)).toEqual({ description: 'Woman with red hair holds bowl in front of man.', sameAsPrev: false })
   })
   it('strips quotes and fences and keeps the text otherwise', () => {
-    expect(parseDescription('"Darkness. A faint red glow."', '')).toEqual({ description: 'Darkness. A faint red glow.', sameAsPrev: false })
-    expect(parseDescription('```\nDarkness. A faint red glow.\n```', '').description).toBe('Darkness. A faint red glow.')
+    expect(parseDescription('"Dusk. A faint red glow."', '')).toEqual({ description: 'Dusk. A faint red glow.', sameAsPrev: false })
+    expect(parseDescription('```\nDusk. A faint red glow.\n```', '').description).toBe('Dusk. A faint red glow.')
     expect(parseDescription('Woman holds bowl. Words appear:', '').description).toBe('Woman holds bowl.')
   })
   it('does not mark the first shot as same', () => {

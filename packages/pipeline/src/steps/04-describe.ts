@@ -8,7 +8,7 @@ import type { Shot } from './02-shots'
 import type { Gap, Word } from './03-speech'
 import { describeSystemPrompt, wordBudget } from '../prompts'
 import { meter } from '../cost'
-import { sentences, TEXT_LABEL, textSpans } from '../textClause'
+import { sentences, stripDarkness, TEXT_LABEL, textSpans } from '../textClause'
 
 /** `tokens` = Converse input tokens (the Prisma `novaTokens` column); `outputTokens` is kept alongside for the docs/aws.md run log. */
 export interface Described extends Shot { description: string; sameAsPrev: boolean; tokens: number; outputTokens: number; stopReason?: string }
@@ -316,7 +316,8 @@ const SAME_PREFIX = /^SAME\b/
 /**
  * Cleans one model reply: strips quotes/fences/whitespace, treats a SAME / "nothing new" reply (NOTHING_NEW) or a (near-)verbatim
  * repeat of the previous description (word-set Jaccard ≥ 0.8) as "nothing new", and drops an on-screen text clause (../textClause,
- * English or German label) of more than 8 words (invented text).
+ * English or German label, or a headline / sign that reads …) of more than 8 words (invented text), and strips a "Darkness." prefix
+ * in front of a visible scene (stripDarkness: "Darkness." is the whole description or absent).
  */
 export function parseDescription(raw: string, prev: string): { description: string; sameAsPrev: boolean } {
   let text = raw.replace(/```[a-z]*/gi, ' ').replace(/\s+/g, ' ').trim()
@@ -328,7 +329,7 @@ export function parseDescription(raw: string, prev: string): { description: stri
     console.warn('describe: dropped on-screen text longer than 8 words:', text.slice(span.start, span.end))
     text = text.slice(0, span.start) + text.slice(span.end).replace(/^\s+/, '')
   }
-  text = text.replace(new RegExp(`\\s*${TEXT_LABEL.source}\\s*$`, 'iu'), '').trim()
+  text = stripDarkness(text.replace(new RegExp(`\\s*${TEXT_LABEL.source}\\s*$`, 'iu'), '').trim()) // "Darkness." is the whole description or absent (../textClause)
   const a = normalize(text), b = normalize(prev)
   return { description: text, sameAsPrev: !!a && !!b && (a === b || jaccard(a, b) >= 0.8) }
 }

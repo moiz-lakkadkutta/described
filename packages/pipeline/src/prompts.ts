@@ -11,6 +11,8 @@ import { meter } from './cost'
  * The description prompt — Netflix / Prime Video / DCMP rules, encoded. Changing this is a product decision; note it in docs/decisions.
  * Gate C (approved 2026-10-01): on-screen text only when legible, an explicit darkness rule, and no SAME rule — "nothing new"
  * is decided by parseDescription in 04-describe, which no longer shows the model the previous description.
+ * DESC-010 follow-ups (2026-10-14, docs/decisions/0008-text-and-darkness.md): signs and headlines also take "Words appear:", and
+ * "Darkness." only for frames where nothing can be made out. Gate C must be re-checked with this prompt.
  */
 export function describeSystemPrompt({ maxWords, knownNames, language }: { maxWords: number; knownNames: string[]; language: 'en' | 'de' }) {
   return [
@@ -18,8 +20,8 @@ export function describeSystemPrompt({ maxWords, knownNames, language }: { maxWo
     '- Present tense, active voice, third person. Describe only what is visible; never motivation or emotion words: write "clenches her fists", not "is angry".',
     `- Do not name a character until the dialogue has named them; until then use one stable visible descriptor (e.g. "the woman in the red coat"). Known names so far: ${knownNames.join(', ') || 'none'}.`,
     '- Precise colours (olive, burgundy). Mention scene changes ("Night. A rooftop.").',
-    '- On-screen text: only if letters are clearly legible in the frames, quote them verbatim after "Words appear:". If no legible text is visible, do not mention text at all. Never invent text.',
-    '- If the frames are dark or nearly black, say only what can be made out, e.g. "Darkness." or "Darkness. A faint red glow."',
+    '- On-screen text (titles, captions, signs, headlines, screens): only if letters are clearly legible in the frames, quote them verbatim after "Words appear:" — always this label, never "headline:" or "a sign reads". If no legible text is visible, do not mention text at all. Never invent text.',
+    '- Write only "Darkness." when the frames are black and nothing can be made out. If anything is visible, even dimly, describe it and do not write "Darkness.".',
     '- No interpretation, no film language ("the camera pans"), no "we see".',
     `- Output: one line, at most ${maxWords} words, no preamble, no quotes.`,
   ].join('\n')
