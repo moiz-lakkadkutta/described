@@ -180,22 +180,21 @@ function units(text: string): Unit[] {
 /** A negation (en, de): "The car is not burning." and "The car is burning." share every content word in order but say opposite things. */
 const NEGATION = /(?:^|[^\p{L}])(?:not|no|never|cannot|nobody|nothing|none|nowhere|neither|nor|without|\p{L}+n['’]t|nicht|kein\p{L}*|nie|niemals|niemand|nichts|nirgends|ohne)(?![\p{L}])/iu
 /**
- * Does `earlier` say `unit`: every content word of `unit`, by stem, in the same order, and both negated or neither? Without the
- * negation check "Snow falls." would count as said by "No snow falls." and be dropped.
+ * Does `earlier` say `unit`: exactly the same content words, by stem, in the same order — none missing, none extra on either side.
+ * A subset is not enough: "The man opens the door." after "The man tries to open the door." drops the outcome, and so would "almost",
+ * "stops", "refuses", "half", "fast" (decided 2026-10-14, PR #44 round 3). The negation check is kept as a second, explicit guard.
  */
 const saidIn = (unit: string, earlier: string) => {
   if (NEGATION.test(unit) !== NEGATION.test(earlier)) return false
   const want = contentWords(unit).map(stem), have = contentWords(earlier).map(stem)
-  let k = 0
-  for (const w of have) if (k < want.length && w === want[k]) k++
-  return want.length > 0 && k === want.length
+  return want.length > 0 && want.length === have.length && want.every((w, k) => w === have[k])
 }
 
 /**
  * The deterministic repeat guard (DESC-010 follow-up, ADR 0006): every shot is described from scratch, so two shots of one place both
  * open with it ("Snowy mountains. A lone figure walks left." / "Snowy mountains. A figure walks, falls. Logo fades."). A cue's leading
- * sentences are dropped, in order, while each one is said by ONE sentence of the previous action cue: every content word of it (by stem,
- * ../contentWords) in that sentence, in the same order. Only the immediately previous action cue (on-screen text cues skipped), and only
+ * sentences are dropped, in order, while each one is said by ONE sentence of the previous action cue: exactly the same content words
+ * (by stem, ../contentWords) in the same order, none extra or missing on either side, and both negated or neither. Only the immediately previous action cue (on-screen text cues skipped), and only
  * when it starts within REPEAT_WINDOW_MS: a cut back to a place after another place keeps the place. The trim stops at the first unit
  * that is not a whole plain sentence (an on-screen text clause, or a piece cut by a mid-sentence one, which does not end in . ! ? …),
  * and nothing is dropped when the text left would not open with a capital letter or would open with a pronoun ("He stops."), or when

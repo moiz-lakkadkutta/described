@@ -85,9 +85,12 @@ failed) the exact rule is:
   abbreviation (Mr., Dr., St., …) joined to the next plain unit.
 - **Dropped**: the cue's leading units, in order, while each one is a whole plain sentence (not on-screen text; `sentences()` splits
   after . ! ? only, so a unit must end in one of those, or in … when it is the last text before a clause, with optional closing
-  quotes) and ONE plain sentence of the previous cue contains all of its content words (Porter stem, `contentWords`) in the same
-  order, with both sentences negated or neither (not, no, never, cannot, -n't, nobody, nothing, without, nicht, kein…, nie, niemand,
-  nichts, ohne, …): "Snow falls." after "No snow falls." stays, and so does "The car is burning." after "The car is not burning.".
+  quotes) and its content-word sequence (stop words removed, Porter stem, `contentWords`) is EXACTLY EQUAL to that of ONE plain
+  sentence of the previous cue — none missing and none extra on either side (human decision 2026-10-14, PR #44 round 3: a subset
+  match dropped "The man opens the door." after "The man tries to open the door.", and likewise almost, nearly, stops, pretends,
+  refuses, about to, fakes, barely, half, DE "stürzt fast"; "Red light." after "A red light glows." is therefore kept) — and both
+  sentences negated or neither (not, no, never, cannot, -n't, nobody, nothing, without, nicht, kein…, nie, niemand, nichts, ohne, …;
+  redundant with exact equality, kept as an explicit guard): "Snow falls." after "No snow falls." stays, and so does "The car is burning." after "The car is not burning.".
   Words spread over several sentences or cues never count: "The cat chases the dog." after "The dog chases the cat." stays, and so
   does "A woman walks left." after "A man walks left. A woman runs right.".
 - **Kept whole** when the trim would leave no plain sentence, or the text left would not open with a capital letter (a piece cut by a

@@ -468,7 +468,27 @@ describe('deterministic repeat guard (a lead sentence the previous cues already 
     expect(after('The dog chases the cat.', 'The cat chases the dog. It hides.')[1]).toBe('The cat chases the dog. It hides.')
     expect(after('Two men sit. A third man stands.', 'Third man sits. He drinks.')[1]).toBe('Third man sits. He drinks.')
     expect(after('A red light. A car stops.', 'Red car. It speeds away.')[1]).toBe('Red car. It speeds away.')
-    expect(after('A red light glows. A car stops.', 'Red light. A car speeds away.')[1]).toBe('A car speeds away.') // a subset in order is a repeat
+    expect(after('A red light glows. A car stops.', 'Red light. A car speeds away.')[1]).toBe('Red light. A car speeds away.') // a subset is not a repeat (exact match only)
+    expect(after('A red light glows. A car stops.', 'The red light glows. A car speeds away.')[1]).toBe('A car speeds away.') // same content words: a repeat
+  })
+
+  it('drops a lead only when its content words EXACTLY equal one earlier sentence\'s: an outcome or degree word on either side keeps it', () => {
+    const keeps: [string, string][] = [
+      ['The man tries to open the door.', 'The man opens the door.'],
+      ['The man fails to open the door.', 'The man opens the door.'],
+      ['The man opens the door.', 'The man tries to open the door.'],
+      ['The boy almost falls.', 'The boy falls.'],
+      ['The boy nearly falls.', 'The boy falls.'],
+      ['The girl stops running.', 'The girl runs.'],
+      ['The girl pretends to sleep.', 'The girl sleeps.'],
+      ['The child refuses to eat.', 'The child eats.'],
+      ['The man is about to jump.', 'The man jumps.'],
+      ['The woman fakes a smile.', 'The woman smiles.'],
+      ['The woman barely moves.', 'The woman moves.'],
+      ['The door is half open.', 'The door is open.'],
+      ['Der Mann stürzt fast.', 'Der Mann stürzt.'],
+    ]
+    for (const [before, lead] of keeps) expect(after(before, `${lead} A dog barks.`)[1]).toBe(`${lead} A dog barks.`)
   })
 
   it('compares with the immediately previous action cue only, so a cut back to a place keeps the place', () => {
