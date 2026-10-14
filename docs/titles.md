@@ -64,6 +64,7 @@ From the CLI meter (`src/cost.ts` list prices, unverified — each still marked 
 | re-run after #37/#39: tears-of-steel-40-100 from the start (work dir not on this machine, see below) | 16 | $0.0240 | $0.0171 | $0.0004 | $0.0145 | **$0.0559** |
 | **Re-runs after #37/#39** | | | | | | **$0.0622** (cap $1.00); two CloudFront invalidations (`/published/<slug>/*`, inside the free 1,000 paths a month) |
 | re-run after #41/#42: tears-of-steel-40-100 `--from fit` (2026-10-14) | — | — | — | $0.0002 | $0.0117 | **$0.0119** (cap $0.30); one CloudFront invalidation |
+| re-run after #44: sintel-90-150-r2 `--from edit` (2026-10-14; d3 "Snowy mountains. A figure walks, falls. Logo fades." → "A figure walks, falls. Logo fades.", edit.json `by: "repeat"`; validate no problems; no `<v ` in captions) | — | — | — | $0.0002 | $0.0069 | **$0.0071** (cap $0.10); one CloudFront invalidation |
 
 Transcribe is the floor: $0.024 for 60 s (billed per second, 15 s minimum) even when the clip has no speech (Caminandes). Every
 title took 4–5 minutes wall clock, four in parallel with `DESCRIBE_CONCURRENCY=2`; no throttling. Sintel's earlier figure,
