@@ -73,6 +73,18 @@ the flat-timeline input) is asked once more for plain JSON text (the first `{…
 ignored); a second failure or an unreadable reply keeps the window's original cues. An abort (job time up) is rethrown. Timing,
 count, order, `extended`, `shotIndex` and `limitMs` never change.
 
+**Deterministic repeat guard** (`dropRepeatedLeads`, added 2026-10-14 after the PR #40 re-run of sintel-90-150-r2, where the viewer
+heard "Snowy mountains." in d2 and again in d3): repetition removal had been left to the model, and Nova Lite's only edit of that cue
+dropped the on-screen text clause and was rejected (guard 2). describe's own dedupe (`newSentences`) only covers later parts of one
+split camera shot; shots 0 and 1 are two camera shots, each described from scratch. After the model's edits (and when every call
+failed), a cue's *leading* sentences are dropped while every content word in them (by stem) is in the text, as heard, of the previous
+`REPEAT_LOOKBACK_CUES` = 2 action cues that start within `REPEAT_WINDOW_MS` = 15 s. Never an on-screen text clause, never a sentence
+without a content word, never the cue's last action sentence (a cue with nothing new keeps its text); on-screen text cues are neither
+trimmed nor compared with. Only leading sentences: that is where a description states the place, and a repeated action later in a
+cue may be a second one. Logged in `edit.json` `applied` with `by: "repeat"`. `DESCRIBE_EDIT=0` (the control) skips it with the
+model. On the recorded fit cues of sintel-90-150-r2, sintel-90-210 and tears-of-steel-40-100 it changes exactly one cue:
+r2 cue 1 → "A figure walks, falls. Logo fades. Words appear: SINTEL.".
+
 ## Model choice (probes on r2, text-only, 45 Converse calls, ≈ $0.013)
 
 | | Nova Lite v1 (`amazon.nova-lite-v1:0`) | Qwen3-VL 235B (`qwen.qwen3-vl-235b-a22b`, text only) |

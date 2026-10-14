@@ -5,7 +5,7 @@ import type { Described } from './04-describe'
 import type { Word } from './03-speech'
 import { textClauses, type FitCue } from './05-fit'
 import { NEXT_CUE_SPACING_MS } from './06-voice'
-import { stripDarkness, textSpans } from '../textClause'
+import { sentences, stripDarkness, textSpans } from '../textClause'
 import { contentWords, stem } from '../contentWords'
 import { editRequest, editModelId, shortenEditWithNovaLite, stripFence, type EditConverse, type EditCueInput, bedrockEditSend } from '../prompts'
 import { meter } from '../cost'
@@ -61,7 +61,7 @@ export const EDIT_CHUNK_CUES = 30
 export const EDIT_WPS = 2.2
 
 export interface TokenUsage { inputTokens: number; outputTokens: number }
-export interface EditReport { cues: FitCue[]; applied: { i: number; from: string; to: string }[]; rejected: { i: number; text: string; reason: string }[]; model: string; usage: TokenUsage; shorteningCalls: number }
+export interface EditReport { cues: FitCue[]; applied: { i: number; from: string; to: string; by?: 'repeat' }[]; rejected: { i: number; text: string; reason: string }[]; model: string; usage: TokenUsage; shorteningCalls: number }
 
 /** Shortens `text` to maxWords keeping every fact of `keep` (the cue's original text): one Nova Lite call by default (with its usage); tests inject their own. */
 export type ShortenReply = string | { text: string; usage?: Partial<TokenUsage> }
@@ -133,8 +133,66 @@ export async function editScene(cues: FitCue[], shots: Described[], words: Word[
     for (const a of [...out.applied, ...again.applied]) { report.cues[a.i]!.text = a.to; report.cues[a.i]!.wordCount = wordCount(a.to); report.applied.push(a) }
     report.rejected.push(...again.rejected.map((r) => ({ ...r, reason: `${r.reason} (after shortening)` })))
   }
+  // The model's repetition removal is not reliable (sintel-90-150-r2, 2026-10-14: no proposal removed the second "Snowy mountains."),
+  // so a lead sentence the viewer has just heard is dropped deterministically, after the model's edits and whether or not a call worked.
+  const deduped = dropRepeatedLeads(report.cues)
+  deduped.forEach((c, i) => {
+    if (c.text === report.cues[i]!.text) return
+    const prior = report.applied.find((a) => a.i === i)
+    if (prior) prior.to = c.text
+    else report.applied.push({ i, from: report.cues[i]!.text, to: c.text, by: 'repeat' })
+    report.cues[i] = c
+  })
+  report.applied.sort((a, b) => a.i - b.i)
   for (const r of report.rejected) console.warn(`edit: rejected edit of cue ${r.i} (${r.reason}):`, JSON.stringify(r.text))
   return report
+}
+
+/** How many earlier action cues (on-screen text cues skipped) the repeat guard compares a cue with. */
+export const REPEAT_LOOKBACK_CUES = 2
+/** …and only those that start at most this long before it: after a longer stretch, re-telling the place helps the viewer. */
+export const REPEAT_WINDOW_MS = 15_000
+
+/**
+ * The deterministic repeat guard (DESC-010 follow-up): every shot is described from scratch, so two shots of one place both open with
+ * it ("Snowy mountains. A lone figure walks left." / "Snowy mountains. A figure walks, falls. Logo fades."). A cue's leading sentences
+ * are dropped while every content word in them (by stem, ../contentWords) is in the text of the previous REPEAT_LOOKBACK_CUES action
+ * cues that start within REPEAT_WINDOW_MS — as heard, so after their own trimming. Only leading sentences (the setting a description
+ * opens with; a repeated action later in a cue may be a second one), never an on-screen text clause, never a sentence with no content
+ * word, and never the cue's last sentence that is not on-screen text: a cue that has nothing else to say keeps its text. On-screen text
+ * cues are neither trimmed nor compared with. The text after the dropped sentences is kept verbatim; timing never changes. Pure: returns copies.
+ */
+export function dropRepeatedLeads(cues: readonly FitCue[]): FitCue[] {
+  const out = cues.map((c) => ({ ...c }))
+  out.forEach((c, i) => {
+    if (isTextCue(c)) return
+    const heard: string[] = []
+    for (let k = i - 1; k >= 0 && heard.length < REPEAT_LOOKBACK_CUES; k--) {
+      const p = out[k]!
+      if (isTextCue(p)) continue
+      if (c.startMs - p.startMs > REPEAT_WINDOW_MS) break
+      heard.push(p.text)
+    }
+    if (!heard.length) return
+    const known = new Set(heard.flatMap((t) => contentWords(t).map(stem)))
+    const units = sentences(c.text), spans = textSpans(c.text)
+    const isText = (u: string) => spans.some((s) => c.text.slice(s.start, s.end).trim() === u)
+    let lastAction = units.length - 1
+    while (lastAction >= 0 && isText(units[lastAction]!)) lastAction--
+    let drop = 0
+    while (drop < lastAction) {
+      const u = units[drop]!, w = contentWords(u)
+      if (isText(u) || !w.length || !w.every((x) => known.has(stem(x)))) break
+      drop++
+    }
+    if (!drop) return
+    // Cut the original at the first kept sentence, so the rest (spacing, quotes, the on-screen text) stays exactly as it was.
+    let at = 0
+    for (const u of units.slice(0, drop)) at = c.text.indexOf(u, at) + u.length
+    const text = c.text.slice(at).trim()
+    out[i] = { ...c, text, wordCount: wordCount(text) }
+  })
+  return out
 }
 
 const EditReply = z.object({ edits: z.array(z.object({ cue: z.coerce.number(), text: z.string() }).passthrough()) })
