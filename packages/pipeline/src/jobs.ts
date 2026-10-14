@@ -3,7 +3,7 @@ import type { PrismaClient } from '@prisma/client'
 import { randomUUID } from 'node:crypto'
 import { access, readFile } from 'node:fs/promises'
 import { metered } from './cost'
-import { writeDescriptionCues } from './cues'
+import { descriptionCueOps } from './cues'
 import { ctxFor, runStep, SLUG_RE, STEPS, type Ctx } from './steps'
 import type { Shot } from './steps/02-shots'
 import type { Gap } from './steps/03-speech'
@@ -141,8 +141,8 @@ export async function persist(step: JobStep, titleId: string, work: string, db: 
       return db.shot.upsert({ where: { titleId_index: { titleId, index: s.index } }, create: { titleId, index: s.index, startMs: s.startMs, endMs: s.endMs, ...text }, update: text })
     }))
   } else if (step === 'finish') {
-    await writeDescriptionCues(db as never, titleId, work)
-    await writeTrackRows(titleId, work, db)
+    // one transaction: a failure leaves the previous run's cue and track rows together, never a mix
+    await db.$transaction([...(await descriptionCueOps(db as never, titleId, work)), ...(await trackRowOps(titleId, work, db))] as never)
   }
 }
 
@@ -153,22 +153,22 @@ const exists = (f: string) => access(f).then(() => true, () => false)
  * validate's cue counts (validate.json); keys are where 10-publish put them. Poster/hero: work/art/*.jpg (01-probe) fill
  * Title.posterKey/heroKey only while they are null, so a key the admin set by hand is never overwritten.
  */
-export async function writeTrackRows(titleId: string, work: string, db: Db) {
+export async function trackRowOps(titleId: string, work: string, db: Db): Promise<unknown[]> {
   const t = await db.title.findUniqueOrThrow({ where: { id: titleId } })
   const { language, tracks } = await json<PackageReport>(work, 'package.json')
   const { vttCues } = await json<ManifestProblems>(work, 'validate.json')
   const key = (f: string) => `published/${t.slug}/${f}`
   const kinds = (['captions', 'sdh', 'descriptions'] as const).filter((k) => tracks[k])
-  await db.$transaction([
+  const art: { posterKey?: string; heroKey?: string } = {}
+  if (t.posterKey == null && (await exists(`${work}/art/poster.jpg`))) art.posterKey = key('art/poster.jpg')
+  if (t.heroKey == null && (await exists(`${work}/art/hero.jpg`))) art.heroKey = key('art/hero.jpg')
+  return [
     db.rendition.deleteMany({ where: { titleId } }),
     db.rendition.createMany({ data: (['audio_main', 'audio_ad'] as const).map((kind) => ({ titleId, kind, language, s3Key: key(`${kind}.m3u8`) })) }),
     db.textTrack.deleteMany({ where: { titleId } }),
     db.textTrack.createMany({ data: kinds.map((kind) => ({ titleId, kind, language, s3Key: key(`${kind}.vtt`), cueCount: vttCues[`${kind}.vtt`] })) }),
-  ])
-  const art: { posterKey?: string; heroKey?: string } = {}
-  if (t.posterKey == null && (await exists(`${work}/art/poster.jpg`))) art.posterKey = key('art/poster.jpg')
-  if (t.heroKey == null && (await exists(`${work}/art/hero.jpg`))) art.heroKey = key('art/hero.jpg')
-  if (Object.keys(art).length) await db.title.update({ where: { id: titleId }, data: art })
+    ...(Object.keys(art).length ? [db.title.update({ where: { id: titleId }, data: art })] : []),
+  ]
 }
 
 /**

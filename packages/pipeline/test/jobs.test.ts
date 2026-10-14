@@ -208,18 +208,58 @@ describe('pipeline jobs', () => {
     await persist('finish', 't1', work, f.db)
     expect(f.title.posterKey).toBe('published/sintel/art/poster-by-hand.jpg')
   })
-  it('the CLI path writes description cues, track rows and art keys', async () => {
+  it('the CLI path writes description cues, track rows and art keys, then the duration and status = published', async () => {
     const f = fakes()
     const work = await mkdtemp(join(tmpdir(), 'cli-'))
     await finishFiles(work)
+    await writeFile(`${work}/probe.json`, JSON.stringify({ format: { duration: '60.021000' } }))
     await mkdir(`${work}/art`); await writeFile(`${work}/art/poster.jpg`, 'jpg'); await writeFile(`${work}/art/hero.jpg`, 'jpg')
-    await persistForCli('sintel', work, async () => f.db as never)
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    await persistForCli('sintel', work, { language: 'en', voice: 'Matthew' }, async () => f.db as never)
+    log.mockRestore()
     expect(f.raw.title.findUnique).toHaveBeenCalledWith({ where: { slug: 'sintel' }, select: { id: true } })
     expect(f.cues().map((c) => [c.titleId, c.pollyKey])).toEqual([['t1', 'published/sintel/cues/cue_0.aaaaaaaaaaaa.mp3'], ['t1', 'published/sintel/cues/cue_1.bbbbbbbbbbbb.mp3']])
     expect(f.renditions().map((r) => r.kind)).toEqual(['audio_main', 'audio_ad'])
     expect(f.textTracks().map((t) => [t.kind, t.cueCount])).toEqual([['captions', 12], ['sdh', 15], ['descriptions', 2]])
-    expect(f.title).toMatchObject({ posterKey: 'published/sintel/art/poster.jpg', heroKey: 'published/sintel/art/hero.jpg' })
+    expect(f.title).toMatchObject({ posterKey: 'published/sintel/art/poster.jpg', heroKey: 'published/sintel/art/hero.jpg', durationS: 60.021, status: 'published' })
+    // status is the last write: a failure in the rows above leaves the title out of the catalogue, as the worker's finish job does
+    expect(f.raw.title.update.mock.calls.at(-1)?.[0]).toEqual({ where: { id: 't1' }, data: { durationS: 60.021, voice: 'Matthew', language: 'en', status: 'published' } })
+    expect(f.title.voice).toBe('Matthew') // what was spoken labels the AD track, not the seed's voice
+    expect(f.raw.$transaction).toHaveBeenCalledTimes(1) // cues, tracks, art and status together
     expect(f.raw.$disconnect).toHaveBeenCalled()
+  })
+  it('the CLI path without probe.json still publishes, leaving durationS alone', async () => {
+    const f = fakes()
+    const work = await mkdtemp(join(tmpdir(), 'cli-'))
+    await finishFiles(work)
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    await persistForCli('sintel', work, undefined, async () => f.db as never)
+    log.mockRestore()
+    expect(f.title.status).toBe('published')
+    expect(f.title.voice).toBe('Joanna') // no run voice given: the row keeps its own
+    expect(f.title).not.toHaveProperty('durationS')
+  })
+  it('the CLI path writes everything in one transaction: when it fails, nothing is written and the title is not published', async () => {
+    // Prisma's model calls are lazy (PrismaPromise): they run only inside $transaction. This fake records them the same way.
+    const title = { id: 't1', slug: 'sintel', status: 'published', posterKey: null, heroKey: null, voice: 'Joanna' }
+    const op = (name: string) => vi.fn((args: unknown) => ({ name, args }))
+    const db = {
+      title: { findUnique: vi.fn(async () => ({ id: 't1' })), findUniqueOrThrow: vi.fn(async () => title), update: op('title.update') },
+      descriptionCue: { deleteMany: op('descriptionCue.deleteMany'), createMany: op('descriptionCue.createMany') },
+      rendition: { deleteMany: op('rendition.deleteMany'), createMany: op('rendition.createMany') },
+      textTrack: { deleteMany: op('textTrack.deleteMany'), createMany: op('textTrack.createMany') },
+      $transaction: vi.fn(async (_ops: unknown[]) => { throw new Error('createMany failed') }),
+      $disconnect: vi.fn(async () => {}),
+    }
+    const work = await mkdtemp(join(tmpdir(), 'cli-'))
+    await finishFiles(work)
+    await mkdir(`${work}/art`); await writeFile(`${work}/art/poster.jpg`, 'jpg')
+    await expect(persistForCli('sintel', work, { language: 'en', voice: 'Matthew' }, async () => db as never)).rejects.toThrow('createMany failed')
+    expect(db.$transaction).toHaveBeenCalledTimes(1)
+    const batch = db.$transaction.mock.calls[0]![0] as { name: string; args: { data?: { status?: string } } }[]
+    expect(batch.map((o) => o.name)).toEqual(['descriptionCue.deleteMany', 'descriptionCue.createMany', 'rendition.deleteMany', 'rendition.createMany', 'textTrack.deleteMany', 'textTrack.createMany', 'title.update', 'title.update'])
+    expect(batch.at(-1)!.args.data).toMatchObject({ status: 'published', voice: 'Matthew', language: 'en' }) // status last
+    expect(db.$disconnect).toHaveBeenCalled()
   })
   it('finish that runs out of time writes no DescriptionCue rows and does not publish, even if the finish steps complete later', async () => {
     const f = fakes()

@@ -9,7 +9,7 @@ program.command('describe').requiredOption('--title <slug>').requiredOption('--s
     const { language, voice } = resolveLanguageAndVoice({ lang: o.lang, voice: o.voice })
     const input = { slug: o.title, source: o.source, language, voice, fromStep: o.from }
     await runDescribe(input)
-    await persistForCli(o.title, ctxFor(input).work) // the worker does this in persist('finish')
+    await persistForCli(o.title, ctxFor(input).work, { language, voice }) // the worker does this in persist('finish')
     process.exit(0)
   })
 // App-voice prompt clips (DESC-010). A dry run by default: prints the texts and the Polly estimate, no AWS call. --run pays.

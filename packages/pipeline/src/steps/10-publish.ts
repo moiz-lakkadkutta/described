@@ -3,6 +3,7 @@ import { join, relative } from 'node:path'
 import { cacheControl, contentType, createInvalidation, upload as s3Upload } from '../s3'
 import { clipHash, cueAudioKey, writeClips } from '../cues'
 import type { Ctx } from './index'
+import type { PackageReport } from './09-package'
 export interface PublishDeps { upload?: typeof s3Upload; invalidate?: (distributionId: string, paths: string[]) => Promise<void> }
 
 /**
@@ -23,7 +24,10 @@ export async function publish(ctx: Ctx, { upload = s3Upload, invalidate = create
   const hls = `${ctx.work}/hls`
   const files = (await readdir(hls, { recursive: true, withFileTypes: true })).filter((d) => d.isFile()).map((d) => join(d.parentPath, d.name))
   const jobs = files.map((f) => () => upload(f, `${base}/${relative(hls, f)}`, { ContentType: contentType(f), CacheControl: cacheControl(f) }))
-  for (const v of ['captions.vtt', 'sdh.vtt', 'descriptions.vtt']) jobs.push(() => upload(`${ctx.work}/${v}`, `${base}/${v}`, { ContentType: contentType(v), CacheControl: cacheControl(v) }))
+  // Only the text tracks 09-package advertised (package.json): a degraded sdh.vtt has no TextTrack row and is not in the master, so it
+  // is not published either. Without package.json (tests that publish alone) all three go up.
+  const advertised = (JSON.parse(await readFile(`${ctx.work}/package.json`, 'utf8').catch(() => '{}')) as Partial<PackageReport>).tracks
+  for (const v of (['captions', 'sdh', 'descriptions'] as const).filter((k) => advertised?.[k] !== false).map((k) => `${k}.vtt`)) jobs.push(() => upload(`${ctx.work}/${v}`, `${base}/${v}`, { ContentType: contentType(v), CacheControl: cacheControl(v) }))
   const art = await readdir(`${ctx.work}/art`).catch((e: NodeJS.ErrnoException) => { if (e.code === 'ENOENT') return [] as string[]; throw e })
   for (const a of art.filter((f) => f.endsWith('.jpg'))) jobs.push(() => upload(`${ctx.work}/art/${a}`, `${base}/art/${a}`, { ContentType: contentType(a), CacheControl: cacheControl(a) }))
   // Clip keys carry a hash of the bytes (../cues): immutable for a year, so a changed clip must get a new key.
