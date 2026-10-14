@@ -112,6 +112,6 @@ checks 1–13 passed; check 14 (Alexa) failed for fast forward / rewind and was 
     sliding later can drop a chosen event (check spacing on the starts before the move, or note it in 0007)
 - [ ] DESC-021 · follow-up · Audio switch holds silence 150 ms across ExoPlayer's decoder reset (`tokens.motion.audioSwitchHoldMs`) (#30) (needs: re-check of RUN-2026-10 check 6)
   - the kit has no audio-track-changed event (KIT-029), so the hold is a fixed token
-- [ ] DESC-022 · follow-up · Device run 2026-10-10: removing a title from My list after a relaunch sent no `DELETE /me/list/:slug`; the human logged check 11 as passed. Not fixed
-- [ ] DESC-023 · follow-up · About screen heading sits inside its scroll view (`packages/shared-ui/src/screens/About.tsx`), the clipping pattern #30 fixed for the Grid heading (Described, My list)
+- [ ] DESC-022 · follow-up · Device run 2026-10-10: removing a title from My list after a relaunch sent no `DELETE /me/list/:slug`; the human logged check 11 as passed. A change that fails with no answer is now sent once more before it is undone (needs: device re-check of check 11 after a relaunch)
+- [ ] DESC-023 · follow-up · About screen heading sits inside its scroll view (`packages/shared-ui/src/screens/About.tsx`), the clipping pattern #30 fixed for the Grid heading (Described, My list); heading now above the scroll view (needs: device re-check)
 - [ ] DESC-024 · follow-up · Re-check Gate C on sintel-90-210 with the 0008 prompt (on-screen text always "Words appear:", "Darkness." only when nothing is visible, "dim" for a dim scene) — **blocks the next full-length describe** (#37, decision 0008)

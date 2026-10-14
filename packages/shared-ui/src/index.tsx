@@ -42,6 +42,8 @@ const routeKey = (r: Route) => (r.name === 'player' ? `player:${r.slug}:${r.with
 export class ApiError extends Error { constructor(public status: number) { super(`api ${status}`) } }
 /** The server refused the request itself (validation): resending the same body can never succeed. */
 const refused = (e: unknown) => e instanceof ApiError && e.status >= 400 && e.status < 500
+/** No answer within FETCH_TIMEOUT_MS: the request may have reached the API, and waiting again would double the wait. */
+export class TimeoutError extends Error { constructor() { super('api timeout') } }
 /** RN Android's own fetch timeout is about 2 minutes; the offline screen should come much sooner. */
 export const FETCH_TIMEOUT_MS = 10_000
 /** While playing, the position is saved after it has moved this far (and always on Back). */
@@ -111,6 +113,8 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
       // The connection is back: send any settings a failed save left behind (a prefs PUT flushes itself).
       if (!(path === '/me/prefs' && init?.method === 'PUT') && Object.keys(unsaved.current).length) flushPrefs.current()
       return j.data
+    } catch (e) {
+      throw ctl.signal.aborted ? new TimeoutError() : e
     } finally { clearTimeout(timer) }
   }, [apiBaseUrl, deviceId])
 
@@ -265,6 +269,10 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   // My list: the change shows at once; PUT/DELETE /me/list/:slug go through `requests`, in order after any save before
   // them. A failed change is undone and announced — unless a newer press on the same title already decided it. Each
   // answer is the server's whole list; once no change is pending the app settles on it (another session's changes too).
+  // A change that fails with no answer at all (fetch rejected: a dropped connection, the stick's network waking up) is
+  // sent once more before it is undone — DESC-022: on the stick a DELETE failed this way and never reached the API.
+  // PUT and DELETE are idempotent on the API. Not resent: an answer (ApiError), a timeout (the slow-API case keeps its
+  // 10 s), or a change a newer press on the same title has already replaced.
   const listPresses = useRef(new Map<string, number>())
   const listPending = useRef(0)
   const toggleList = (s: string) => {
@@ -276,7 +284,9 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
     const press = (listPresses.current.get(s) ?? 0) + 1
     listPresses.current.set(s, press)
     listPending.current++
-    requests(() => api<MyListData>(`/me/list/${encodeURIComponent(s)}`, { method: adding ? 'PUT' : 'DELETE' })).then(
+    const send = () => api<MyListData>(`/me/list/${encodeURIComponent(s)}`, { method: adding ? 'PUT' : 'DELETE' })
+    const resend = (e: unknown) => (e instanceof ApiError || e instanceof TimeoutError || listPresses.current.get(s) !== press ? Promise.reject(e) : send())
+    requests(() => send().catch(resend)).then(
       (l) => { if (--listPending.current === 0 && l?.slugs) setMyList(new Set(l.slugs)) },
       () => {
         listPending.current--

@@ -11,6 +11,7 @@ import { Settings, settingsRows } from '../src/screens/Settings'
 import { Title } from '../src/screens/Title'
 import { strings } from '../src/strings'
 import { tokens } from '../src/theme/tokens'
+import { focusBleed } from '../src/layout'
 import { a11yCalls, back } from './stubs/react-native'
 import { catalog, title } from './fixtures'
 
@@ -445,5 +446,30 @@ describe('every focusable on First run, Settings and About states its purpose an
       .flatMap((r) => r.root.findAll((n) => (n.type as unknown) === 'Text').map((t) => Object.assign({}, ...[t.props.style].flat(3).filter(Boolean)).fontSize as number))
     expect(sizes.length).toBeGreaterThan(10)
     for (const s of sizes) expect(s).toBeGreaterThanOrEqual(tokens.type.floor)
+  })
+})
+
+// DESC-023: the same clipping #30 fixed for the Grid heading. The heading sat inside the scroll view, and a focus scroll
+// puts the focused line offsetFromStart below the scroll view's top, which pushed the heading out of view.
+describe('About heading', () => {
+  const style = (n: ReactTestInstance) => Object.assign({}, ...[n.props.style].flat(Infinity).filter(Boolean)) as Record<string, number>
+  const headingText = (r: TestRenderer.ReactTestRenderer) => r.root.find((n) => (n.type as unknown) === 'Text' && n.props.children === strings.about.heading)
+  it.each([['loaded', about], ['loading', null], ['offline', 'offline' as const]])('is outside the scroll view, at a non-negative top offset (%s)', (_, data) => {
+    const t = headingText(create(<About about={data} onClose={() => {}} />))
+    for (let n: ReactTestInstance | null = t.parent; n; n = n.parent) expect(n.type as unknown).not.toBe('ScrollView')
+    for (const k of ['top', 'marginTop', 'paddingTop'] as const) expect(style(t)[k] ?? 0).toBeGreaterThanOrEqual(0)
+    expect(style(t).position).not.toBe('absolute')
+  })
+  it('the first line keeps room above for the focus outline and growth, and focusing it does not scroll', () => {
+    const r = create(<About about={about} onClose={() => {}} />)
+    const scroll = r.root.find((n) => (n.type as unknown) === 'ScrollView')
+    const content = scroll.findAll((n) => (n.type as unknown) === 'View')[0]!
+    const first = focusables(r)[0]!
+    expect(style(content).paddingTop).toBeGreaterThanOrEqual(focusBleed(tokens.type.body.line + 2 * 12)) // the scroll view clips: room for the outline above the top line
+    expect(label(first)).toBe(title.attribution)
+    // The first line sits under the FILMS label: paddingTop + label line + gap. offsetFromStart equals that, so focusing
+    // it scrolls to 0 and the label stays in view; every later line lands at the same place.
+    const { paddingTop = NaN, gap = NaN } = style(content)
+    expect(scroll.props.offsetFromStart).toBe(paddingTop + tokens.type.label.line + gap)
   })
 })
