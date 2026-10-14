@@ -2,7 +2,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import type { Ctx } from './index'
 import type { Described } from './04-describe'
 import type { Gap } from './03-speech'
-import { stripDarkness, textSpans } from '../textClause'
+import { clauseText, stripDarkness, textSpans, withoutSpans } from '../textClause'
 import { eventSpaced, newWords, plotEvents } from '../plotEvent'
 
 /**
@@ -157,11 +157,9 @@ interface TextClauses { lead: string; tail: string; clause: string; rest: string
 export function textClauses(text: string): TextClauses | undefined {
   const spans = textSpans(text)
   if (!spans.length) return undefined
-  const m = spans.map((x) => text.slice(x.start, x.end).trim())
+  const m = spans.map((x) => clauseText(text, x))
   const lead = text.slice(0, spans[0]!.start).trim() ? '' : m[0]!
-  let rest = '', at = 0
-  for (const x of spans) { rest += `${text.slice(at, x.start)} `; at = x.end }
-  rest = (rest + text.slice(at)).replace(/\s+/g, ' ').trim()
+  const rest = withoutSpans(text, spans) // the action as whole sentences: no joining word left dangling, no lowercase start
   return { lead, tail: (lead ? m.slice(1) : m).join(' '), clause: m.join(' '), rest, words: words(m.join(' ')) }
 }
 /**

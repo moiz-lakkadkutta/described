@@ -20,27 +20,42 @@ The five-title batch (2026-10-14) showed three faults, all on tears-of-steel-40-
 Pipeline (`packages/pipeline/src/textClause.ts`, read by 04-describe, 05-fit, 05b-edit, 06-voice and plotEvent):
 
 - A trailing modifier after the on-screen text (the next word lowercase, or `,` `;` `:`) belongs to the clause up to its sentence end,
-  so it is voiced in the text pause with the text and never alone. The text itself (what "already said" compares) is unchanged.
+  so it is voiced in the text pause with the text and never alone; it stops before `and` / `while` / `as` / `then` followed by a
+  lowercase word (`Words appear: "NORTH" and a man runs in.` → the rest is `A man runs in.`). The text itself (what "already said"
+  compares) is unchanged.
 - On-screen text without the label is recognised: a text carrier (headline, caption, title card, sign, banner, poster, screen, note,
   newspaper …; German Schlagzeile, Schild, Aufschrift …) followed by `:`, by `reads` / `says` (bare or quoted), by `shows` /
-  `displays` and a quote, or directly by a quote; and anything that `reads "…"`. That clause is the whole sentence it is in, so the
-  noun before the cue word is never left as a fragment. "Man reads newspaper" and "A man holds a sign" are not on-screen text: no
-  text follows. The 8-word limit on on-screen text (invented text) applies to these clauses too.
-- `stripDarkness`: a leading "Darkness." (German "Dunkelheit.") in front of anything else is removed; a bare "Darkness." is kept;
-  "… Darkness." after the action (a fade to black) is kept. Applied in parseDescription and again in fit, so a re-run from fit cleans
-  an existing described.json.
+  `displays` and a quote, or directly by a quote; and anything that `reads "…"`. The clause starts at the latest of the sentence
+  start (`. ! ? ; :`), a `, ` or a joining word (as, while, where, and, then, with, that), so the action before it stays on the plain
+  AD track as a whole sentence (`A soldier grabs the rifle as a sign reads "EXIT".` → `A soldier grabs the rifle.` and the pause
+  `A sign reads "EXIT".`); with nothing between them (`Hand holds crumpled newspaper headline: …`) the whole sentence is the clause.
+- Not on-screen text (left as plain description):
+  - a bare (unquoted) body that does not start with a capital letter or a digit: `The sign says nothing.`, `He reads the note: his
+    hands tremble.`, `Monitors: green waveforms pulse.`, `Ein Schild: rot und rostig.`;
+  - a carrier word after a pronoun subject (he, she, they, it, who; er, sie, es), which is a verb: `He signs: thank you.`;
+  - a cue word with no text after it: `Man reads newspaper`, `A man holds a sign`;
+  - an unlabelled body of more than 8 words: `The card says Happy Birthday in gold letters, and a woman smiles at the boy.` stays as
+    written. Only a labelled clause (`Words appear:`) that long is dropped as invented text, as before.
+- `stripDarkness`: a leading "Darkness." / "Darkness..." / "Darkness," (German "Dunkelheit.") in front of anything else is removed
+  and what follows capitalised; a bare "Darkness." is kept; "… Darkness." after the action (a fade to black) is kept. Applied in
+  parseDescription, in fit, and to the shot descriptions the edit step reads (so "Darkness." cannot come back through an edit); a
+  re-run from fit cleans an existing described.json.
 
 Describe prompt (`packages/pipeline/src/prompts.ts`, `describeSystemPrompt`):
 
 - On-screen text: "(titles, captions, signs, headlines, screens) … quote them verbatim after "Words appear:" — always this label,
   never "headline:" or "a sign reads"." The rule that text is mentioned only when clearly legible and never invented is unchanged.
 - Darkness: `Write only "Darkness." when the frames are black and nothing can be made out. If anything is visible, even dimly,
-  describe it and do not write "Darkness.".` (was: `say only what can be made out, e.g. "Darkness." or "Darkness. A faint red glow."`).
+  describe it and do not write "Darkness."; if the scene is visible but dim, say dim (e.g. "A dim room. A fire glows.").` (was:
+  `say only what can be made out, e.g. "Darkness." or "Darkness. A faint red glow."`).
 
 ## Consequences
 
 - Gate C (0003) was approved on the previous prompt; the darkness example it showed the model is gone. Re-check Gate C (the
-  sintel-90-210 rating set) before the next full-length title is described with this prompt.
+  sintel-90-210 rating set) before the next full-length title is described with this prompt (TASKS.md DESC-024).
 - Titles already processed keep their described.json; the pipeline fixes reach them on a re-run from fit (no new Bedrock describe
   call). The prompt change reaches them only on a re-run from describe.
-- sintel-90-150-r2 and sintel-90-210 lose their "Darkness." prefixes on a re-run from fit ("A faint fire glows in a stone pit.").
+- Re-run from fit: tears-of-steel-40-100 (all three faults) and sintel-90-150-r2 ("Darkness. A faint fire glows in a stone pit.").
+  Not re-run: sintel-90-210 — a test segment, not in the published catalogue; its "Darkness. A fire pit glows…" prefix is cleaned
+  whenever it is next run (its golden fit test already expects the stripped text). The other three published titles only if their
+  described.json has a "Darkness. X" prefix (`grep -l '"Darkness\. [A-Z]' work/*/described.json`).

@@ -21,7 +21,7 @@ export function describeSystemPrompt({ maxWords, knownNames, language }: { maxWo
     `- Do not name a character until the dialogue has named them; until then use one stable visible descriptor (e.g. "the woman in the red coat"). Known names so far: ${knownNames.join(', ') || 'none'}.`,
     '- Precise colours (olive, burgundy). Mention scene changes ("Night. A rooftop.").',
     '- On-screen text (titles, captions, signs, headlines, screens): only if letters are clearly legible in the frames, quote them verbatim after "Words appear:" — always this label, never "headline:" or "a sign reads". If no legible text is visible, do not mention text at all. Never invent text.',
-    '- Write only "Darkness." when the frames are black and nothing can be made out. If anything is visible, even dimly, describe it and do not write "Darkness.".',
+    '- Write only "Darkness." when the frames are black and nothing can be made out. If anything is visible, even dimly, describe it and do not write "Darkness."; if the scene is visible but dim, say dim (e.g. "A dim room. A fire glows.").',
     '- No interpretation, no film language ("the camera pans"), no "we see".',
     `- Output: one line, at most ${maxWords} words, no preamble, no quotes.`,
   ].join('\n')

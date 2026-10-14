@@ -2,10 +2,12 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { stripDarkness, textSpans } from '../src/textClause'
-import { fit, introducesNew, safeShorten, textClauses, type FitCue } from '../src/steps/05-fit'
-import { voice } from '../src/steps/06-voice'
+import { fit, introducesNew, safeShorten, shortenDeterministic, textClauses, type FitCue } from '../src/steps/05-fit'
+import { voice, withoutSaidText } from '../src/steps/06-voice'
 import { parseDescription, type Described } from '../src/steps/04-describe'
-import { describeSystemPrompt } from '../src/prompts'
+import { describeSystemPrompt, type EditConverse } from '../src/prompts'
+import { plotEvents } from '../src/plotEvent'
+import { editScene } from '../src/steps/05b-edit'
 import type { Ctx } from '../src/steps/index'
 
 /**
@@ -103,5 +105,90 @@ describe('"Darkness." is the whole description or absent', () => {
     const t = describeSystemPrompt({ maxWords: 8, knownNames: [], language: 'en' })
     expect(t).toContain('"Darkness."')
     expect(t).not.toContain('Darkness. A faint red glow.')
+  })
+})
+
+/** PR #37 review round 1: the regression strings the review gave, as written. */
+describe('PR #37 review round 1', () => {
+  // B1: on main these are plain descriptions; the invented-text drop must not delete them.
+  it('B1: an over-long unlabelled match is not a text clause, so parseDescription keeps the whole description', () => {
+    for (const t of [
+      'The card says Happy Birthday in gold letters, and a woman smiles at the boy.',
+      'A soldier aims; the screen reads TARGET LOCKED ON THE NORTHERN SECTOR OF THE CITY WALL NOW.',
+      'He reads the note: his hands tremble and he drops it on the floor, crying.',
+    ]) expect(parseDescription(t, '').description).toBe(t)
+    // a labelled clause over 8 words is still dropped (invented text), as on main
+    expect(parseDescription('Words appear: "You have no idea what you\'re dealing with here." Darkness.', '').description).toBe('Darkness.')
+  })
+  it('B2: verbs, pronoun subjects and lowercase bare bodies are not on-screen text', () => {
+    for (const t of [
+      'He reads the note: his hands tremble.',
+      'Soldiers stand in front of monitors: three men type.',
+      'The display: a green grid of lights.',
+      'Monitors: green waveforms pulse.',
+      'The sign says nothing.',
+      'He signs: thank you.',
+      'Ein Schild: rot und rostig.',
+      'She signs "THANK YOU" to him.',
+    ]) expect(textSpans(t), t).toEqual([])
+  })
+  it('B3: a carrier clause starts after a comma, semicolon, colon or joining word; the action stays in rest, a full sentence', () => {
+    const EXIT = 'A soldier in grey armour grabs the rifle as a sign reads "EXIT".'
+    expect(textClauses(EXIT)).toMatchObject({ clause: 'A sign reads "EXIT".', rest: 'A soldier in grey armour grabs the rifle.' })
+    expect(textClauses('A technician types as monitors: SYSTEM ONLINE.')).toMatchObject({ clause: 'Monitors: SYSTEM ONLINE.', rest: 'A technician types.' })
+    expect(textClauses('A soldier rips the newspaper, headline: ROBOTS ATTACK.')).toMatchObject({ clause: 'Headline: ROBOTS ATTACK.', rest: 'A soldier rips the newspaper.' })
+    expect(textClauses('Rain falls; a sign reads CLOSED.')).toMatchObject({ clause: 'A sign reads CLOSED.', rest: 'Rain falls.' })
+    // nothing separates the action from the carrier: the whole sentence is the clause
+    expect(textClauses(HEADLINE)).toMatchObject({ clause: HEADLINE, rest: '' })
+    expect(shortenDeterministic(EXIT, 13)).toBe(EXIT)
+  })
+  it('B3: fit places the action on the plain track and the text as its own pause', async () => {
+    const shot = (description: string): Described => ({ index: 0, startMs: 0, endMs: 3000, description, sameAsPrev: false, tokens: 0, outputTokens: 0 })
+    const exit = await fit([shot('A soldier in grey armour grabs the rifle as a sign reads "EXIT".')], [{ startMs: 0, endMs: 3200 }], (t, n) => safeShorten(t, n, (x) => x))
+    expect(exit.map((c) => [c.extended, c.text])).toEqual([[true, 'A sign reads "EXIT".'], [false, 'A soldier in grey armour grabs the rifle.']])
+    const tech = await fit([shot('A technician types as monitors: SYSTEM ONLINE.')], [{ startMs: 0, endMs: 1500 }], (t, n) => safeShorten(t, n, (x) => x))
+    expect(tech.map((c) => [c.extended, c.text])).toEqual([[true, 'Monitors: SYSTEM ONLINE.'], [false, 'A technician types.']])
+  })
+  it('B3: plotEvents still finds the action beside a carrier clause', () => {
+    expect(plotEvents('A soldier grabs the rifle as a sign reads "EXIT".', '')).toEqual(['grabs'])
+  })
+  it('B3: withoutSaidText keeps the action and tidies the sentence', () => {
+    expect(withoutSaidText('A soldier tears down the poster that reads "WANTED". He runs.', ['wanted'])).toBe('A soldier tears down the poster. He runs.')
+    expect(withoutSaidText('A soldier rips the newspaper, headline: ROBOTS ATTACK.', ['robots attack'])).toBe('A soldier rips the newspaper.')
+  })
+  it('S2: the trailing-modifier rule stops before a joining word that starts the next action', () => {
+    expect(textClauses('Words appear: "NORTH" and a man runs in.')).toMatchObject({ clause: 'Words appear: "NORTH"', rest: 'A man runs in.' })
+    expect(textClauses('Words appear: "NORTH" in red as a man runs in.')).toMatchObject({ clause: 'Words appear: "NORTH" in red', rest: 'A man runs in.' })
+    expect(textClauses(TITLE)).toMatchObject({ clause: 'Words appear: "TEARS OF STEEL" in metallic silver, centered.', rest: 'Darkness.' })
+  })
+  it('stripDarkness also takes "Darkness..." and "Darkness," and capitalises what follows', () => {
+    expect(stripDarkness('Darkness... A glow.')).toBe('A glow.')
+    expect(stripDarkness('Darkness… A glow.')).toBe('A glow.')
+    expect(stripDarkness('Darkness, a glow.')).toBe('A glow.')
+    expect(stripDarkness('Darkness...')).toBe('Darkness...')
+  })
+  it('the describe prompt asks for "dim" when the scene is visible but dim', () => {
+    expect(describeSystemPrompt({ maxWords: 8, knownNames: [], language: 'en' })).toMatch(/visible but dim, say dim/)
+  })
+  it('S1: the edit step reads the shot descriptions without the "Darkness." prefix', async () => {
+    const shots: Described[] = [
+      { index: 0, startMs: 0, endMs: 3000, description: 'Smoke rises.', sameAsPrev: false, tokens: 0, outputTokens: 0 },
+      { index: 1, startMs: 3000, endMs: 6000, description: 'Darkness. A lamp flickers.', sameAsPrev: false, tokens: 0, outputTokens: 0 },
+      { index: 2, startMs: 6000, endMs: 9000, description: 'Darkness. A figure kneels beside a prone body.', sameAsPrev: false, tokens: 0, outputTokens: 0 },
+    ]
+    const cues: FitCue[] = [
+      { startMs: 0, endMs: 1500, text: 'Smoke rises.', extended: false, wordCount: 2, shotIndex: 0, limitMs: 3000 },
+      { startMs: 6000, endMs: 8500, text: 'A figure kneels beside a prone body.', extended: false, wordCount: 7, shotIndex: 2, limitMs: 20000 },
+    ]
+    const seen: string[] = []
+    const send: EditConverse = async (i) => {
+      seen.push((i.messages![0]!.content![0] as { text: string }).text)
+      return { output: { message: { role: 'assistant', content: [{ toolUse: { toolUseId: 't1', name: 'emit_edits', input: { edits: [{ cue: 1, text: 'Darkness. A figure kneels beside a prone body.' }] } } }] } }, usage: { inputTokens: 1, outputTokens: 1 } } as never
+    }
+    const r = await editScene(cues, shots, [], 'en', send, undefined, (t) => t)
+    expect(seen.join('\n')).toContain('A lamp flickers.')
+    expect(seen.join('\n')).not.toContain('Darkness')
+    expect(r.applied).toEqual([])
+    expect(r.cues[1]!.text).toBe('A figure kneels beside a prone body.')
   })
 })

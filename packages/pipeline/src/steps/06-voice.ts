@@ -7,7 +7,7 @@ import { byStart, capExtended, introducesNew, leadText, shortenDeterministic, te
 import type { Shot } from './02-shots'
 import { cueAudioFile, probeDurationMs } from '../cues'
 import { meter, pollyUsd } from '../cost'
-import { textSpans } from '../textClause'
+import { textSpans, withoutSpans } from '../textClause'
 import { EVENT_SPACING_MS, eventSpaced, plotEvent } from '../plotEvent'
 
 /** A clip may run this far past its limit (its gap's end, or the next placed cue's start − NEXT_CUE_SPACING_MS) before it counts as an overrun. */
@@ -221,10 +221,7 @@ const bodies = (t: string) => textSpans(t).map((s) => asSaid(s.body))
 /** `text` without the on-screen text clauses whose text is in `said` (as `bodies` reads it); '' when nothing else was there. Pure (tested). */
 export function withoutSaidText(text: string, said: readonly string[]): string {
   const spans = said.length ? textSpans(text).filter((s) => said.includes(asSaid(s.body))) : []
-  if (!spans.length) return text
-  let out = '', at = 0
-  for (const s of spans) { out += text.slice(at, s.start); at = s.end }
-  return (out + text.slice(at)).replace(/\s+/g, ' ').trim()
+  return spans.length ? withoutSpans(text, spans) : text
 }
 /**
  * A pause must not start while a clip still speaks: every extended cue (on-screen text, event, introducesNew) starts at or after the
