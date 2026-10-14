@@ -6,13 +6,22 @@ import { clauseText, stripDarkness, textSpans, withoutSpans } from '../textClaus
 import { eventSpaced, newWords, plotEvents } from '../plotEvent'
 
 /**
- * endMs: fit's estimate (words / WPS + 300 ms) until 06-voice measures the Polly clip and rewrites it as startMs + clip duration (DESC-013).
+ * endMs: fit's estimate (estimateClipMs: words / WPS + CLIP_OVERHEAD_MS) until 06-voice measures the Polly clip and rewrites it as startMs + clip duration (DESC-013).
  * limitMs: placed cues only — the end of the gap the cue was placed in, which the clip must not overrun (06-voice); absent on extended cues.
  * event: an extended cue added because its shot carries a new plot event and could not be placed (DESC-020, fit or 06-voice); these
  * count against the one-per-30 s cap — on-screen text cues and introducesNew cues do not.
  */
 export interface FitCue { startMs: number; endMs: number; text: string; extended: boolean; wordCount: number; shotIndex: number; limitMs?: number; event?: true }
 export const WPS = 160 / 60 // 2.67 words per second
+/** The silence in a voiced clip besides its words (decision 0009; sintel-90-210-g8 clips: 3 words measure 1512–1800 ms). */
+export const LEAD_BREAK_MS = 150 // 06-voice cueSsml's <break time="150ms"/>
+export const LEAD_SILENCE_MS = 150 // Polly's own silence before the first word
+export const TAIL_SILENCE_MS = 150 // after the last word (measured ~100 ms, up to ~150)
+export const CLIP_OVERHEAD_MS = LEAD_BREAK_MS + LEAD_SILENCE_MS + TAIL_SILENCE_MS
+/** fit's estimate of a clip's length: its words at WPS plus CLIP_OVERHEAD_MS. */
+export const estimateClipMs = (wordCount: number) => Math.round((wordCount / WPS) * 1000) + CLIP_OVERHEAD_MS
+/** The most words whose estimated clip fits in roomMs (the inverse of estimateClipMs; the epsilon keeps an exact fit). */
+export const wordsThatFit = (roomMs: number) => Math.max(0, Math.floor(((roomMs - CLIP_OVERHEAD_MS) / 1000) * WPS + 1e-6))
 /** A description may start up to 1 s after its shot ends, never later (Gate C, approved 2026-10-01). */
 export const LATE_MS = 1000
 /** Fewer words than this in a gap is no description; try the next gap in the window. */
@@ -47,14 +56,14 @@ export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, max
           const start = Math.max(g.cursor, s.startMs)
           if (start >= g.endMs) continue // gap used up, or entirely before the shot
           if (start > s.endMs + LATE_MS) break // gaps are sorted; nothing later is on time (exactly LATE_MS late is allowed)
-          const maxWords = Math.floor(((g.endMs - start) / 1000) * WPS)
+          const maxWords = wordsThatFit(g.endMs - start)
           if (maxWords >= MIN_WORDS) r.push({ g, start, maxWords })
         }
         return r
       }
       const fitted = async (text: string, maxWords: number) => { const t = words(text) > maxWords ? await shorten(text, maxWords) : text; return words(t) <= maxWords ? t : undefined }
       const place = (g: (typeof free)[number], start: number, text: string) => {
-        const end = Math.min(g.endMs, start + Math.round((words(text) / WPS) * 1000) + 300)
+        const end = Math.min(g.endMs, start + estimateClipMs(words(text)))
         out.push({ startMs: start, endMs: end, text, extended: false, wordCount: words(text), shotIndex: s.index, limitMs: g.endMs })
         g.cursor = end + 150
       }
@@ -71,17 +80,22 @@ export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, max
         const text = await fitted(c.rest, maxWords)
         if (text === undefined) continue
         const prevEnd = Math.max(s.startMs, ...out.filter((x) => !x.extended && x.endMs <= start).map((x) => x.endMs))
-        const { textStart, actionStart } = leadText(start, prevEnd, (later) => words(text) <= Math.floor(((g.endMs - later) / 1000) * WPS))
+        const { textStart, actionStart } = leadText(start, prevEnd, (later) => words(text) <= wordsThatFit(g.endMs - later))
         out.push({ ...extended(s), ...await capExtended(c.clause, shorten), startMs: textStart, endMs: textStart + 100 })
         place(g, actionStart, text)
         placed = true
         break
       }
       if (placed) continue
-      if (introducesNew(s.description)) { out.push({ ...extended(s), ...await capExtended(s.description, shorten) }); continue }
+      /** A pause never starts before the estimated end of an earlier shot's placed cue (g9: shot 9's event pause inside shot 8's cue). */
+      const pause = (): FitCue => {
+        const startMs = Math.max(s.startMs, ...out.filter((x) => !x.extended && x.shotIndex < s.index).map((x) => x.endMs))
+        return { ...extended(s), startMs, endMs: startMs + 100 }
+      }
+      if (introducesNew(s.description)) { out.push({ ...pause(), ...await capExtended(s.description, shorten) }); continue }
       const previous = [...out].reverse().find((x) => !x.extended)?.text ?? '' // the previous placed cue: what the AD track said, whatever the mode
       const verbs = plotEvents(s.description, previous)
-      if (verbs.length) events.push({ cue: { ...extended(s), ...await capExtended(s.description, shorten), event: true }, verbs: verbs.length, fresh: newWords(s.description, previous) })
+      if (verbs.length) events.push({ cue: { ...pause(), ...await capExtended(s.description, shorten), event: true }, verbs: verbs.length, fresh: newWords(s.description, previous) })
     }
     return [...out, ...capEvents(events)].sort(byStart)
   }

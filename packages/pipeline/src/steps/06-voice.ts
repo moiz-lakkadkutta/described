@@ -3,19 +3,22 @@ import { execa } from 'execa'
 import { readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { z } from 'zod'
 import type { Ctx } from './index'
-import { byStart, capExtended, introducesNew, leadText, shortenDeterministic, textClauses, type FitCue } from './05-fit'
+import { byStart, capExtended, introducesNew, leadText, shortenDeterministic, TAIL_SILENCE_MS, textClauses, type FitCue } from './05-fit'
 import type { Shot } from './02-shots'
 import { cueAudioFile, probeDurationMs } from '../cues'
 import { meter, pollyUsd } from '../cost'
 import { textSpans, withoutSpans } from '../textClause'
 import { EVENT_SPACING_MS, eventSpaced, plotEvent } from '../plotEvent'
 
-/** A clip may run this far past its limit (its gap's end, or the next placed cue's start − NEXT_CUE_SPACING_MS) before it counts as an overrun. */
+/**
+ * A clip FILE may run this far past its limit (its gap's end, or the next placed cue's start − NEXT_CUE_SPACING_MS) — never past the next
+ * placed cue's start — while its SPEECH ends by the limit (decision 0009): the extra is Polly's trailing silence.
+ */
 export const OVERRUN_TOLERANCE_MS = 200
 /** fit's spacing between two cues in one gap (its cursor: end + 150 ms). */
 export const NEXT_CUE_SPACING_MS = 150
 /** work/{slug}/cue_{i}.json: what clip cue_{i}.mp3 says, in which voice, with which SSML (so a wrapper change re-synthesizes), and how long it is. */
-export interface CueSidecar { text: string; voice: string; language: 'en' | 'de'; ssml: string; durationMs: number }
+export interface CueSidecar { text: string; voice: string; language: 'en' | 'de'; ssml: string; durationMs: number; /** The clip's speech: up to its trailing silence (decision 0009). */ speechMs?: number }
 export const cueSidecarFile = (i: number) => `cue_${i}.json`
 const CUE_FILE = /^cue_(\d+)\.(mp3|json)$/
 
@@ -24,6 +27,11 @@ export interface VoiceDeps {
   synthesize?: (text: string, voice: string, language: 'en' | 'de') => Promise<Uint8Array>
   /** Clip duration in ms. */
   measureMs?: (file: string) => Promise<number>
+  /**
+   * The clip's speech in ms (up to its trailing silence), or undefined when it cannot be measured: then it is the clip's duration −
+   * TAIL_SILENCE_MS. Default: ffmpeg silencedetect, unless measureMs is injected (tests), when the fallback is used.
+   */
+  measureSpeechMs?: (file: string) => Promise<number | undefined>
 }
 
 /** SSML: a 150 ms lead-in break, then the text at normal rate (W1-E's promptClips duplicates this wrapper on purpose). */
@@ -48,6 +56,23 @@ export function parseClipDurationMs(stdout: string): number {
   if (!Number.isFinite(sec) || sec <= 0) throw new Error(`ffprobe gave no clip duration: ${JSON.stringify(stdout)}`)
   return Math.round(sec * 1000)
 }
+/** Decision 0009: `ffmpeg -af silencedetect=noise=-45dB:d=0.05` — https://ffmpeg.org/ffmpeg-filters.html#silencedetect */
+export const silenceDetectArgs = (file: string) => ['-hide_banner', '-nostats', '-i', file, '-af', 'silencedetect=noise=-45dB:d=0.05', '-f', 'null', '-']
+/**
+ * Pure (tested): the speech length from silencedetect's log — the start of the last silence when it runs to the clip's end (no
+ * silence_end after it, or one within 30 ms of durationMs); durationMs when the clip does not end in silence.
+ */
+export function parseSpeechMs(stderr: string, durationMs: number): number {
+  const starts = [...stderr.matchAll(/silence_start: ([\d.]+)/g)].map((m) => parseFloat(m[1]!))
+  const ends = [...stderr.matchAll(/silence_end: ([\d.]+)/g)].map((m) => parseFloat(m[1]!))
+  if (!starts.length) return durationMs
+  const trailing = ends.length < starts.length || ends.at(-1)! * 1000 >= durationMs - 30
+  return trailing ? Math.min(durationMs, Math.round(starts.at(-1)! * 1000)) : durationMs
+}
+/** The speech length of a clip, or undefined when ffmpeg fails (the caller falls back to duration − TAIL_SILENCE_MS). */
+export const ffmpegSpeechMs = (signal?: AbortSignal) => async (file: string, durationMs: number) => {
+  try { return parseSpeechMs((await execa('ffmpeg', silenceDetectArgs(file), { cancelSignal: signal })).stderr, durationMs) } catch (e) { if (signal?.aborted) throw e; return undefined }
+}
 export const ffprobeClipMs = (signal?: AbortSignal) => async (file: string) => parseClipDurationMs((await execa('ffprobe', clipDurationArgs(file), { cancelSignal: signal })).stdout)
 
 const words = (t: string) => t.trim().split(/\s+/).filter(Boolean).length
@@ -60,8 +85,9 @@ const words = (t: string) => t.trim().split(/\s+/).filter(Boolean).length
  * 1. Reuse cue_{i}.mp3 when cue_{i}.json says the same text, voice and language (no Polly call, no cost); else synthesize,
  *    measure with ffprobe and write the sidecar.
  * 2. A placed cue's limit is min(limitMs, start of the next placed cue in cues.json − NEXT_CUE_SPACING_MS): fit's start times are
- *    fixed by now, so a clip longer than fit's estimate must not run into the next cue of the same gap. A clip ending past
- *    limit + OVERRUN_TOLERANCE_MS is shortened deterministically to max(3, ⌊words × (limit − startMs) / durationMs⌋) words and
+ *    fixed by now, so a clip longer than fit's estimate must not run into the next cue of the same gap. A clip whose speech ends past
+ *    the limit, or whose file ends past limit + OVERRUN_TOLERANCE_MS or the next placed cue's start (decision 0009; the speech from
+ *    ffmpeg silencedetect, stored in the sidecar, else duration − TAIL_SILENCE_MS), is shortened deterministically to max(3, ⌊words × (limit − startMs) / durationMs⌋) words and
  *    synthesized once more (the shortening keeps on-screen text only beside at least half of the action's words). Still over and the
  *    text has on-screen text beside other words (human, 2026-10-10): split — the rest, shortened to fit, stays in this slot, and the
  *    text clause becomes its own extended cue TEXT_LEAD_MS before it (fit's leadText: never before the shot start from shots.json —
@@ -94,21 +120,41 @@ const words = (t: string) => t.trim().split(/\s+/).filter(Boolean).length
 export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
   const synthesize = deps.synthesize ?? pollySynthesize(ctx.signal)
   const measureMs = deps.measureMs ?? ffprobeClipMs(ctx.signal)
+  const ffmpegSpeech = ffmpegSpeechMs(ctx.signal)
+  const measureSpeech = deps.measureSpeechMs ? (f: string) => deps.measureSpeechMs!(f) : deps.measureMs ? async () => undefined : (f: string, d: number) => ffmpegSpeech(f, d)
+  /**
+   * Decision 0009: the measured speech (`measured`), else the clip minus its usual tail, with a warning. A measured 0 (an all-silent clip
+   * at −45 dB) counts as a failed measurement.
+   */
+  const speechOf = async (file: string, durationMs: number): Promise<{ speechMs: number; measured: boolean }> => {
+    const m = await measureSpeech(file, durationMs)
+    if (m !== undefined && m > 0) return { speechMs: m, measured: true }
+    const speechMs = Math.max(0, durationMs - TAIL_SILENCE_MS)
+    console.warn(`voice: speech not measured for ${file}${m === 0 ? ' (all silent)' : ''}; using the clip length − TAIL_SILENCE_MS = ${speechMs} ms`)
+    return { speechMs, measured: false }
+  }
   const filmMs = await probeDurationMs(ctx.work)
   const cues = beforeFilmEnd(JSON.parse(await readFile(`${ctx.work}/cues.json`, 'utf8')) as FitCue[], filmMs)
   const language = ctx.language
   await removeCueFilesFrom(ctx.work, cues.length)
   for (const f of await readdir(ctx.work)) if (f.startsWith(MOVING)) await rm(`${ctx.work}/${f}`, { force: true }) // left by a crash in withTextCues
   const shotStart = new Map((JSON.parse(await readFile(`${ctx.work}/shots.json`, 'utf8').catch(() => '[]')) as Shot[]).map((x) => [x.index, x.startMs]))
-  /** Synthesizes text into slot i (overwriting it) and returns the clip's duration. */
-  const synth = async (i: number, text: string) => {
+  /** Synthesizes text into slot i (overwriting it) and returns the clip's duration and speech length. */
+  const synth = async (i: number, text: string): Promise<Clip> => {
     const file = `${ctx.work}/${cueAudioFile(i)}`
     const audio = await synthesize(text, ctx.voice, language)
     meter()?.add(pollyUsd(text.length))
     await writeFile(file, audio)
     const durationMs = await measureMs(file)
-    await writeFile(`${ctx.work}/${cueSidecarFile(i)}`, JSON.stringify({ text, voice: ctx.voice, language, ssml: cueSsml(text), durationMs } satisfies CueSidecar))
-    return durationMs
+    const { speechMs, measured } = await speechOf(file, durationMs)
+    // an estimated speech end is not stored: a later run measures it again
+    await writeFile(`${ctx.work}/${cueSidecarFile(i)}`, JSON.stringify({ text, voice: ctx.voice, language, ssml: cueSsml(text), durationMs, ...(measured ? { speechMs } : {}) } satisfies CueSidecar))
+    return { durationMs, speechMs }
+  }
+  /** The stored clip of slot i when its sidecar matches (its speech measured now when the sidecar predates decision 0009). */
+  const reuse = async (i: number, text: string): Promise<Clip | undefined> => {
+    const r = await reusable(ctx.work, i, { text, voice: ctx.voice, language, ssml: cueSsml(text) })
+    return r && { durationMs: r.durationMs, speechMs: r.speechMs ?? (await speechOf(`${ctx.work}/${cueAudioFile(i)}`, r.durationMs)).speechMs }
   }
   const files = [cueAudioFile, cueSidecarFile]
   /** The original clip of a cue, set aside (ORIG_ + its names) before the slot shortening overwrites its slot: an event pause may voice it again without a third Polly call. */
@@ -131,17 +177,19 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
     const base = withoutSaidText(c.text, heardText())
     if (!base) { console.log(`voice: cue ${i} at ${c.startMs} ms is on-screen text the previous cue said; not voiced: ${JSON.stringify(c.text)}`); continue }
     let text = base
-    let durationMs = (await reusable(ctx.work, i, { text, voice: ctx.voice, language, ssml: cueSsml(text) })) ?? await synth(i, text)
+    let { durationMs, speechMs } = (await reuse(i, text)) ?? await synth(i, text)
     let cue: FitCue | null = { ...c }
     let startMs = c.startMs
-    let aside: { text: string; durationMs: number } | undefined
+    let aside: { text: string; durationMs: number; speechMs: number } | undefined
     const next = cues.slice(i + 1).find((x) => !x.extended)
     const limit = c.limitMs === undefined ? undefined : Math.min(c.limitMs, next ? next.startMs - NEXT_CUE_SPACING_MS : Infinity)
-    if (limit !== undefined && c.startMs + durationMs > limit + OVERRUN_TOLERANCE_MS) {
+    /** Decision 0009: the speech ends by the limit; the file by limit + OVERRUN_TOLERANCE_MS and never past the next placed cue's start. */
+    const overruns = (start: number) => limit !== undefined && (start + speechMs > limit || start + durationMs > Math.min(limit + OVERRUN_TOLERANCE_MS, next ? next.startMs : Infinity))
+    if (limit !== undefined && overruns(c.startMs)) {
       const maxWords = Math.max(3, Math.floor((words(text) * (limit - c.startMs)) / durationMs))
       const shorter = shortenDeterministic(text, maxWords)
-      if (shorter !== text) { await setAside(i); aside = { text, durationMs }; text = shorter; durationMs = await synth(i, text) }
-      const tc = c.startMs + durationMs > limit + OVERRUN_TOLERANCE_MS ? textClauses(text) : undefined
+      if (shorter !== text) { await setAside(i); aside = { text, durationMs, speechMs }; text = shorter; ({ durationMs, speechMs } = await synth(i, text)) }
+      const tc = overruns(c.startMs) ? textClauses(text) : undefined
       if (tc?.rest) {
         const fitWords = Math.max(3, Math.floor((words(text) * (limit - c.startMs)) / durationMs))
         const { limitMs: _, ...rest } = c
@@ -149,25 +197,25 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
         texts.push({ ...rest, endMs: c.startMs + 100, text: clause, extended: true, wordCount: words(clause) })
         console.log(`voice: cue ${i} at ${c.startMs} ms: on-screen text split into its own extended cue: ${JSON.stringify(clause)}`)
         text = shortenDeterministic(tc.rest, fitWords)
-        durationMs = await synth(i, text)
+        ;({ durationMs, speechMs } = await synth(i, text))
         const prevEnd = Math.max(shotStart.get(c.shotIndex) ?? c.startMs, ...kept.filter((k) => !k.extended).map((k) => k.endMs)) // every kept clip's measured end: one may run past this cue's start (within tolerance)
-        const lead = leadText(c.startMs, prevEnd, (later) => later + durationMs <= limit + OVERRUN_TOLERANCE_MS)
+        const lead = leadText(c.startMs, prevEnd, (later) => !overruns(later))
         texts.at(-1)!.startMs = lead.textStart
         texts.at(-1)!.endMs = lead.textStart + 100
         startMs = lead.actionStart
       }
-      if (startMs + durationMs > limit + OVERRUN_TOLERANCE_MS) {
+      if (overruns(startMs)) {
         if (introducesNew(text)) {
           const capped = (await capExtended(text, shortenDeterministic)).text
-          if (capped !== text) { text = capped; durationMs = await synth(i, text) }
+          if (capped !== text) { text = capped; ({ durationMs, speechMs } = await synth(i, text)) }
           const { limitMs: _, ...rest } = c
           cue = { ...rest, extended: true }
           console.log(`voice: cue ${i} at ${c.startMs} ms runs ${c.startMs + durationMs - limit} ms past its limit; now extended: ${JSON.stringify(text)}`)
         } else if (plotEvent(base, previousPlaced(kept)) && eventSpaced(eventStarts, startMs)) {
           // the full text (the rest, when the on-screen text was split off above — said once, in its own pause), not the slot shortening
           const full = (await capExtended(tc?.rest ? textClauses(base)!.rest : base, shortenDeterministic)).text
-          if (full === aside?.text) { await restore(i); text = full; durationMs = aside.durationMs; aside = undefined }
-          else if (full !== text) { text = full; durationMs = await synth(i, text) }
+          if (full === aside?.text) { await restore(i); text = full; durationMs = aside.durationMs; speechMs = aside.speechMs; aside = undefined }
+          else if (full !== text) { text = full; ({ durationMs, speechMs } = await synth(i, text)) }
           const { limitMs: _, ...rest } = c
           cue = { ...rest, extended: true, event: true }
           eventStarts.push(startMs)
@@ -184,7 +232,7 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
     if (j !== i) for (const f of [cueAudioFile, cueSidecarFile]) await rename(`${ctx.work}/${f(i)}`, `${ctx.work}/${f(j)}`)
     kept.push({ ...cue, startMs, text, endMs: startMs + durationMs, wordCount: words(text) })
   }
-  if (texts.length) kept = await withTextCues(ctx.work, kept, texts, synth, (i, text) => reusable(ctx.work, i, { text, voice: ctx.voice, language, ssml: cueSsml(text) }))
+  if (texts.length) kept = await withTextCues(ctx.work, kept, texts, synth, reuse)
   kept = await afterClips(ctx.work, kept)
   kept = await dropPastEnd(ctx.work, kept, filmMs)
   await removeCueFilesFrom(ctx.work, kept.length)
@@ -196,14 +244,14 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
  * Merges split-off text cues into the kept cues in start order (a text cue before a kept cue of the same start), moves every kept
  * clip to its new slot (through temporary names, so no clip overwrites one not yet moved), then voices each text cue in its slot.
  */
-async function withTextCues(work: string, kept: FitCue[], texts: FitCue[], synth: (i: number, text: string) => Promise<number>, reuse: (i: number, text: string) => Promise<number | undefined>): Promise<FitCue[]> {
+async function withTextCues(work: string, kept: FitCue[], texts: FitCue[], synth: (i: number, text: string) => Promise<Clip>, reuse: (i: number, text: string) => Promise<Clip | undefined>): Promise<FitCue[]> {
   const all = [...kept.map((c, from) => ({ c, from })), ...texts.map((c) => ({ c, from: -1 }))]
   all.sort((a, b) => byStart(a.c, b.c))
   const moves = all.flatMap(({ from }, to) => (from >= 0 && from !== to ? [{ from, to }] : []))
   const files = [cueAudioFile, cueSidecarFile]
   for (const { from } of moves) for (const f of files) await rename(`${work}/${f(from)}`, `${work}/${MOVING}${f(from)}`)
   for (const { from, to } of moves) for (const f of files) await rename(`${work}/${MOVING}${f(from)}`, `${work}/${f(to)}`)
-  for (const [to, x] of all.entries()) if (x.from < 0) x.c = { ...x.c, endMs: x.c.startMs + ((await reuse(to, x.c.text)) ?? await synth(to, x.c.text)) }
+  for (const [to, x] of all.entries()) if (x.from < 0) x.c = { ...x.c, endMs: x.c.startMs + ((await reuse(to, x.c.text)) ?? await synth(to, x.c.text)).durationMs }
   return all.map((x) => x.c)
 }
 
@@ -225,15 +273,16 @@ export function withoutSaidText(text: string, said: readonly string[]): string {
 }
 /**
  * A pause must not start while a clip still speaks: every extended cue (on-screen text, event, introducesNew) starts at or after the
- * measured end of every placed cue before it — fit's starts were estimates (a text cue TEXT_LEAD_MS before its action; an event cue at the
+ * measured end of every placed cue before it (`before`: an earlier shot's, or one that starts earlier) — fit's starts were estimates (a text cue TEXT_LEAD_MS before its action; an event cue at the
  * shot start, which can be inside the previous clip). Keeps its clip length. The cap holds after the move: an event cue that now starts
  * within EVENT_SPACING_MS of an earlier event cue (in start order) is dropped, deterministically. Re-sorted (byStart) and the clips
  * re-slotted when anything moved. Pure apart from the clip files (tested through voice).
  */
 async function afterClips(work: string, cues: FitCue[]): Promise<FitCue[]> {
-  let end = -Infinity, moved = false
+  let moved = false
   const all = cues.map((c, from) => {
-    if (!c.extended) { end = Math.max(end, c.endMs); return { c, from } }
+    if (!c.extended) return { c, from }
+    const end = Math.max(-Infinity, ...cues.filter((p) => !p.extended && before(p, c)).map((p) => p.endMs))
     if (c.startMs >= end) return { c, from }
     moved = true
     return { c: { ...c, startMs: end, endMs: end + (c.endMs - c.startMs) }, from }
@@ -254,6 +303,13 @@ async function afterClips(work: string, cues: FitCue[]): Promise<FitCue[]> {
   for (const { from, to } of moves) for (const f of [cueAudioFile, cueSidecarFile]) await rename(`${work}/${MOVING}${f(from)}`, `${work}/${f(to)}`)
   return out.map((x) => x.c)
 }
+/**
+ * Whether placed cue p is heard before pause e (decision 0009 review): by shot, then by start — a placed cue of an earlier shot comes
+ * first even when fit started e's pause sooner (g9: shot 9's event pause at its shot start, inside shot 8's late clip); within one
+ * shot by start (byStart: a text cue first on a shared start); a later shot's placed cue that starts before e still counts, so no
+ * pause starts while any clip speaks.
+ */
+const before = (p: FitCue, e: FitCue) => p.shotIndex < e.shotIndex || (p.shotIndex === e.shotIndex ? byStart(p, e) < 0 : p.startMs < e.startMs)
 /**
  * Cues starting before the title's end (probe.json; all of them when the duration is unknown). A cue at or after the end cannot be
  * heard — the mix ends with the film and the app has nothing left to pause — so it is left out before any Polly call, and the mix,
@@ -282,12 +338,15 @@ async function dropPastEnd(work: string, cues: FitCue[], filmMs: number | undefi
 /** The previous placed cue's text — what the AD track said before this cue; '' when none. An event is new against that, whatever the mode. */
 const previousPlaced = (kept: readonly FitCue[]) => [...kept].reverse().find((k) => !k.extended)?.text ?? ''
 
-/** The stored clip's duration when cue_{i}.mp3 exists and its sidecar matches; undefined otherwise. */
-async function reusable(work: string, i: number, want: Omit<CueSidecar, 'durationMs'>): Promise<number | undefined> {
+/** A voiced clip: its file length and its speech (up to the trailing silence), in ms. */
+interface Clip { durationMs: number; speechMs: number }
+/** The stored clip's duration (and speech, when the sidecar has it) when cue_{i}.mp3 exists and its sidecar matches; undefined otherwise. */
+async function reusable(work: string, i: number, want: Omit<CueSidecar, 'durationMs' | 'speechMs'>): Promise<{ durationMs: number; speechMs?: number } | undefined> {
   const side = await readFile(`${work}/${cueSidecarFile(i)}`, 'utf8').then((t) => { try { return JSON.parse(t) as Partial<CueSidecar> } catch { return undefined } }, () => undefined)
   if (!side || side.text !== want.text || side.voice !== want.voice || side.language !== want.language || side.ssml !== want.ssml) return undefined
   if (typeof side.durationMs !== 'number' || !(side.durationMs > 0)) return undefined
-  return (await readFile(`${work}/${cueAudioFile(i)}`).then(() => true, () => false)) ? side.durationMs : undefined
+  const speechMs = typeof side.speechMs === 'number' && side.speechMs > 0 ? side.speechMs : undefined
+  return (await readFile(`${work}/${cueAudioFile(i)}`).then(() => true, () => false)) ? { durationMs: side.durationMs, ...(speechMs === undefined ? {} : { speechMs }) } : undefined
 }
 
 /** Deletes cue_{k}.mp3 and cue_{k}.json for every k ≥ from. */
@@ -298,7 +357,7 @@ async function removeCueFilesFrom(work: string, from: number) {
   }
 }
 
-/** Two placed clips that overlap are both heard. The limit keeps them apart, but up to OVERRUN_TOLERANCE_MS of overlap is allowed: warn about it. */
+/** Two placed clips that overlap are both heard. Decision 0009 keeps every file before the next placed cue's start; warn if one still does. */
 function warnOverlaps(cues: FitCue[]) {
   const placed = cues.filter((c) => !c.extended)
   for (let k = 1; k < placed.length; k++) {

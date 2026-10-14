@@ -3,8 +3,8 @@ import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execa } from 'execa'
-import { OVERRUN_TOLERANCE_MS, clipDurationArgs, cueSidecarFile, cueSsml, parseClipDurationMs, voice, withoutSaidText, type CueSidecar, type VoiceDeps } from '../src/steps/06-voice'
-import type { FitCue } from '../src/steps/05-fit'
+import { OVERRUN_TOLERANCE_MS, clipDurationArgs, parseSpeechMs, silenceDetectArgs, cueSidecarFile, cueSsml, parseClipDurationMs, voice, withoutSaidText, type CueSidecar, type VoiceDeps } from '../src/steps/06-voice'
+import { TAIL_SILENCE_MS, type FitCue } from '../src/steps/05-fit'
 import type { Ctx } from '../src/steps/index'
 import { metered, pollyUsd } from '../src/cost'
 
@@ -14,6 +14,7 @@ import { metered, pollyUsd } from '../src/cost'
  */
 const LONG = 'A tall woman slowly crosses the old bridge, holding a lantern.'
 const SHORT = 'A woman crosses the bridge.' // shortenDeterministic(LONG, 5)
+const MID = 'A woman crosses the bridge, holding a lantern.' // shortenDeterministic(LONG, 9)
 const NIGHT = 'Night. A rooftop. A man waits by the chimney, watching the street.'
 const NIGHT_SHORT = 'Night. A rooftop.' // shortenDeterministic(NIGHT, 4)
 const SNOW = 'Snow falls on the hills, drifting past the cabin.'
@@ -23,7 +24,7 @@ const STREET_SHORT = 'Night. A man in a dark coat walks along the street, past t
 const STREET_CAPPED = 'Night. A man in a dark coat walks along the street, past the bakery, the closed bank and the cinema.' // capExtended(STREET_SHORT): 20 words
 const DURATIONS: Record<string, number> = {
   'Smoke rises.': 1200, 'Snow falls.': 1100, 'She waits.': 1300, 'Words appear: North.': 1700,
-  [LONG]: 4000, [SHORT]: 1900, [NIGHT]: 5000, [NIGHT_SHORT]: 2500, [SNOW]: 6000, [SNOW_SHORT]: 2600,
+  [LONG]: 4000, [SHORT]: 1900, [MID]: 3000, [NIGHT]: 5000, [NIGHT_SHORT]: 2500, [SNOW]: 6000, [SNOW_SHORT]: 2600,
   [STREET]: 11200, [STREET_SHORT]: 10400, [STREET_CAPPED]: 7800,
 }
 
@@ -62,7 +63,7 @@ describe('voice', () => {
     await voice(ctx(), f)
     expect(f.synthesize).toHaveBeenCalledTimes(1)
     expect(f.synthesize).toHaveBeenCalledWith('Smoke rises.', 'Joanna', 'en')
-    expect(JSON.parse(await readFile(`${work}/${cueSidecarFile(0)}`, 'utf8'))).toEqual({ text: 'Smoke rises.', voice: 'Joanna', language: 'en', ssml: cueSsml('Smoke rises.'), durationMs: 1200 })
+    expect(JSON.parse(await readFile(`${work}/${cueSidecarFile(0)}`, 'utf8'))).toEqual({ text: 'Smoke rises.', voice: 'Joanna', language: 'en', ssml: cueSsml('Smoke rises.'), durationMs: 1200 }) // no speechMs: the speech was not measured (measureMs injected), the fallback is not stored
     // A sidecar written with another SSML wrapper (or none, before the wrapper was recorded) is a different clip.
     await writeFile(`${work}/${cueSidecarFile(0)}`, JSON.stringify({ text: 'Smoke rises.', voice: 'Joanna', language: 'en', ssml: '<speak>Smoke rises.</speak>', durationMs: 1200 }))
     const h = fakes()
@@ -83,8 +84,8 @@ describe('voice', () => {
   })
   it('accepts an overrun of up to 200 ms past limitMs', async () => {
     expect(OVERRUN_TOLERANCE_MS).toBe(200)
-    await writeCues([cue(1000, 'Smoke rises.', 2000)]) // 1000 + 1200 = 2200 = limit + 200
-    const f = fakes()
+    await writeCues([cue(1000, 'Smoke rises.', 2000)]) // 1000 + 1200 = 2200 = limit + 200; the speech ends at 1000 + 1000 = the limit
+    const f = { ...fakes(), measureSpeechMs: async () => 1000 }
     await voice(ctx(), f)
     expect(f.synthesize).toHaveBeenCalledTimes(1)
     expect((await readCues())[0]).toMatchObject({ text: 'Smoke rises.', endMs: 2200 })
@@ -231,16 +232,17 @@ describe('voice: on-screen text and pauses after measured clips (DESC-020 follow
     const out = await run([{ ...cue(1000, 'Smoke rises.', 5000), shotIndex: 0 }, text(1800, 'Words appear: North.', 1), { ...cue(2400, 'Snow falls.', 5000), shotIndex: 1 }], fakes())
     expect(out.map((c) => [c.startMs, c.endMs, c.extended, c.text])).toEqual([[1000, 2200, false, 'Smoke rises.'], [2200, 3900, true, 'Words appear: North.'], [2400, 3500, false, 'Snow falls.']])
     for (const [i, c] of out.entries()) expect(await readFile(`${work}/cue_${i}.mp3`, 'utf8')).toBe(c.text)
-    // a text cue that lands after its action is re-slotted behind it, clips with it
-    const late = await run([{ ...cue(1000, 'Smoke rises.', 5000), shotIndex: 0 }, text(2100, 'Words appear: North.', 1), { ...cue(2150, 'Snow falls.', 5000), shotIndex: 1 }], fakes())
-    expect(late.map((c) => [c.startMs, c.text])).toEqual([[1000, 'Smoke rises.'], [2150, 'Snow falls.'], [2200, 'Words appear: North.']])
+    // a text cue moved onto its action's start is re-slotted and heard first (byStart), clips with it; decision 0009 keeps the clip
+    // before it from running past that start (it ended 50 ms into 'Snow falls.' at 2150 before)
+    const late = await run([{ ...cue(1000, 'Smoke rises.', 5000), shotIndex: 0 }, text(2100, 'Words appear: North.', 1), { ...cue(2200, 'Snow falls.', 5000), shotIndex: 1 }], fakes())
+    expect(late.map((c) => [c.startMs, c.text])).toEqual([[1000, 'Smoke rises.'], [2200, 'Words appear: North.'], [2200, 'Snow falls.']])
     for (const [i, c] of late.entries()) expect(await readFile(`${work}/cue_${i}.mp3`, 'utf8')).toBe(c.text)
   })
-  it('a text cue split in voice is placed after every kept clip\'s measured end, including one that overlaps this cue\'s start', async () => {
-    // 'Smoke rises.' from 0 measures 1200 ms: within tolerance of its 1000 ms limit, so it is kept and runs 50 ms past the next cue's start at 1150
+  it('a text cue split in voice is placed after every kept clip\'s measured end, including one that ends at this cue\'s start', async () => {
+    // 'Smoke rises.' from 0 measures 1200 ms (speech 1000 ms = its limit): kept, its file ending at the next cue's start, 1200 (decision 0009)
     const SHOT0 = 'Snowy mountains. A lone figure walks left, carrying a spear. Words appear: SINTEL.'
-    const out = await run([{ ...cue(0, 'Smoke rises.', 1000), shotIndex: 0 }, { ...cue(1150, SHOT0, 5000), shotIndex: 1 }], { synthesize: perWord.synthesize, measureMs: async (f) => { const t = await readFile(f, 'utf8'); return t === 'Smoke rises.' ? 1200 : t.split(/\s+/).length * 560 } })
-    expect(out.map((c) => [c.startMs, c.extended, c.text])).toEqual([[0, false, 'Smoke rises.'], [1200, true, 'Words appear: SINTEL.'], [1550, false, 'Snowy mountains.']])
+    const out = await run([{ ...cue(0, 'Smoke rises.', 1050), shotIndex: 0 }, { ...cue(1200, SHOT0, 5000), shotIndex: 1 }], { synthesize: perWord.synthesize, measureMs: async (f) => { const t = await readFile(f, 'utf8'); return t === 'Smoke rises.' ? 1200 : t.split(/\s+/).length * 560 }, measureSpeechMs: async (f) => ((await readFile(f, 'utf8')) === 'Smoke rises.' ? 1000 : undefined) })
+    expect(out.map((c) => [c.startMs, c.extended, c.text])).toEqual([[0, false, 'Smoke rises.'], [1200, true, 'Words appear: SINTEL.'], [1600, false, 'Snowy mountains.']])
   })
   it('a cue starting at or after the title\'s end (probe.json) is not voiced: no Polly call, no clip, not in cues.json (so not mixed)', async () => {
     await writeFile(`${work}/probe.json`, JSON.stringify({ format: { duration: '3.000' } }))
@@ -279,5 +281,86 @@ describe('voice: on-screen text and pauses after measured clips (DESC-020 follow
     const SHOT0 = 'Snowy mountains. A lone figure walks left, carrying a spear. Words appear: SINTEL.'
     const two = await run([{ ...cue(0, SHOT0, 3000), shotIndex: 0 }, { ...cue(5604, 'Snowy mountains. A figure walks, falls. Words appear: SINTEL.', 16720), shotIndex: 1 }])
     expect(two.map((c) => [c.startMs, c.extended, c.text])).toEqual([[0, true, 'Words appear: SINTEL.'], [400, false, 'Snowy mountains.'], [5604, false, 'Snowy mountains. A figure walks, falls.']])
+  })
+})
+
+describe('voice: decision 0009 — the speech ends by the limit, the clip file by limit + 200 ms and the next cue\'s start', () => {
+  const speech = (m: Record<string, number>) => async (f: string) => m[await readFile(f, 'utf8')]
+  it('a clip whose file is within the tolerance but whose speech runs past the limit is shortened', async () => {
+    // LONG: file 4000 ms (ends 4000 ≤ 3850 + 200), speech 3900 ms (ends 3900 > 3850) → shortened to SHORT
+    await writeCues([cue(0, LONG, 3850)])
+    const f = { ...fakes(), measureSpeechMs: speech({ [LONG]: 3900, [MID]: 2900 }) }
+    await voice(ctx(), f)
+    expect(f.synthesize.mock.calls.map((c) => c[0])).toEqual([LONG, MID]) // max(3, ⌊10 × 3850 / 4000⌋) = 9 words
+    expect((await readCues()).map((c) => c.text)).toEqual([MID])
+  })
+  it('a clip whose speech ends by the limit but whose file runs past the next placed cue\'s start is shortened', async () => {
+    // next placed cue at 3950 → limit min(10000, 3800); LONG speech 3700 ≤ 3800, file 4000 ≤ 4000 but > 3950 (the next cue's start)
+    await writeCues([cue(0, LONG, 10000), cue(3950, 'Smoke rises.', 10000)])
+    const f = { ...fakes(), measureSpeechMs: speech({ [LONG]: 3700, [MID]: 2900, 'Smoke rises.': 1000 }) }
+    await voice(ctx(), f)
+    expect((await readCues()).map((c) => [c.startMs, c.endMs, c.text])).toEqual([[0, 3000, MID], [3950, 5150, 'Smoke rises.']])
+  })
+  it('without a speech measurement the speech end is the clip end − TAIL_SILENCE_MS', async () => {
+    // 'Smoke rises.' 1200 ms from 1000: file 2200 ≤ 2000 + 200, speech 2200 − 150 = 2050 > 2000 → no shorter text, not new, no event: dropped
+    expect(TAIL_SILENCE_MS).toBe(150)
+    await writeCues([cue(1000, 'Smoke rises.', 2000)])
+    await voice(ctx(), fakes())
+    expect(await readCues()).toEqual([])
+    await writeCues([cue(1000, 'Smoke rises.', 2050)]) // 2050 = speech end: kept
+    await voice(ctx(), fakes())
+    expect((await readCues()).map((c) => c.text)).toEqual(['Smoke rises.'])
+  })
+  it('the clip sidecar stores the speech length, and a reused clip uses it', async () => {
+    await writeCues([cue(0, 'Smoke rises.', 5000)])
+    await voice(ctx(), { ...fakes(), measureSpeechMs: async () => 1010 })
+    expect(JSON.parse(await readFile(`${work}/${cueSidecarFile(0)}`, 'utf8'))).toMatchObject({ durationMs: 1200, speechMs: 1010 })
+    // reused with a 1020 ms limit: the stored speech (1010) passes; the fallback (1200 − 150 = 1050) would not
+    await writeCues([cue(0, 'Smoke rises.', 1020)])
+    const f = fakes()
+    await voice(ctx(), f)
+    expect(f.synthesize).not.toHaveBeenCalled()
+    expect((await readCues()).map((c) => c.text)).toEqual(['Smoke rises.'])
+  })
+  it('an all-silent measurement (speech 0) counts as failed: the fallback is used, with a warning, and not stored', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await writeCues([cue(0, 'Smoke rises.', 1050)])
+    await voice(ctx(), { ...fakes(), measureSpeechMs: async () => 0 })
+    expect((await readCues()).map((c) => c.text)).toEqual(['Smoke rises.']) // 1200 − 150 = 1050 ≤ 1050
+    expect(JSON.parse(await readFile(`${work}/${cueSidecarFile(0)}`, 'utf8'))).not.toHaveProperty('speechMs')
+    expect(warn.mock.calls.flat().join(' ')).toMatch(/speech not measured.*TAIL_SILENCE_MS/)
+    warn.mockRestore()
+  })
+  it('no two placed clip files overlap', async () => {
+    // clips that the old rule (file ≤ limit + 200 with limit = next start − 150) let run up to 50 ms into the next cue
+    const T = ['Smoke rises.', 'Snow falls.', 'She waits.', 'Smoke rises.']
+    const starts = [0, 1150, 2200, 3450]
+    await writeCues(T.map((t, k) => ({ ...cue(starts[k]!, t, 10000), shotIndex: k })))
+    await voice(ctx(), fakes())
+    const placed = (await readCues()).filter((c) => !c.extended)
+    expect(placed.length).toBeGreaterThan(0)
+    for (let k = 1; k < placed.length; k++) expect(placed[k - 1]!.endMs).toBeLessThanOrEqual(placed[k]!.startMs)
+  })
+  it('g9 shots 8 and 9: an event pause from a later shot moves after the earlier shot\'s placed clip, and is heard after it', async () => {
+    const placed8: FitCue = { startMs: 37240, endMs: 38815, text: 'Girl accepts bowl.', extended: false, wordCount: 3, shotIndex: 8, limitMs: 38989 }
+    const event9: FitCue = { startMs: 36333, endMs: 36433, text: 'Woman offers bowl to man.', extended: true, wordCount: 5, shotIndex: 9, event: true }
+    await writeCues([event9, placed8])
+    await voice(ctx(), { synthesize: async (t) => new TextEncoder().encode(t), measureMs: async (f) => ((await readFile(f, 'utf8')) === 'Girl accepts bowl.' ? 1440 : 1872), measureSpeechMs: async (f) => ((await readFile(f, 'utf8')) === 'Girl accepts bowl.' ? 1332 : 1760) })
+    const out = await readCues()
+    expect(out.map((c) => [c.shotIndex, c.startMs, c.endMs])).toEqual([[8, 37240, 38680], [9, 38680, 40552]])
+    for (const [i, c] of out.entries()) expect(await readFile(`${work}/cue_${i}.mp3`, 'utf8')).toBe(c.text)
+  })
+})
+describe('speech end (silencedetect)', () => {
+  it('builds the decision-0009 silencedetect command', () => {
+    expect(silenceDetectArgs('c.mp3')).toEqual(['-hide_banner', '-nostats', '-i', 'c.mp3', '-af', 'silencedetect=noise=-45dB:d=0.05', '-f', 'null', '-'])
+  })
+  it('reads the start of the trailing silence (recorded g8 cue_3, 1800 ms), or the clip end when there is none', () => {
+    const log = '[silencedetect @ 0x1] silence_start: 0\n[silencedetect @ 0x1] silence_end: 0.303958 | silence_duration: 0.303958\n[silencedetect @ 0x1] silence_start: 1.706625\n'
+    expect(parseSpeechMs(log, 1800)).toBe(1707)
+    expect(parseSpeechMs(log + '[silencedetect @ 0x1] silence_end: 1.8 | silence_duration: 0.093375\n', 1800)).toBe(1707) // ends at the clip end
+    const inner = '[silencedetect @ 0x1] silence_start: 0\n[silencedetect @ 0x1] silence_end: 0.3 | silence_duration: 0.3\n[silencedetect @ 0x1] silence_start: 1.2\n[silencedetect @ 0x1] silence_end: 1.5 | silence_duration: 0.3\n'
+    expect(parseSpeechMs(inner, 1800)).toBe(1800) // a pause inside the clip (1.2–1.5 s), speech to the clip end
+    expect(parseSpeechMs('', 1800)).toBe(1800)
   })
 })

@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fit, safeShorten, WPS, type FitCue } from '../src/steps/05-fit'
+import { estimateClipMs, fit, safeShorten, type FitCue } from '../src/steps/05-fit'
 import { voice } from '../src/steps/06-voice'
 import { editBudgets, editScene } from '../src/steps/05b-edit'
 import type { Described } from '../src/steps/04-describe'
@@ -47,15 +47,24 @@ beforeEach(async () => { work = await mkdtemp(join(tmpdir(), 'r210-')) })
 afterEach(async () => { await rm(work, { recursive: true, force: true }) })
 
 describe('sintel-90-210 run A2 golden replay', () => {
-  it('fit reproduces the run: 23 cues, none extended, and the shots it could not place carry no plot event', async () => {
+  it('fit on the run\'s inputs (decision 0009: clip estimate words / WPS + CLIP_OVERHEAD_MS): no placed cue is estimated past its limit', async () => {
     const cues = await fit(described, gaps, shorten)
-    // DESC-010 follow-up: fit strips a "Darkness." prefix in front of a visible scene (shot 2), one word less on the same slot
-    const darkness = { text: 'A fire pit glows faintly in a dim room.', wordCount: 9, endMs: 11208 + Math.round((9 / WPS) * 1000) + 300 }
-    expect(strip(cues)).toEqual(fitCues.map((c) => (c.shotIndex === 2 ? { ...c, ...darkness } : c)))
-    expect(cues.filter((c) => c.extended)).toEqual([])
+    // The run's fit (300 ms overhead) placed 23 cues; 06-voice then dropped shots 8 and 24 and shot 27, whose clips ran past their slots.
+    // With 450 ms, the 4-word "Red-haired girl accepts bowl." has no room in 37240–38989 and becomes fit's own event pause (DESC-020);
+    // the pause starts at the estimated end of shot 7's placed cue, not inside it (decision 0009 review);
+    // shot 3 (1449 ms left in 0–16720) and shot 27 are not placed; longer lines are estimated longer, so later cues start later and
+    // shot 22 loses its slot to 23.
+    expect(cues.map((c) => [c.shotIndex, c.extended])).toEqual([[0, false], [1, false], [2, false], [4, false], [7, false], [8, true], [9, false], [12, false], [13, false], [14, false],
+      [15, false], [16, false], [17, false], [18, false], [19, false], [20, false], [21, false], [23, false], [24, false], [25, false], [26, false]])
+    expect(cues.find((c) => c.shotIndex === 8)).toMatchObject({ text: 'Red-haired girl accepts bowl.', event: true })
+    // DESC-010 follow-up: fit strips a "Darkness." prefix in front of a visible scene (shot 2)
+    expect(cues.find((c) => c.shotIndex === 2)).toMatchObject({ text: 'A fire pit glows faintly in a dim room.', startMs: 11208, endMs: 11208 + estimateClipMs(9) })
+    for (const c of cues.filter((x) => !x.extended)) {
+      expect(c.endMs).toBe(c.startMs + estimateClipMs(c.wordCount))
+      expect(c.endMs).toBeLessThanOrEqual(c.limitMs!)
+    }
     const placed = new Set(cues.map((c) => c.shotIndex))
-    // 5 watches … stir; 6 blinks, expression; 10 opens eyes; 11 hands hold … face rises; 23 stares; 28 holds book — none is an event
-    expect(described.filter((s) => !placed.has(s.index)).map((s) => s.index)).toEqual([5, 6, 10, 11, 23, 28])
+    expect(described.filter((s) => !placed.has(s.index)).map((s) => s.index)).toEqual([3, 5, 6, 10, 11, 22, 27, 28])
   })
 
   it('voice: shots 8 and 24 become extended event cues; every other cue is as the run voiced it (golden list)', async () => {
