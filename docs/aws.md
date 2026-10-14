@@ -59,7 +59,7 @@ figures come from its printed totals.
 | Measured (CLI meter): sintel-90-150-r2, CLI run 2026-10-04 (before DESC-017/018/020) | $0.0499 total |
 | Measured: describe on 29 shots / 2 min (0003) | $0.034 Qwen3-VL |
 | Per minute of film, from the prices in `cost.ts` | Transcribe $0.024 + describe ≈ $0.017 + Polly ≈ $0.006 + Nova Lite < $0.002 ≈ **$0.05** |
-| Per minute, measured mean (DESC-025: `estimateUsd` in `cost.ts`, from the five titles' rows) | Transcribe $0.024 + Qwen3-VL $0.0191 + Polly $0.0112 + Nova Lite $0.0003 = **$0.0546** ($0.0514–0.0586) |
+| Per minute, measured mean (DESC-025: `estimateUsd` in `cost.ts`, from the five titles' rows; measured before the verify pass — describe figures measured after DESC-027 include the verify call) | Transcribe $0.024 + Qwen3-VL $0.0191 + Polly $0.0112 + Nova Lite $0.0003 = **$0.0546** ($0.0514–0.0586) |
 | Per minute with the verify pass (DESC-027, estimate, not yet measured; `estimateUsd` does not include it) | $0.0546 + ≈ $0.020 ≈ **$0.075** |
 | 12-minute short | ≈ $0.66 |
 | One hour of film | ≈ $3.28 ($3.08–3.52); derivation in the README, "Cost per hour of film" |

@@ -2,7 +2,8 @@ import { mkdtemp, readdir, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildVerifyRequest, cachedVerify, checkVerified, newVerifyReport, parseVerifyReply, verifyCacheKey, verifyEnabled, verifyReply, writeVerifyReport, VERIFY_MAX_TOKENS } from '../src/steps/04b-verify'
-import { buildDescribeRequest, type Converse, type RawReply } from '../src/steps/04-describe'
+import { buildDescribeRequest, describeAndVerify, describeInParts, type Converse, type RawReply } from '../src/steps/04-describe'
+import type { Shot } from '../src/steps/02-shots'
 import { verifySystemPrompt, verifyUserText, VERIFY_PROMPT_VERSION } from '../src/verifyPrompt'
 import { metered } from '../src/cost'
 
@@ -12,6 +13,8 @@ const json = (text: string, removed: string[] = []) => JSON.stringify({ text, re
 const reply = (text: string, stopReason: 'end_turn' | 'max_tokens' = 'end_turn') => ({ output: { message: { role: 'assistant' as const, content: [{ text }] } }, usage: { inputTokens: 2400, outputTokens: 40, totalTokens: 2440 }, stopReason })
 const raw = (text: string): RawReply => ({ text, usage: { inputTokens: 2200, outputTokens: 13 }, stopReason: 'end_turn' })
 const tmp = () => mkdtemp(join(tmpdir(), 'verify-'))
+const opts = { maxWords: 25, names: [] as string[] }
+const shot = (index: number) => ({ index, language: 'en' as const, maxWords: 25, names: [] as string[] })
 
 // The descriptions blind raters failed on sintel-90-210 (Gate C run g9, 2026-10-14), as Qwen3-VL wrote them.
 const G9 = {
@@ -31,11 +34,16 @@ const G9 = {
 
 describe('verify prompt', () => {
   it('names every detail class the raters failed, asks for JSON, sentences and no new facts', () => {
-    const p = verifySystemPrompt('en')
-    for (const s of ['colours', 'on the body', 'a bat or a small dragon', 'a staff or a sword', 'left or right', 'open or closed', 'who holds, gives', '"nearby"', 'mist swirling',
-      'Delete every detail that is not clearly visible', 'Prefer deleting to guessing', 'Never add a fact', 'exactly as written', 'never a list of nouns', 'no more words than the draft', '{"text":', 'Reply in English.'])
+    const p = verifySystemPrompt('en', 11)
+    for (const s of ['colours', 'on the body', 'what kind of creature or animal', 'what an object is', 'left or right', 'open or closed', 'who holds, gives', '"nearby"', 'movement or change',
+      'Delete every detail that is not clearly visible', 'Prefer deleting to guessing', 'Never add a fact', 'exactly as written', '"Text erscheint:"', 'never a list of nouns',
+      'is, are, has, have, with, there', 'Use at most 11 words.', '{"text":', 'Reply in English.'])
       expect(p).toContain(s)
-    expect(verifySystemPrompt('de')).toContain('Reply in German.')
+    expect(verifySystemPrompt('de', 8)).toContain('Reply in German.')
+  })
+  it('does not teach this clip\'s answers: no film-specific example pairs', () => {
+    const p = verifySystemPrompt('en', 11)
+    for (const s of ['bat', 'dragon', 'staff', 'sword', 'book', 'mist', 'shoulder', 'chest']) expect(p).not.toMatch(new RegExp(`\\b${s}\\b`))
     expect(verifyUserText('A "SINTEL" sign.')).toBe('These are frames from one shot, in time order. Draft description: "A \\"SINTEL\\" sign." Check it against the frames.')
   })
 })
@@ -76,14 +84,14 @@ describe('checkVerified', () => {
       [G9.staff, 'Bearded man holds ornate weapon; red-haired woman watches.'],
       [G9.pink, 'Woman in gray tank top near stone wall.'],
       [G9.nearby, 'Red-haired woman smiles; dragon roars.'],
-      [G9.book, 'There is a red-haired girl with a creature.'],
+      [G9.book, 'A red-haired girl is with a creature.'],
       [G9.sleeve, 'The woman in the grey tank top holds a red apple in a sunlit courtyard.'],
-      [G9.city, 'There is a dense city under a hazy sky, with a central pyramid.'],
+      [G9.city, 'A dense city is under a hazy sky with a pyramid.'],
     ]
-    for (const [draft, text] of ok) expect(checkVerified(draft, { text, removed: [] }), text).toEqual({ text, applied: true })
+    for (const [draft, text] of ok) expect(checkVerified(draft, { text, removed: [] }, opts), text).toEqual({ text, applied: true })
   })
   it('accepts an unchanged draft as applied with no change', () => {
-    expect(checkVerified(G9.bat, { text: G9.bat, removed: [] })).toEqual({ text: G9.bat, applied: true })
+    expect(checkVerified(G9.bat, { text: G9.bat, removed: [] }, opts)).toEqual({ text: G9.bat, applied: true })
   })
   it('rejects a reply that swaps in a new specific word, and keeps the draft', () => {
     const bad: [string, string, RegExp][] = [
@@ -97,24 +105,48 @@ describe('checkVerified', () => {
       [G9.book, 'Sintel holds small dragon.', /new words: sintel, holds, small, dragon/], // a name the draft did not have is a new word
     ]
     for (const [draft, text, reason] of bad) {
-      const r = checkVerified(draft, { text, removed: [] })
+      const r = checkVerified(draft, { text, removed: [] }, opts)
       expect(r.applied, text).toBe(false)
       expect(r.text).toBe(draft)
       expect(r.reason).toMatch(reason)
     }
   })
   it('rejects a reply that changes, drops or adds on-screen text', () => {
-    expect(checkVerified(G9.walksLeft, { text: 'A figure walks across snow beneath icy peaks.', removed: [] })).toMatchObject({ applied: false, reason: 'on-screen text changed' })
-    expect(checkVerified(G9.walksLeft, { text: 'Words appear: SINTEL! A figure walks across snow.', removed: [] })).toMatchObject({ applied: false, reason: 'on-screen text changed' })
-    expect(checkVerified(G9.bat, { text: 'Words appear: BAT. Woman kneels.', removed: [] })).toMatchObject({ applied: false, reason: 'on-screen text changed' })
+    expect(checkVerified(G9.walksLeft, { text: 'A figure walks across snow beneath icy peaks.', removed: [] }, opts)).toMatchObject({ applied: false, reason: 'on-screen text changed' })
+    expect(checkVerified(G9.walksLeft, { text: 'Words appear: SINTEL! A figure walks across snow.', removed: [] }, opts)).toMatchObject({ applied: false, reason: 'on-screen text changed' })
+    expect(checkVerified(G9.bat, { text: 'Words appear: BAT. Woman kneels.', removed: [] }, opts)).toMatchObject({ applied: false, reason: 'on-screen text changed' })
+  })
+  it('does not let a word of the on-screen text count as a description word', () => {
+    expect(checkVerified('A sign. Words appear: DRAGON.', { text: 'A dragon sign. Words appear: DRAGON.', removed: [] }, opts)).toMatchObject({ applied: false, reason: 'new words: dragon' })
+    expect(checkVerified('A man holds a sign. Words appear: "OPEN".', { text: 'A man holds an object. Words appear: "OPEN".', removed: [] }, opts)).toMatchObject({ applied: true })
+  })
+  it('rejects a reply that reorders the draft\'s words and so changes who does what, or where', () => {
+    const bad: [string, string][] = [
+      ['The man hands the girl a sword.', 'The girl hands the man a sword.'],
+      ['A figure moves from left to right.', 'A figure moves from right to left.'],
+      ['Red-haired woman holds dragon. A man watches.', 'Woman holds dragon. A red-haired man watches.'],
+    ]
+    for (const [draft, text] of bad) expect(checkVerified(draft, { text, removed: [] }, opts), text).toEqual({ text: draft, applied: false, reason: 'words out of order' })
+  })
+  it('lets a general word stand in for one draft word only, a plural one only for a plural', () => {
+    expect(checkVerified('Woman kneels beside wounded bat.', { text: 'Woman kneels beside creature.', removed: [] }, opts).applied).toBe(true)
+    expect(checkVerified('Woman kneels beside bat.', { text: 'Woman kneels beside creature creature.', removed: [] }, opts).applied).toBe(false)
+    expect(checkVerified('Woman feeds bat.', { text: 'Woman feeds creatures.', removed: [] }, opts)).toMatchObject({ applied: false, reason: 'words out of order' })
+    expect(checkVerified('Woman feeds bats.', { text: 'Woman feeds creatures.', removed: [] }, opts).applied).toBe(true)
+  })
+  it('rejects a reply that drops a name the draft had', () => {
+    expect(checkVerified('Sintel reads book.', { text: 'A person reads book.', removed: [] }, { maxWords: 25, names: ['Sintel'] })).toMatchObject({ applied: false, reason: 'name dropped: Sintel' })
+    expect(checkVerified('Sintel reads book.', { text: 'Sintel reads.', removed: [] }, { maxWords: 25, names: ['Sintel'] }).applied).toBe(true)
   })
   it('rejects an empty reply, a SAME reply and a longer one', () => {
-    for (const text of ['', '  ', '""', 'SAME']) expect(checkVerified(G9.bat, { text, removed: [] })).toMatchObject({ applied: false, text: G9.bat, reason: 'empty' })
-    expect(checkVerified(G9.offers, { text: 'There is a woman with a bowl and there is a man.', removed: [] })).toMatchObject({ applied: false, reason: 'longer than the draft' })
-    expect(checkVerified(G9.book, { text: 'Red-haired girl reads book, creature.', removed: [] })).toMatchObject({ applied: false, reason: 'more content words than the draft' })
+    for (const text of ['', '  ', '""', 'SAME']) expect(checkVerified(G9.bat, { text, removed: [] }, opts)).toMatchObject({ applied: false, text: G9.bat, reason: 'empty' })
+    expect(checkVerified(G9.offers, { text: 'There is a woman with a bowl and a man.', removed: [] }, opts)).toMatchObject({ applied: false, reason: 'more than 8 words' }) // draft 5 + 3
+    expect(checkVerified(G9.offers, { text: 'There is a woman with a bowl.', removed: [] }, { maxWords: 6, names: [] })).toMatchObject({ applied: false, reason: 'more than 6 words' }) // the shot's budget
+    expect(checkVerified(G9.tattoo, { text: G9.tattoo.replace('slowly ', ''), removed: [] }, { maxWords: 8, names: [] }).applied).toBe(true) // never below the draft's own length
+    expect(checkVerified(G9.book, { text: 'Red-haired girl reads book, creature.', removed: [] }, opts)).toMatchObject({ applied: false })
   })
   it('matches inflections through the stem, as the edit pass does', () => {
-    expect(checkVerified('Man pours broth.', { text: 'Man pouring broth.', removed: [] }).applied).toBe(true)
+    expect(checkVerified('Man pours broth.', { text: 'Man pouring broth.', removed: [] }, opts).applied).toBe(true)
   })
 })
 
@@ -156,10 +188,10 @@ describe('verifyReply', () => {
     const work = await tmp()
     const report = newVerifyReport(MODEL)
     const send = vi.fn<Converse>(async () => reply(json('Woman kneels beside wounded creature on cobblestones.', ['bat'])))
-    const r = await verifyReply(work, 24, frames, raw(G9.bat), send, 'en', report, MODEL)
+    const r = await verifyReply(work, frames, raw(G9.bat), send, report, shot(24))
     expect(r).toMatchObject({ text: 'Woman kneels beside wounded creature on cobblestones.', usage: { inputTokens: 4600, outputTokens: 53 } })
     const req = send.mock.calls[0]![0]
-    expect(req.system).toEqual([{ text: verifySystemPrompt('en') }])
+    expect(req.system).toEqual([{ text: verifySystemPrompt('en', 10) }]) // min(7 + 3, 25)
     expect(req.messages![0]!.content!.at(-1)).toEqual({ text: verifyUserText(G9.bat) })
     expect(req.inferenceConfig).toMatchObject({ temperature: 0 })
     expect(report.shots).toEqual([{ index: 24, draft: G9.bat, text: 'Woman kneels beside wounded creature on cobblestones.', removed: ['bat'], applied: true, changed: true, cached: false }])
@@ -167,32 +199,32 @@ describe('verifyReply', () => {
   })
   it('uses the reply to turn a noun-list draft into a sentence', async () => {
     const report = newVerifyReport(MODEL)
-    const send = vi.fn<Converse>(async () => reply(json('There is a dense city under a hazy sky, with a central pyramid.')))
-    expect((await verifyReply(await tmp(), 14, frames, raw(G9.city), send, 'en', report, MODEL)).text).toBe('There is a dense city under a hazy sky, with a central pyramid.')
+    const send = vi.fn<Converse>(async () => reply(json('A dense city is under a hazy sky with a pyramid.')))
+    expect((await verifyReply(await tmp(), frames, raw(G9.city), send, report, shot(14))).text).toBe('A dense city is under a hazy sky with a pyramid.')
   })
   it('keeps the draft and records why when a guard rejects the reply or it is unreadable', async () => {
     const report = newVerifyReport(MODEL)
     const work = await tmp()
     const bad = vi.fn<Converse>(async () => reply(json('Woman kneels beside wounded dragon on cobblestones.', ['bat'])))
-    expect((await verifyReply(work, 24, frames, raw(G9.bat), bad, 'en', report, MODEL)).text).toBe(G9.bat)
+    expect((await verifyReply(work, frames, raw(G9.bat), bad, report, shot(24))).text).toBe(G9.bat)
     const prose = vi.fn<Converse>(async () => reply('The draft is correct.'))
-    expect((await verifyReply(work, 7, frames, raw('Old man pours broth.'), prose, 'en', report, MODEL)).text).toBe('Old man pours broth.')
+    expect((await verifyReply(work, frames, raw('Old man pours broth.'), prose, report, shot(7))).text).toBe('Old man pours broth.')
     expect(report.shots.map((s) => [s.index, s.applied, s.reason])).toEqual([[24, false, 'new words: dragon'], [7, false, 'unreadable reply']])
     expect(report.shots[0]).toMatchObject({ text: G9.bat, reply: 'Woman kneels beside wounded dragon on cobblestones.' })
   })
   it('does not call Bedrock for SAME, empty or on-screen-text-only drafts', async () => {
     const send = vi.fn<Converse>(async () => reply(json('x')))
     const report = newVerifyReport(MODEL)
-    for (const t of ['SAME', '', 'Words appear: "SINTEL".']) expect((await verifyReply(await tmp(), 0, frames, raw(t), send, 'en', report, MODEL)).text).toBe(t)
+    for (const t of ['SAME', '', 'Words appear: "SINTEL".']) expect((await verifyReply(await tmp(), frames, raw(t), send, report, shot(0))).text).toBe(t)
     expect(send).not.toHaveBeenCalled()
     expect(report.shots).toEqual([])
   })
   it('a re-run is served from the cache: no second call, same text', async () => {
     const work = await tmp()
     const send = vi.fn<Converse>(async () => reply(json('Red-haired woman smiles; dragon roars.', ['nearby'])))
-    const first = await verifyReply(work, 27, frames, raw(G9.nearby), send, 'en', newVerifyReport(MODEL), MODEL)
+    const first = await verifyReply(work, frames, raw(G9.nearby), send, newVerifyReport(MODEL), shot(27))
     const report = newVerifyReport(MODEL)
-    const again = await verifyReply(work, 27, frames, raw(G9.nearby), send, 'en', report, MODEL)
+    const again = await verifyReply(work, frames, raw(G9.nearby), send, report, shot(27))
     expect(again.text).toBe(first.text)
     expect(send).toHaveBeenCalledTimes(1)
     expect(report.shots[0]).toMatchObject({ cached: true, applied: true })
@@ -203,17 +235,36 @@ describe('verifyReply', () => {
     const send = vi.fn<Converse>(async () => reply(json('x')))
     const report = newVerifyReport(MODEL)
     const r = raw(G9.bat)
-    expect(await verifyReply(await tmp(), 24, frames, r, send, 'en', report, MODEL)).toBe(r)
+    expect(await verifyReply(await tmp(), frames, r, send, report, shot(24))).toBe(r)
     expect(send).not.toHaveBeenCalled()
     expect(report.enabled).toBe(false)
   })
   it('writes verify.json with the prompt version, model, usage and each shot', async () => {
     const work = await tmp()
     const report = newVerifyReport(MODEL)
-    await verifyReply(work, 9, frames, raw(G9.offers), vi.fn<Converse>(async () => reply(json('Woman keeps bowl.'))), 'en', report, MODEL)
+    await verifyReply(work, frames, raw(G9.offers), vi.fn<Converse>(async () => reply(json('Woman keeps bowl.'))), report, shot(9))
     await writeVerifyReport(work, report)
     const file = JSON.parse(await readFile(join(work, 'verify.json'), 'utf8'))
     expect(file).toMatchObject({ enabled: true, model: MODEL, promptVersion: VERIFY_PROMPT_VERSION, usage: { inputTokens: 2400, outputTokens: 40 }, shots: [{ index: 9, applied: false, reason: 'new words: keeps' }] })
     expect(file.shots).toHaveLength(1)
+  })
+})
+
+describe('describeAndVerify with a split shot', () => {
+  it('tells the later part what the CHECKED earlier part said, not the raw draft', async () => {
+    delete process.env.DESCRIBE_VERIFY
+    const work = await tmp()
+    const shots: Shot[] = [{ index: 0, startMs: 0, endMs: 5000, part: { of: 2, i: 0 } }, { index: 1, startMs: 5000, endMs: 10000, part: { of: 2, i: 1 } }]
+    const send = vi.fn<Converse>(async (req) => {
+      const user = req.messages![0]!.content!.at(-1)!.text!
+      if (user.includes('Draft description')) return reply(json(user.includes('walks left') ? 'A figure walks across snow, holding an object.' : 'The figure falls in snow.'))
+      return reply(req.messages![0]!.content!.length === 3 && !user.includes('Already said') ? 'A figure walks left across snow, holding a staff.' : 'The figure falls in snow.')
+    })
+    const report = newVerifyReport(MODEL)
+    const replies = await describeInParts(shots, 1, (s, said) => describeAndVerify(work, MODEL, 'sys', frames, send, said, report, shot(s.index)))
+    const describeCalls = send.mock.calls.map((c) => c[0]).filter((r) => r.system![0]!.text === 'sys')
+    expect(describeCalls).toHaveLength(2)
+    expect(describeCalls[1]!.messages![0]!.content!.at(-1)!.text).toContain('Already said for the earlier part(s) of this shot: "A figure walks across snow, holding an object."')
+    expect(replies[0]!.text).toBe('A figure walks across snow, holding an object.')
   })
 })

@@ -30,24 +30,36 @@ shortening of a full sentence, not from describe.
 
 One more Qwen3-VL Converse call per described shot (`packages/pipeline/src/steps/04b-verify.ts`, prompt in `src/verifyPrompt.ts`),
 inside the describe step right after the shot's description, with the **same key frames** (same image blocks, same order) and the
-draft text, temperature 0, ≤ 200 output tokens. The prompt lists the detail classes above with their real examples and says:
-delete every detail that is not clearly visible; a wrong word for a thing that is there may become a general word (creature,
-animal, person, figure, object, weapon, someone, something); prefer deleting to guessing; never add a fact; keep on-screen text
-clauses and names exactly; write sentences, not noun lists; no more words than the draft. Reply: JSON `{text, removed[]}`.
+draft text, temperature 0, ≤ 200 output tokens. The prompt names the kinds of detail raters failed — colours, where on the body,
+what kind of creature or object, screen direction, eye state, who holds or does what, place across a cut, motion — as types only,
+with no example pair from this film (that would teach the evaluation clip's answers). It says: delete every detail that is not
+clearly visible; a wrong word for a thing that is there may become a general word (creature, animal, person, figure, object,
+weapon, someone, something); prefer deleting to guessing; never add a fact; keep on-screen text clauses ("Words appear:", German
+"Text erscheint:"), names and the draft's order; write sentences, not noun lists, adding only the linking words is, are, has,
+have, with, there, a, an, the (and "visible"); at most N words, N = `wordCap`. Reply: JSON `{text, removed[]}`.
 
-**Guards** (`checkVerified`, deterministic; any failure keeps the draft and the reason is recorded):
+**Guards** (`checkVerified`, deterministic; any failure keeps the draft and the reason is recorded). Description words are the
+content words (`src/contentWords.ts`: the edit pass's STOP list and Porter stem) of the text **without its on-screen text
+clauses**, so "Words appear: DRAGON." never licenses "a dragon sign".
 1. empty after `parseDescription`'s cleaning (quotes, a SAME reply);
 2. on-screen text changed — the text clauses (`src/textClause.ts`) must equal the draft's, in order;
-3. new words — every content word (`src/contentWords.ts`, the edit pass's STOP list and Porter stem) must be in the draft or in
-   the general-word list (plus "visible", so a noun list can become "A face is visible."). A name the draft did not have is a new
-   word, so names follow the draft (and the draft followed `knownNames`);
-4. no more content words than the draft;
-5. at most 5 words longer than the draft (`MAX_ADDED_FUNCTION_WORDS`): a sentence made from "Dense city under hazy sky, central
-   pyramid structure." needs "there is", articles and "with"; guard 4 already stops anything with content.
+3. name dropped — a known name (`knownNames` for the shot) that the draft said is missing;
+4. new words — every description word must be in the draft (by stem) or be a general word (plus "visible"). A name the draft did
+   not have is a new word, so names follow the draft (and the draft followed `knownNames`);
+5. words out of order (`inDraftOrder`) — the reply's description words must be a subsequence of the draft's, where a general word
+   stands in for exactly one draft word at its position (a plural one — creatures, people, objects — only for a plural draft
+   word). Without it a reply made only of draft words could swap roles or sides: "The man hands the girl a sword" → "The girl
+   hands the man a sword", "from left to right" → "from right to left", "Red-haired woman holds dragon. A man watches." →
+   "Woman holds dragon. A red-haired man watches." — all three rejected;
+6. no more description words than the draft;
+7. at most `wordCap` words: the draft's length + 3 (`MAX_ADDED_WORDS`, room for "there is" / an article to make a noun list a
+   sentence), within the shot's describe word budget (`wordBudget`, passed from `describeShots`) — but never below the draft's own
+   length, so a draft that already ran over its budget can still be cut down.
 
-So the pass can only **remove** or **generalise**: it cannot turn "walks left" into "walks right" (guard 3 rejects "right"), only
-into "walks". Not called for SAME, empty or on-screen-text-only drafts. The checked text replaces the reply before `dedupe`, so a
-later part of a split shot is told what the verified earlier part said.
+With guards 4–6 the pass can only **delete**, **generalise** one word in place, or **add linking words**: "walks left" can become
+"walks", never "walks right" (guard 4), and no reply can reorder who does what (guard 5). Not called for SAME, empty or
+on-screen-text-only drafts. The checked text replaces the reply before `dedupe`, so a later part of a split shot is told what the
+checked earlier part said (`describeAndVerify`, tested).
 
 **Cache, cost, audit.** `cache/verify/{sha256(version, model, prompt, frames, draft)}.json`, written atomically, never for a
 `max_tokens` reply: a retry or `--from describe` re-run pays nothing for an unchanged shot. Every fresh call is metered. The shot's
@@ -64,11 +76,13 @@ Verify sends the same frames plus a longer system prompt and the draft (≈ 2,43
 
 ## Risks
 
-- **It may delete true details** and leave thinner descriptions ("Red-haired girl." instead of a wrong "reads book"); raters
-  should judge coverage as well as faithfulness. A bare noun phrase is not rejected by a guard.
+- **It may delete true details** and leave thinner descriptions ("A red-haired girl is with a creature." instead of a wrong
+  "reads book"); raters should judge coverage as well as faithfulness. A bare noun phrase is not rejected by a guard.
+- **Attribute swaps between two people with one shared noun** ("woman … woman") can still pass the order guard when the words stay
+  in order; the subsequence rule only stops movement across the sentence.
 - **It may miss**: the same model that invented a detail is asked to spot it. The bet is that checking a named claim against
   frames is easier than describing; only the evaluation says whether it holds.
-- **Guard 3 stops true corrections** ("bat" → "dragon"); by design — a correction is a new claim that nothing checks.
+- **Guard 4 stops true corrections** ("bat" → "dragon"); by design — a correction is a new claim that nothing checks.
 - **Fragments from fit's shortener** ("City, central pyramid.") are not fixed here: the verify pass sees describe's full sentence.
 - Doubles the Converse calls in describe (latency per shot ≈ 2×; same `DESCRIBE_CONCURRENCY`).
 

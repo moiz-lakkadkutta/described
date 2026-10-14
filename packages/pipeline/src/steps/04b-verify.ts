@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { meter } from '../cost'
 import { contentWords, stem } from '../contentWords'
 import { textSpans, withoutSpans } from '../textClause'
-import { GENERAL_WORDS, VERIFY_PROMPT_VERSION, verifySystemPrompt, verifyUserText } from '../verifyPrompt'
+import { GENERAL_WORDS, PLURAL_GENERAL_WORDS, VERIFY_PROMPT_VERSION, verifySystemPrompt, verifyUserText } from '../verifyPrompt'
 import { parseDescription, replyText, type Converse, type RawReply } from './04-describe'
 
 /**
@@ -25,10 +25,10 @@ export const verifyModelId = (describeModel: string) => process.env.VERIFY_MODEL
 /** Room for {"text": …, "removed": […]} around a ≤ 25-word description. */
 export const VERIFY_MAX_TOKENS = 200
 /**
- * A sentence made from a noun list ("Dense city under hazy sky, central pyramid structure.") needs articles and a copula:
- * the reply may have this many more words than the draft, as long as it has no more content words.
+ * A sentence made from a noun list ("Dense city under hazy sky, central pyramid structure.") needs an article and a copula:
+ * the reply may have this many more words than the draft (within the shot's word budget), as long as it adds no content word.
  */
-export const MAX_ADDED_FUNCTION_WORDS = 5
+export const MAX_ADDED_WORDS = 3
 
 /** The request: the describe request's image blocks (same frames, same order), then the draft; temperature 0. */
 export function buildVerifyRequest(system: string, frames: Uint8Array[], modelId: string, draft: string): ConverseCommandInput {
@@ -43,7 +43,10 @@ export function buildVerifyRequest(system: string, frames: Uint8Array[], modelId
   }
 }
 
-/** sha256(verify + model id + system prompt + key-frame bytes + draft). The prompt version is in the system prompt's text. */
+/**
+ * sha256(VERIFY_PROMPT_VERSION + model id + system prompt + key-frame bytes + draft). The system prompt (which carries the word cap) is
+ * hashed as text; the user text, max tokens and temperature are not — bump VERIFY_PROMPT_VERSION when those change.
+ */
 export function verifyCacheKey(modelId: string, system: string, frames: Uint8Array[], draft: string): string {
   const h = createHash('sha256').update(`verify v${VERIFY_PROMPT_VERSION}\0`).update(modelId).update('\0').update(system)
   for (const f of frames) h.update('\0').update(f)
@@ -77,27 +80,65 @@ export function parseVerifyReply(reply: string): Verified | undefined {
 
 const clauses = (t: string) => textSpans(t).map((s) => t.slice(s.start, s.end).trim())
 const words = (t: string) => t.trim().split(/\s+/).filter(Boolean).length
-const unique = (t: string) => [...new Set(contentWords(t))]
+const unique = (ws: string[]) => [...new Set(ws)]
+/** The description words of t: its content words (../contentWords) with the on-screen text clauses left out. */
+const described = (t: string) => contentWords(withoutSpans(t, textSpans(t)))
+/** The reply's word cap: the draft's length + MAX_ADDED_WORDS within the shot's word budget, never below the draft's own length. */
+export const wordCap = (draft: string, maxWords: number) => Math.max(words(draft), Math.min(words(draft) + MAX_ADDED_WORDS, maxWords))
+const isPlural = (w: string) => /[^s]s$/.test(w) || w === 'people'
 
 /**
- * The guards, in order; any failure keeps the draft (applied false, reason):
+ * True when reply (content words) is a subsequence of draft (content words) by stem, where a general word stands in for exactly
+ * one draft word at its position (a plural general word only for a plural draft word). Deleting, generalising and joining a noun
+ * list into a sentence keep the order; "The girl hands the man a sword" from "The man hands the girl a sword" does not.
+ */
+export function inDraftOrder(reply: readonly string[], draft: readonly string[]): boolean {
+  const d = draft.map(stem)
+  const memo = new Map<number, boolean>()
+  const fits = (i: number, j: number): boolean => {
+    if (i === reply.length) return true
+    if (j === draft.length) return false
+    const key = i * (draft.length + 1) + j
+    const hit = memo.get(key)
+    if (hit !== undefined) return hit
+    const w = reply[i]!
+    const here = stem(w) === d[j] || GENERAL_WORDS.has(w) || (PLURAL_GENERAL_WORDS.has(w) && isPlural(draft[j]!))
+    const r = (here && fits(i + 1, j + 1)) || fits(i, j + 1)
+    memo.set(key, r)
+    return r
+  }
+  return fits(0, 0)
+}
+
+export interface CheckOptions { maxWords: number; names: readonly string[] }
+/**
+ * The guards, in order; any failure keeps the draft (applied false, reason). Description words are counted without the on-screen
+ * text clauses, so a word of the text ("Words appear: DRAGON.") never licenses the same word in the description.
  * 1. empty — nothing left after parseDescription's cleaning (quotes, a SAME reply);
  * 2. on-screen text changed — the text clauses (../textClause: "Words appear: …", a sign that reads "…") differ from the draft's, in order;
- * 3. new words — a content word (../contentWords: not an article, linking conjunction, case preposition, auxiliary) whose stem is not
- *    in the draft and is not one of GENERAL_WORDS. A name the draft did not have is a new word, so names follow the draft;
- * 4. more content words than the draft — two general words for one specific one;
- * 5. longer than the draft by more than MAX_ADDED_FUNCTION_WORDS words.
+ * 3. name dropped — a known name (knownNames) the draft said is missing;
+ * 4. new words — a content word (../contentWords: not an article, linking conjunction, case preposition, auxiliary) whose stem is not
+ *    in the draft and is not a general word. A name the draft did not have is a new word, so names follow the draft;
+ * 5. words out of order — the content words are not a subsequence of the draft's (inDraftOrder): no swapped roles, sides or attributes;
+ * 6. more content words than the draft — two general words for one specific one;
+ * 7. more than wordCap(draft, maxWords) words.
  */
-export function checkVerified(draft: string, v: Verified): { text: string; applied: boolean; reason?: string } {
+export function checkVerified(draft: string, v: Verified, o: CheckOptions): { text: string; applied: boolean; reason?: string } {
   const { description: text, sameAsPrev } = parseDescription(v.text, '')
   const keep = (reason: string) => ({ text: draft, applied: false, reason })
   if (sameAsPrev || !/[\p{L}\p{N}]/u.test(text)) return keep('empty')
   if (JSON.stringify(clauses(text)) !== JSON.stringify(clauses(draft))) return keep('on-screen text changed')
-  const known = new Set(contentWords(draft).map(stem))
-  const added = unique(text).filter((w) => !known.has(stem(w)) && !GENERAL_WORDS.has(w))
+  const has = (t: string, name: string) => new RegExp(`(?<![\\p{L}])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}])`, 'u').test(t)
+  const lost = o.names.filter((n) => has(draft, n) && !has(text, n))
+  if (lost.length) return keep(`name dropped: ${lost.join(', ')}`)
+  const d = described(draft), r = described(text)
+  const known = new Set(d.map(stem))
+  const added = unique(r).filter((w) => !known.has(stem(w)) && !GENERAL_WORDS.has(w) && !PLURAL_GENERAL_WORDS.has(w))
   if (added.length) return keep(`new words: ${added.join(', ')}`)
-  if (unique(text).length > unique(draft).length) return keep('more content words than the draft')
-  if (words(text) > words(draft) + MAX_ADDED_FUNCTION_WORDS) return keep('longer than the draft')
+  if (!inDraftOrder(r, d)) return keep('words out of order')
+  if (unique(r).length > unique(d).length) return keep('more content words than the draft')
+  const cap = wordCap(draft, o.maxWords)
+  if (words(text) > cap) return keep(`more than ${cap} words`)
   return { text, applied: true }
 }
 
@@ -110,22 +151,24 @@ export async function writeVerifyReport(work: string, report: VerifyReport) {
   await writeFile(`${work}/verify.json`, JSON.stringify(report, null, 2))
 }
 
+/** Per shot: which shot (for the report), its language, its describe word budget and the names known before it (knownNames). */
+export interface VerifyShotInput { index: number; language: 'en' | 'de'; maxWords: number; names: readonly string[] }
 /**
  * One shot: the describe reply `raw` checked against its `frames`. Returns raw unchanged when the pass is off, or when the draft
  * (parseDescription of raw) is SAME, empty or only on-screen text; otherwise raw with the checked text (or the draft, if a guard
  * rejected the reply) and the verify call's usage added, so the shot's tokens cover both calls. Each checked shot goes into `report`.
  */
-export async function verifyReply(work: string, index: number, frames: Uint8Array[], raw: RawReply, send: Converse, language: 'en' | 'de', report: VerifyReport, modelId: string): Promise<RawReply> {
+export async function verifyReply(work: string, frames: Uint8Array[], raw: RawReply, send: Converse, report: VerifyReport, shot: VerifyShotInput): Promise<RawReply> {
   if (!verifyEnabled()) { report.enabled = false; return raw }
   const { description: draft, sameAsPrev } = parseDescription(raw.text, '')
   if (sameAsPrev || !draft || !withoutSpans(draft, textSpans(draft))) return raw
-  const r = await cachedVerify(work, modelId, verifySystemPrompt(language), frames, draft, send)
+  const r = await cachedVerify(work, report.model, verifySystemPrompt(shot.language, wordCap(draft, shot.maxWords)), frames, draft, send)
   report.usage.inputTokens += r.usage.inputTokens
   report.usage.outputTokens += r.usage.outputTokens
   const v = parseVerifyReply(r.text)
-  const checked = v ? checkVerified(draft, v) : { text: draft, applied: false, reason: 'unreadable reply' }
+  const checked = v ? checkVerified(draft, v, shot) : { text: draft, applied: false, reason: 'unreadable reply' }
   report.shots.push({
-    index, draft, text: checked.text, removed: v?.removed ?? [], applied: checked.applied, changed: checked.text !== draft, cached: !!r.cached,
+    index: shot.index, draft, text: checked.text, removed: v?.removed ?? [], applied: checked.applied, changed: checked.text !== draft, cached: !!r.cached,
     ...(checked.reason ? { reason: checked.reason, reply: v?.text ?? r.text } : {}),
   })
   return { ...raw, text: checked.text, usage: { inputTokens: raw.usage.inputTokens + r.usage.inputTokens, outputTokens: raw.usage.outputTokens + r.usage.outputTokens } }
