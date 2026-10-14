@@ -2,7 +2,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import type { Ctx } from './index'
 import type { Described } from './04-describe'
 import type { Gap } from './03-speech'
-import { TEXT_LABEL, textSpans } from '../textClause'
+import { clauseText, stripDarkness, textSpans, withoutSpans } from '../textClause'
 import { eventSpaced, newWords, plotEvents } from '../plotEvent'
 
 /**
@@ -38,7 +38,7 @@ export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, max
   const out: FitCue[] = []
   const events: EventCandidate[] = []
   const work = async () => {
-    for (const s of shots) {
+    for (const s of shots.map((x) => ({ ...x, description: stripDarkness(x.description) }))) { // "Darkness." is the whole description or absent (../textClause)
       if (s.sameAsPrev || !s.description) continue
       /** The gaps in the shot's window with ≥ MIN_WORDS of room, in order, with where a cue would start in each. */
       const slots = () => {
@@ -157,11 +157,9 @@ interface TextClauses { lead: string; tail: string; clause: string; rest: string
 export function textClauses(text: string): TextClauses | undefined {
   const spans = textSpans(text)
   if (!spans.length) return undefined
-  const m = spans.map((x) => text.slice(x.start, x.end).trim())
+  const m = spans.map((x) => clauseText(text, x))
   const lead = text.slice(0, spans[0]!.start).trim() ? '' : m[0]!
-  let rest = '', at = 0
-  for (const x of spans) { rest += `${text.slice(at, x.start)} `; at = x.end }
-  rest = (rest + text.slice(at)).replace(/\s+/g, ' ').trim()
+  const rest = withoutSpans(text, spans) // the action as whole sentences: no joining word left dangling, no lowercase start
   return { lead, tail: (lead ? m.slice(1) : m).join(' '), clause: m.join(' '), rest, words: words(m.join(' ')) }
 }
 /**
@@ -180,7 +178,7 @@ function join(c: TextClauses, short: string) {
  * Does the shot introduce a new character, location or on-screen text (PLAN §4.3)? Only those become extended cues.
  * Crude on purpose: "Words appear:", a scene-change sentence ("Night.", "A rooftop."), or a newly introduced person ("a man", "a woman").
  */
-export const introducesNew = (description: string) => new RegExp(TEXT_LABEL.source, 'iu').test(description) || /\b(night\.|day\.|a (man|woman|girl|boy)|rooftop|room|street)\b/i.test(description)
+export const introducesNew = (description: string) => textSpans(description).length > 0 || /\b(night\.|day\.|a (man|woman|girl|boy)|rooftop|room|street)\b/i.test(description)
 
 /** The only words a shortening may add. Prepositions and pronouns change facts ("runs from" → "runs to", an added "her"). */
 const STOPWORDS = new Set(['a', 'an', 'the', 'and'])

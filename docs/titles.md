@@ -100,9 +100,9 @@ Follow-ups from this batch (not fixed before the freeze):
 - 08-text: a Nova Lite `ModelErrorException` (424, "Model produced invalid sequence as part of ToolUse") fails the SDH step and the
   run instead of falling back to the plain captions (Tears of Steel `--from text`, 2026-10-14; the retry passed). SDH is also not
   repeatable: the same captions degraded on the first Tears of Steel run and gave 5 cues on the re-run.
-- 06-voice: when a text clause is split off, drop the clause's trailing modifier ("in metallic silver, centered") with it instead of voicing it alone.
-- Describe prompt / textClause: on-screen text the model reports as `headline: "…"` or `sign reads …` is not recognised as a text clause, so it can be dropped rather than paused on.
-- Describe: "Darkness." should be the whole line or absent — a dark frame that still shows something is not darkness.
+- 06-voice: when a text clause is split off, drop the clause's trailing modifier ("in metallic silver, centered") with it instead of voicing it alone. **Fixed** (0008): the modifier is part of the clause and goes into the text pause; needs a re-run from fit.
+- Describe prompt / textClause: on-screen text the model reports as `headline: "…"` or `sign reads …` is not recognised as a text clause, so it can be dropped rather than paused on. **Fixed** (0008): recognised (headline:, … reads, a quoted caption or title card), and the prompt asks for "Words appear:"; needs a re-run from fit.
+- Describe: "Darkness." should be the whole line or absent — a dark frame that still shows something is not darkness. **Fixed** (0008): a "Darkness." prefix is stripped in describe and fit, and the prompt says "Darkness." only when nothing is visible (Gate C to re-check); needs a re-run from fit.
 - SDH degraded on all four titles with speech in their first runs ("no window added anything"), so the Rich captions track is omitted on three (Tears of Steel has it after its re-run); Caminandes has no speech, so it has no caption tracks at all. The "sdh" badge in `/catalog` is static (every title shows it).
 - The six `grid-test-*` filler rows from the 2026-10 device run are still published (poster-less, no stream, "Test row." in About):
   `UPDATE "Title" SET status='draft' WHERE slug LIKE 'grid-test-%';` removes them from the catalogue once the grid no longer needs them.

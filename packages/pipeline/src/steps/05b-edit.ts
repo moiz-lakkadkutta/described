@@ -5,7 +5,7 @@ import type { Described } from './04-describe'
 import type { Word } from './03-speech'
 import { textClauses, type FitCue } from './05-fit'
 import { NEXT_CUE_SPACING_MS } from './06-voice'
-import { textSpans } from '../textClause'
+import { stripDarkness, textSpans } from '../textClause'
 import { contentWords, stem } from '../contentWords'
 import { editRequest, editModelId, shortenEditWithNovaLite, stripFence, type EditConverse, type EditCueInput, bedrockEditSend } from '../prompts'
 import { meter } from '../cost'
@@ -78,6 +78,7 @@ const prevActionIndex = (cues: readonly FitCue[], i: number) => { for (let k = i
  * round 5: 17 words into 11), and the shortened text goes through the same guards; it is dropped when it still does not fit.
  */
 export async function editScene(cues: FitCue[], shots: Described[], words: Word[], language: 'en' | 'de', send: EditConverse, signal?: AbortSignal, shorten: Shorten = (t, n, keep, must) => shortenEditWithNovaLite(t, n, keep, must, language)): Promise<EditReport> {
+  shots = shots.map((s) => ({ ...s, description: stripDarkness(s.description) })) // as fit read them: "Darkness." never comes back through an edit
   const model = editModelId()
   const report: EditReport = { cues: cues.map((c) => ({ ...c })), applied: [], rejected: [], model, usage: { inputTokens: 0, outputTokens: 0 }, shorteningCalls: 0 }
   if (!cues.length) return report
