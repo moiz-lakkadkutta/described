@@ -6,6 +6,7 @@
     "cli": "tsx src/cli.ts",
     "own": "tsx src/own-cli.ts",
     "gate-c": "tsx src/eval/gate-c.ts",
+    "eval-context": "tsx src/eval-context-cli.ts",
     "worker": "tsx src/worker.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"

@@ -21,7 +21,12 @@ export function sceneStems(scene: Pick<Scene, 'setting' | 'settingName'>, g: Glo
 }
 
 /** A present-tense -s verb in house style that is not itself a place noun ("Fire glows." has one; "Snowy mountains." has none). */
-const hasVerb = (u: string) => u.replace(/[.!?…]+$/u, '').split(/\s+/).some((w, i) => i > 0 && /^\p{Ll}+[^s]s[,;]?$/u.test(w) && !placeStems(w).length) || /\b(?:is|are)\b/iu.test(u)
+const AFTER_NOUN_MARK = new Set(['a', 'an', 'the', 'of', 'in', 'on', 'at', 'with', 'around', 'over', 'under', 'between', 'beside', 'near', 'behind', 'two', 'three', 'many', 'several', 'its', 'his', 'her', 'their'])
+/** An -s word is a verb unless it opens the sentence, names a place, or follows an article, preposition, number or -ing / -ed modifier ("glowing panels"). */
+const hasVerb = (u: string) => {
+  const ws = u.replace(/[.!?…]+$/u, '').split(/\s+/).map((w) => w.toLowerCase().replace(/[^\p{L}'-]/gu, ''))
+  return ws.some((w, i) => i > 0 && /^\p{Ll}+[^s]s$/u.test(w) && !placeStems(w).length && !AFTER_NOUN_MARK.has(ws[i - 1]!) && !/(?:ing|ed)$/.test(ws[i - 1]!)) || /\b(?:is|are)\b/iu.test(u)
+}
 
 /**
  * The text's opening setting statement: its first sentence when that is plain (not on-screen text), at most 5 words, verbless, and names

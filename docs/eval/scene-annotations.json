@@ -1,0 +1,8 @@
+{
+  "_note": "Hand-annotated scenes per title (segment seconds), from the frames (local work dirs for Sintel and Tears of Steel; public download.blender.org files for the others), 2026-10-14, DESC-029. A scene starts where the place or the time changes; `setting` is the glossary setting name in apps/api/prisma/titles.json.",
+  "sintel-90-150-r2": [{ "startS": 0, "setting": "the snowy mountains" }, { "startS": 11.2, "setting": "the tent" }],
+  "big-buck-bunny-0-60": [{ "startS": 0, "setting": "the meadow" }, { "startS": 25, "setting": "the burrow" }],
+  "elephants-dream-0-60": [{ "startS": 0, "setting": "the tiled wall" }, { "startS": 11, "setting": "the dark tunnels" }, { "startS": 32.9, "setting": "the white chamber" }],
+  "caminandes-35-95": [{ "startS": 0, "setting": "the high plain" }, { "startS": 58, "setting": "the high plain", "change": "time" }],
+  "tears-of-steel-40-100": [{ "startS": 0, "setting": "the canal bridge" }, { "startS": 2.1, "setting": "the lab" }, { "startS": 29.9, "setting": "the smoking city" }, { "startS": 34.1, "setting": "the hideout" }]
+}

@@ -75,7 +75,7 @@
       { "name": "Koro", "look": "a tan-and-white llama with a long shaggy neck, big round eyes and dark brows", "role": "a llama set on getting past an electric fence", "revealedAtS": null, "nameEvidence": "Never said or shown in the film (no dialogue); the name comes from caminandes.org and the synopsis (\"Koro the llama…\")." }
     ],
     "settings": [
-      { "name": "the fence line", "look": "a dry high plain of tufted yellow grass along an electric wire fence, snow-capped mountains beyond", "firstAtS": 0 }
+      { "name": "the high plain", "look": "a dry high plain of tufted yellow grass along an electric wire fence, snow-capped mountains beyond", "firstAtS": 0 }
     ]
   },
   {
