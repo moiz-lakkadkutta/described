@@ -15,6 +15,7 @@
     "db:generate": "pnpm --filter @described/api prisma generate",
     "pipeline": "pnpm --filter @described/pipeline cli",
     "describe": "pnpm --silent --filter @described/pipeline own",
+    "gate-c": "pnpm --silent --filter @described/pipeline gate-c",
     "titles:seed": "pnpm --filter @described/api seed:titles",
     "friction": "node scripts/new-friction.mjs",
     "lint:words": "node scripts/lint-words.mjs"
