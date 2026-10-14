@@ -36,8 +36,7 @@ with no example pair from this film (that would teach the evaluation clip's answ
 clearly visible; a wrong word for a thing that is there may become a general word (creature, animal, person, figure, object,
 weapon, someone, something); prefer deleting to guessing; never add a fact; keep on-screen text clauses ("Words appear:", German
 "Text erscheint:"), names, every negation and the draft's order; use only the draft's words in the same form and order, except
-the linking words is, are, has, have, with, there, a, an, the (German ist, sind, hat, haben, mit, es gibt, der/die/das and the
-other articles) and "is/are visible" after the subject of a draft sentence; at most N words, N = `wordCap`. Reply: JSON
+the linking words is, are, with, there, a, an, the (German ist, sind, mit, es gibt, der/die/das and the other articles) and "is/are visible" after the subject of a draft sentence; at most N words, N = `wordCap`. Reply: JSON
 `{text, removed[]}`.
 
 **Guards** (`checkVerified`, deterministic; any failure keeps the draft and the reason is recorded). Same principle the human
@@ -47,10 +46,17 @@ So "Words appear: DRAGON." never licenses "a dragon sign", "pours" ≠ "pouring"
 1. empty after `parseDescription`'s cleaning (quotes, a SAME reply);
 2. on-screen text changed — the text clauses (`src/textClause.ts`) must equal the draft's, in order;
 3. name dropped — a known name (`knownNames` for the shot) that the draft said is missing;
-4. negation dropped — fewer of any negation word than the draft (not, n't, no, never, nobody, nothing, none, cannot, without;
-   nicht, nie, niemand, nichts, ohne, kein…): "does not hold" → "holds", "No one is in the room" → "One is …", "without a hat"
-   → "with a hat", "hält nicht" → "hält" are all rejected;
-5. new words — every word must be in the draft, exact form, unless it is free. Free are only the linking words above ("with" /
+4. negation or protected word dropped — fewer of any negation word than the draft (not, n't, no, never, nobody, nothing, none,
+   cannot, without; nicht, nie, niemand, nichts, ohne, kein…): "does not hold" → "holds", "No one is in the room" → "One is …",
+   "without a hat" → "with a hat", "hält nicht" → "hält" are all rejected. The same for the **protected** words — hedges, attempts
+   and things that are not real (almost, nearly, tries, fails, pretends, about, appears, seems, looks, statue, toy, fake, model,
+   painting, picture, image, drawing, reflection, shadow, mask, costume, dreams, imagines; fast, beinahe, versucht, scheint,
+   Statue, Spielzeug, Bild, Spiegelbild, Schatten, Maske): "The man almost falls." → "The man falls.", "A statue of a dragon
+   stands." → "A dragon stands.", "The dragon appears dead." → "The dragon is dead." are rejected; a general word may not stand in
+   for one either;
+5. new words — every word must be in the draft, exact form, unless it is free. Free are only the linking words above — not
+   has / have (hat / haben), which fill a deleted verb with a possession fact ("The girl reaches for the sword." → "The girl has
+   the sword.", "The man searches for a key." → "The man has a key.", both rejected; "is … with" makes a noun list a sentence) ("with" /
    "mit" not when the draft has "without" / "ohne"; "es" and "gibt" only together, since "gibt" is also "gives"), the general
    words, and an added "visible" (guard 6). Prepositions and joining words are not free: "to the hut" → "from the hut",
    "in" → "on", "while" → "then", "zum Haus" → "vom Haus" are rejected. A name the draft did not have is a new word;

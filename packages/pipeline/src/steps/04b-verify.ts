@@ -94,6 +94,15 @@ export function tokens(t: string): Tok[] {
 }
 const NEGATIONS = new Set(['not', 'no', 'never', 'nobody', 'nothing', 'none', 'nowhere', 'neither', 'nor', 'cannot', 'without', 'nicht', 'nie', 'niemals', 'niemand', 'nichts', 'nirgends', 'ohne', 'weder'])
 export const isNegation = (w: string) => NEGATIONS.has(w) || /n't$/.test(w) || /^kein/.test(w)
+/**
+ * Words a reply may not drop either (round-3 review): hedges, attempts and not-real things. Without them the sentence states a fact
+ * the draft did not: "almost falls" → "falls", "a statue of a dragon" → "a dragon", "appears dead" → "is dead".
+ */
+const PROTECTED = new Set(['almost', 'nearly', 'tries', 'try', 'trying', 'fails', 'pretends', 'about', 'appears', 'seems', 'looks', 'statue', 'statues', 'toy', 'toys',
+  'fake', 'model', 'painting', 'picture', 'image', 'drawing', 'reflection', 'shadow', 'mask', 'costume', 'dreams', 'imagines',
+  'fast', 'beinahe', 'versucht', 'scheint', 'statue', 'spielzeug', 'bild', 'spiegelbild', 'schatten', 'maske'])
+/** A word a reply must keep as often as the draft has it: a negation or a PROTECTED word. */
+export const isKept = (w: string) => isNegation(w) || PROTECTED.has(w)
 /** Rough plural test for the word a plural general word replaces: English -s (not -ss) or "people"; German -e, -en, -er, -n. */
 const isPlural = (w: string, lang: 'en' | 'de') => lang === 'en' ? /[^s]s$/.test(w) || w === 'people' : /(?:e|en|er|n)$/.test(w)
 
@@ -105,11 +114,12 @@ export interface CheckOptions { maxWords: number; names: readonly string[]; lang
  * 1. empty — nothing left after parseDescription's cleaning (quotes, a SAME reply);
  * 2. on-screen text changed — the text clauses (../textClause) differ from the draft's, in order;
  * 3. name dropped — a known name (knownNames) the draft said is missing;
- * 4. negation dropped — the reply has fewer of a negation word (not, n't, no, never, without, nicht, kein…, ohne …) than the draft;
+ * 4. negation / protected word dropped — the reply has fewer of a negation word (not, n't, no, never, without, nicht, kein…, ohne …)
+ *    or a PROTECTED word (almost, tries, appears, seems, looks, statue, toy, reflection, picture … ; fast, versucht, Spiegelbild …) than the draft;
  * 5. new words — a word that is not in the draft and is not free: free are only LINKING (with: not when the draft has "without";
  *    es / gibt: only together, "es gibt"), the GENERAL words and an added "visible" (guard 6);
  * 6. words out of order — the reply's non-free words, matched in order to the draft's by exact form, where a general word stands
- *    in for exactly one draft word in place (not a linking word or a negation; a plural general word only for a plural word); and
+ *    in for exactly one draft word in place (not a linking word, a negation or a protected word; a plural general word only for a plural word); and
  *    an added "visible" only right after is / are, for a subject that is the opening of a draft sentence (only linking words
  *    before it): "A girl searches for her dragon." may become "A girl is visible.", never "Her dragon is visible.";
  * 7. more than wordCap(draft, maxWords) words.
@@ -125,8 +135,10 @@ export function checkVerified(draft: string, v: Verified, o: CheckOptions): { te
   if (lost.length) return keep(`name dropped: ${lost.join(', ')}`)
   const d = tokens(draft), r = tokens(text)
   const count = (ts: Tok[], w: string) => ts.filter((t) => t.w === w).length
-  const negLost = [...new Set(d.map((t) => t.w).filter(isNegation))].filter((w) => count(r, w) < count(d, w))
+  const lostAll = [...new Set(d.map((t) => t.w).filter(isKept))].filter((w) => count(r, w) < count(d, w))
+  const negLost = lostAll.filter(isNegation), protLost = lostAll.filter((w) => !isNegation(w))
   if (negLost.length) return keep(`negation dropped: ${negLost.join(', ')}`)
+  if (protLost.length) return keep(`protected word dropped: ${protLost.join(', ')}`)
 
   const inDraft = new Set(d.map((t) => t.w))
   const linking = new Set<string>(LINKING[lang])
@@ -145,7 +157,7 @@ export function checkVerified(draft: string, v: Verified, o: CheckOptions): { te
   const added = [...new Set(r.filter((t, i) => !inDraft.has(t.w) && !freeAt(r, i) && t.w !== visible && !general.has(t.w) && !plural.has(t.w)).map((t) => t.w))]
   if (added.length) return keep(`new words: ${added.join(', ')}`)
 
-  const draftFree = (k: number) => freeAt(d, k) || isNegation(d[k]!.w)
+  const draftFree = (k: number) => freeAt(d, k) || isKept(d[k]!.w)
   const align = new Array<number | undefined>(r.length)
   let j = 0
   for (let i = 0; i < r.length; i++) {

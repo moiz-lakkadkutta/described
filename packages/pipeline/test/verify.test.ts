@@ -37,10 +37,12 @@ describe('verify prompt', () => {
     const p = verifySystemPrompt('en', 11)
     for (const s of ['colours', 'on the body', 'what kind of creature or animal', 'what an object is', 'left or right', 'open or closed', 'who holds, gives', '"nearby"', 'movement or change',
       'Delete every detail that is not clearly visible', 'Prefer deleting to guessing', 'Never add a fact', 'exactly as written', '"Text erscheint:"', 'never a list of nouns',
-      'is, are, has, have, with, there', 'Keep every negation', 'in the same form and in the same order', 'Use at most 11 words.', '{"text":', 'Reply in English.'])
+      'is, are, with, there, a, an, the;', 'Keep every negation', 'almost, tries, appears, seems, statue', 'in the same form and in the same order', 'Use at most 11 words.', '{"text":', 'Reply in English.'])
       expect(p).toContain(s)
     expect(verifySystemPrompt('de', 8)).toContain('Reply in German.')
-    expect(verifySystemPrompt('de', 8)).toContain('ist, sind, hat, haben, mit, es, gibt')
+    expect(verifySystemPrompt('de', 8)).toContain('ist, sind, mit, es, gibt')
+    expect(verifySystemPrompt('en', 8)).not.toMatch(/\bhas\b|\bhave\b/)
+    expect(verifySystemPrompt('de', 8)).not.toMatch(/\bhat\b|\bhaben\b/)
     expect(verifySystemPrompt('de', 8)).toContain('wesen, tier, person')
   })
   it('does not teach this clip\'s answers: no film-specific example pairs', () => {
@@ -179,6 +181,22 @@ describe('checkVerified: exact words, only the linking and general words are fre
     expect(reject('Sie hält nicht das Schwert.', 'Sie hält das Schwert.', de)).toBe('negation dropped: nicht')
     expect(reject('Ein Mann ohne Hut winkt.', 'Ein Mann mit Hut winkt.', de)).toBe('negation dropped: ohne')
     expect(reject('Kein Mensch ist im Raum.', 'Ein Mensch ist im Raum.', de)).toBe('negation dropped: kein')
+  })
+  it('does not let "has" / "have" fill a deleted verb (a possession fact)', () => {
+    expect(reject('The girl reaches for the sword.', 'The girl has the sword.')).toBe('new words: has')
+    expect(reject('The man looks for a key.', 'The man has a key.')).toBe('protected word dropped: looks')
+    expect(reject('The man searches for a key.', 'The man has a key.')).toBe('new words: has')
+    expect(reject('Der Mann sucht einen Schlüssel.', 'Der Mann hat einen Schlüssel.', de)).toBe('new words: hat')
+  })
+  it('rejects a reply that drops a hedge, an attempt or a not-real word', () => {
+    expect(reject('The man almost falls.', 'The man falls.')).toBe('protected word dropped: almost')
+    expect(reject('A statue of a dragon stands.', 'A dragon stands.')).toBe('protected word dropped: statue')
+    expect(reject('The dragon appears dead.', 'The dragon is dead.')).toBe('protected word dropped: appears')
+    expect(reject('The girl tries to lift the board.', 'The girl lifts the board.')).toMatch(/protected word dropped: tries/)
+    expect(reject('A reflection of a face shows in the bowl.', 'A face shows in the bowl.')).toBe('protected word dropped: reflection')
+    expect(reject('A statue of a dragon stands.', 'A creature of a dragon stands.')).toBe('protected word dropped: statue') // no general word in its place either
+    expect(reject('Der Mann fällt fast.', 'Der Mann fällt.', de)).toBe('protected word dropped: fast')
+    expect(reject('Ein Spiegelbild eines Gesichts.', 'Ein Gesicht.', de)).toMatch(/protected word dropped: spiegelbild/)
   })
   it('does not treat "with" as free when the draft has "without"', () => {
     expect(reject('Without a hat, a man waves.', 'Without a hat, a man with a hat waves.')).toBe('new words: with')

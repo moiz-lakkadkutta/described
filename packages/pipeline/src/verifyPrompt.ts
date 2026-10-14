@@ -7,18 +7,19 @@
  * so old cached replies stop matching; the version is also written to verify.json.
  * The detail classes are named as types only: an example pair from the film we evaluate on would teach that clip's answers.
  */
-export const VERIFY_PROMPT_VERSION = 2
+export const VERIFY_PROMPT_VERSION = 3
 
 /**
  * The only words a checked description may use that the draft did not have, per language (04b-verify's guards; exact lower-cased
  * forms, no stop list, no stemming — the principle the human chose for the edit pass's repeat guard, #44):
- * - LINKING: free to add, to turn a noun list into a sentence. "with" is not free when the draft has "without". "visible" /
+ * - LINKING: free to add, to turn a noun list into a sentence ("is … with"). Not has / have (hat / haben): they fill a deleted verb
+ *   with a possession fact ("reaches for the sword" → "has the sword"). "with" is not free when the draft has "without". "visible" /
  *   "sichtbar" only as "is/are visible" after a subject that opens a draft sentence (04b-verify: addedVisibleOk).
  * - GENERAL: each may stand in for exactly one draft word, in place ("bat" → "creature"); a PLURAL one only for a plural word.
  */
 export const LINKING = {
-  en: ['is', 'are', 'has', 'have', 'with', 'there', 'a', 'an', 'the'],
-  de: ['ist', 'sind', 'hat', 'haben', 'mit', 'es', 'gibt', 'der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einen', 'einem', 'einer', 'eines'],
+  en: ['is', 'are', 'with', 'there', 'a', 'an', 'the'],
+  de: ['ist', 'sind', 'mit', 'es', 'gibt', 'der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einen', 'einem', 'einer', 'eines'],
 } as const
 export const VISIBLE = { en: 'visible', de: 'sichtbar' } as const
 export const COPULA = { en: ['is', 'are'], de: ['ist', 'sind'] } as const
@@ -45,8 +46,8 @@ export function verifySystemPrompt(language: 'en' | 'de', maxWords: number): str
     '- place: "nearby", "beside" or "then" across a cut to a different place;',
     '- movement or change (something swirling, appearing, opening or closing) that the frames do not show.',
     `Delete every detail that is not clearly visible in the frames. If a word is wrong but the thing is there, you may replace it with one of these general words only: ${GENERAL[language].join(', ')}. Prefer deleting to guessing.`,
-    'Never add a fact: no new colour, direction, body part, object, action or name. Use only the words of the draft, in the same form and in the same order, except the words named here. Keep every negation (not, no, never, without).',
-    'Keep every on-screen text clause (starting "Words appear:"; in German "Text erscheint:") exactly as written, word for word. Keep names exactly as the draft wrote them, and keep the order of the draft: who does what to whom stays as the draft has it.',
+    'Never add a fact: no new colour, direction, body part, object, action or name. Use only the words of the draft, in the same form and in the same order, except the words named here. Keep every negation (not, no, never, without) and every word that says something is not quite real or not done: almost, tries, appears, seems, statue, toy, reflection, picture.',
+    'Keep every on-screen text clause (starting "Words appear:"; in German "Text erscheint:") exactly as written, word for word. Keep names exactly as the draft wrote them, and keep the order of the draft: who does what to whom stays as in the draft.',
     `Write complete present-tense sentences with a verb, never a list of nouns. You may add these linking words, which add no fact: ${LINKING[language].join(', ')}; and "${COPULA[language][0]} ${VISIBLE[language]}" after the subject of a draft sentence.`,
     `Use at most ${maxWords} words. If every detail is visible, return the draft unchanged.`,
     'Reply with JSON only, no other text: {"text": "<the checked description>", "removed": ["<each detail you deleted or replaced, as the draft wrote it>"]}',
