@@ -19,6 +19,10 @@ describe('stripVoiceSpans', () => {
     expect(fixed).toBe('WEBVTT\n\nc2\n00:00:03.000 --> 00:00:06.000\n[Proog] I am here.\n')
     expect(parseVtt(fixed, { trackId: 'sdh' })[0]).toMatchObject({ speaker: 'Proog', text: 'I am here.' })
   })
+  it('leaves an unclosed span with no ">" (malformed) and the cues after it unchanged', () => {
+    const v = 'WEBVTT\n\nc1\n00:00:01.000 --> 00:00:02.000\n<v spk_0 oops\n\nc2\n00:00:03.000 --> 00:00:04.000\nNext <i>line</i>\n'
+    expect(stripVoiceSpans(v)).toBe(v)
+  })
   it('removes class-annotated and closed spans, keeps <i>, and is idempotent', () => {
     const v = 'WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n<v.loud spk_2>Run</v> <i>now</i>\n'
     expect(stripVoiceSpans(v)).toBe('WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nRun <i>now</i>\n')
@@ -56,8 +60,10 @@ describe('stripPublishedVoiceSpans', () => {
   it('a run rewrites only changed caption objects with 60 s text/vtt, leaves playlists, descriptions and other slugs, invalidates once', async () => {
     const store = objects()
     const { d, puts, invalidations } = deps(store)
-    const r = await stripPublishedVoiceSpans('ed', { bucket: 'b', run: true, distributionId: 'E1' }, d)
+    const written: string[] = []
+    const r = await stripPublishedVoiceSpans('ed', { bucket: 'b', run: true, distributionId: 'E1', onWrite: (k) => written.push(k) }, d)
     expect(puts.map((p) => p.key)).toEqual(r.changed)
+    expect(written).toEqual(r.changed)
     for (const p of puts) { expect(p.meta).toEqual({ ContentType: 'text/vtt', CacheControl: 'public,max-age=60' }); expect(p.body).not.toContain('<v') }
     expect(store.get('published/ed/captions.m3u8')).toContain('<v spk_0>')
     expect(store.get('published/ed/descriptions.vtt')).toContain('<v x>')

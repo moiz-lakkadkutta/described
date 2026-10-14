@@ -34,9 +34,9 @@ program.command('strip-voices').argument('<slugs...>', 'published title slugs').
     if (!bucket) throw new Error('S3_BUCKET_MEDIA is not set')
     const deps = { list: (b: string, p: string) => listKeys(b, p), get: (b: string, k: string) => getText(b, k), put: putText, invalidate: (id: string, paths: string[]) => createInvalidation(id, paths) }
     for (const slug of slugs) {
-      const r = await stripPublishedVoiceSpans(slug, { bucket, run: !!o.run, distributionId: process.env.CLOUDFRONT_DISTRIBUTION_ID }, deps)
+      const r = await stripPublishedVoiceSpans(slug, { bucket, run: !!o.run, distributionId: process.env.CLOUDFRONT_DISTRIBUTION_ID, onWrite: (k) => console.log(`  wrote ${k}`) }, deps)
+      if (!o.run) for (const k of r.changed) console.log(`  would write ${k}`)
       console.log(`${slug}: ${r.changed.length} of ${r.checked.length} caption VTTs ${o.run ? 'rewritten' : 'would change'}${r.invalidated ? `, /published/${slug}/* invalidated` : ''}`)
-      for (const k of r.changed) console.log(`  ${k}`)
     }
     if (!o.run) console.log('dry run: nothing written. Add --run to rewrite and invalidate.')
     process.exit(0)
