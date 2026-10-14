@@ -36,13 +36,27 @@ describe('scene settings (DESC-029, sceneSetting)', () => {
 })
 
 describe('fit with scenes (DESC-029)', () => {
-  it('sintel-90-150-r2: the tent scene\'s first cue states the place; nothing else changes', async () => {
+  it('sintel-90-150-r2: the tent scene\'s first cue states the place, and no later cue of a scene says its place again', async () => {
     const shots = fixture<Described[]>('sintel-90-150-r2.described.json'), gaps = fixture<{ startMs: number; endMs: number }[]>('sintel-90-150-r2.gaps.json')
     const g = loadGlossary('sintel-90-150-r2')
     const scenes = finishScenes(fallbackScenes(shots, g), shots, g)
-    const before = await fit(shots, gaps, shortenDeterministic), after = await fit(shots, gaps, shortenDeterministic, 'en', { scenes, glossary: g })
-    expect(after.find((c) => c.shotIndex === 2)?.text).toBe('The tent. A faint fire glows in a stone pit.')
-    expect(after.filter((c) => c.shotIndex !== 2)).toEqual(before.filter((c) => c.shotIndex !== 2))
+    const text = (cs: { shotIndex: number; text: string }[]) => cs.map((c) => `${c.shotIndex}: ${c.text}`)
+    expect(text(await fit(shots, gaps, shortenDeterministic))).toEqual([ // as before DESC-029
+      '0: Snowy mountains. A lone figure walks left, carrying a spear. Words appear: SINTEL.',
+      '1: Snowy mountains. A figure walks, falls. Logo fades. Words appear: SINTEL.',
+      '2: A faint fire glows in a stone pit.', '3: Dark room.', '4: Bearded man holds staff. Red-haired woman watches.', '7: Man pours broth.',
+      '8: Red-haired girl accepts bowl.', '9: Tent interior.', '13: Red-haired woman stares intently forward.',
+    ])
+    const after = await fit(shots, gaps, shortenDeterministic, 'en', { scenes, glossary: g })
+    expect(text(after)).toEqual([
+      '0: Snowy mountains. A lone figure walks left, carrying a spear. Words appear: SINTEL.',
+      '1: A figure walks, falls. Logo fades. Words appear: SINTEL.', // "Snowy mountains." not said twice
+      '2: The tent. A faint fire glows in a stone pit.', // the place, at the scene's first cue (published: "Tent glows." 30 s in)
+      '3: Fire burns.', // "Dark room." would say the place again; the action takes its slot
+      '4: Bearded man holds staff. Red-haired woman watches.', '7: Man pours broth.', '8: Red-haired girl accepts bowl.',
+      '9: Fire glows.', // "Tent interior. Fire glows.": the place is said, so the action (published as "Tent glows.")
+      '13: Red-haired woman stares intently forward.',
+    ])
     expect(after.some((c) => c.scene)).toBe(false) // both scenes state their place: no scene pause
   })
   it('protects a scene\'s own opening setting statement: the rest is shortened beside it, never the statement', async () => {

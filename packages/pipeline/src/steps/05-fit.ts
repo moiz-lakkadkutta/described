@@ -61,6 +61,16 @@ export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, max
       const scene = opts.scenes ? sceneOf(opts.scenes, s.index) : undefined
       const opening = scene && !opened.has(scene.id) ? scene : undefined
       if (scene) opened.add(scene.id)
+      // Later in a scene whose place a cue has stated, the shot's own setting statement is not said again ("Snowy mountains." twice,
+      // "Dark room." after "The tent. …"); a shot that is only that statement is not voiced.
+      if (scene && !opening && out.some((c) => scene.shots.includes(c.shotIndex) && statesPlace(c.text, sceneStems(scene, glossary)))) {
+        const again = settingLead(s.description, sceneStems(scene, glossary))
+        if (again) {
+          const left = s.description.slice(s.description.indexOf(again) + again.length).trim()
+          if (!left) continue
+          s.description = left
+        }
+      }
       const stems = opening ? sceneStems(opening, glossary) : undefined
       const ownLead = stems ? settingLead(s.description, stems) : undefined
       const lead = ownLead ?? (opening && !statesPlace(s.description, stems!) ? sceneLine(opening) || undefined : undefined)
