@@ -125,3 +125,5 @@ checks 1–13 passed; check 14 (Alexa) failed for fast forward / rewind and was 
     over 15 min needs `--long`; "Cost per hour of film" in the README (≈ $3.28, $3.08–3.52)
   - [ ] pending: a paid end-to-end run of the command (only dry runs so far); the measured line at the end is unseen on a real run
   - [ ] pending: drop the `--long` gate once DESC-024 passes; re-derive the hourly figure from a full-length run
+- [ ] DESC-026 · follow-up · Log a line on each audio-track switch in the Fire OS player (from and to track, fade and hold timings), so
+  RUN-2026-10 check 6 can be checked from logcat; the 2026-10-14 run had no line to read (docs/device-checks/RUN-2026-10.md)
