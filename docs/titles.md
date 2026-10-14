@@ -60,6 +60,9 @@ From the CLI meter (`src/cost.ts` list prices, unverified — each still marked 
 | app-voice prompt clips (`pnpm pipeline prompts --run`, 16 clips, 1,232 characters) | — | — | — | — | $0.0197 | **$0.0197** |
 | re-runs `--from text` (Elephants Dream, Tears of Steel: VTT ends clamped; one Nova Lite 424, retried) | — | — | — | $0.0003 | — | **$0.0003** |
 | **Batch** | | | | | | **$0.293** for the five first runs and the prompt clips ($0.2731 + $0.0197), plus **$0.0003** for the `--from text` re-runs (approved ≈ $5, cap $10) |
+| re-run after #37/#39: sintel-90-150-r2 `--from fit` | — | — | — | $0.0003 | $0.0060 | **$0.0063** |
+| re-run after #37/#39: tears-of-steel-40-100 from the start (work dir not on this machine, see below) | 16 | $0.0240 | $0.0171 | $0.0004 | $0.0145 | **$0.0559** |
+| **Re-runs after #37/#39** | | | | | | **$0.0622** (cap $1.00); two CloudFront invalidations (`/published/<slug>/*`, inside the free 1,000 paths a month) |
 
 Transcribe is the floor: $0.024 for 60 s (billed per second, 15 s minimum) even when the clip has no speech (Caminandes). Every
 title took 4–5 minutes wall clock, four in parallel with `DESCRIBE_CONCURRENCY=2`; no throttling. Sintel's earlier figure,
@@ -81,6 +84,44 @@ text tracks, `extendedCount` 2 and a sample cue.
 | caminandes-35-95 | 13 (0) | none (no speech) / none | **invented details**: "a tan llama with sunglasses" (d2 — the llama has dark brow markings, no sunglasses), "an orange fox tumbles from a bridge" (d10 — it is the llama falling off the fence tower); the same animal is "tan llama", "brown llama", "orange fox" across cues (no stable descriptor); the electric flash becomes "Sun flares, then dims." |
 | tears-of-steel-40-100 | 15 (3) | 4 / 5 (the `--from text` re-run added sound cues; the first run had degraded) | all three text cards read ("40 YEARS LATER", "SIMULATION READY…", the title as an extended cue); **faults**: d8 "Darkness. in metallic silver, centered." is the fragment left after the title clause was split off (06-voice split, DESC-017); the newspaper headline cue ("Hand holds crumpled newspaper headline: ROBOTICIST CREATES KILLER ROBOTS") was **dropped** by voice (741 ms over) because it is not phrased as "Words appear:" and so was not split into a text pause; "Darkness." prefixes on d10 and d12 contradict the rest of the line ("Darkness. A mechanical airship … hovers"); d10 "a figure kneels beside a prone body, candles flicker" is unverified against the frame (a dark hideout interior) |
 
+## Re-runs after #37 and #39 (2026-10-14)
+
+The 0008 fixes (text clause with its modifier, unlabelled on-screen text, "Darkness." prefix) and #39 (Rich captions only from
+evidence) reach a published title only on a re-run from fit. Where each title's work dir was:
+
+- sintel-90-150-r2: `packages/pipeline/work/sintel-90-150-r2/` is on this machine → `--from fit` (no describe call).
+- tears-of-steel-40-100: its work dir is gone (the batch ran in a worktree since removed), and S3 keeps only `work/<slug>/mezz.mp4`
+  and `transcript.json`, never `described.json` → run from the start (`--source s3://…/sources/tears-of-steel-40-100.mp4 --voice
+  Matthew`), so this describe used the **0008 prompt** (a 60 s segment, not the full-length run DESC-024 gates).
+- big-buck-bunny-0-60, elephants-dream-0-60, caminandes-35-95: work dirs gone as well, so `described.json` could not be grepped.
+  Checked instead: their published descriptions.vtt (no cue starts lowercase, no "Darkness." prefix before content — Caminandes d9
+  and the Big Buck Bunny cue dropped at 0 ms are a bare "Darkness.", which 0008 keeps) and their batch run logs (no text clause split
+  off, no on-screen text dropped by voice). None has a fault #37 fixes; not re-run. #39 does not change them either (no Rich
+  captions before or after).
+
+After both runs: `validate` reported no problems (also re-run on the work dirs: Sintel 2 audio + Captions, Rich captions,
+Description text; Tears of Steel 2 audio + Captions, Description text); master.m3u8 and the VTTs downloaded from CloudFront after
+the invalidation are byte-identical to the work dirs (and an `audio_ad/5.m4s` segment of each); no description cue starts with a
+lowercase word; no "Darkness." prefix before visible content; no `[footsteps]` or `[Name]` anywhere. `GET /catalog` (API started
+locally on a spare port) lists all five titles; badges: Sintel `ad sdh extended`, Tears of Steel `ad extended` (was `sdh`).
+
+| Title | Description cues (extended) before → after | Rich captions before → after | What changed |
+|---|---|---|---|
+| sintel-90-150-r2 | 11 (2) → 11 (2) | omitted → **present**, 12 cues (11 captions + `[broth pours]` at 0:33.170, from "Old man pours broth.") | d4 "Darkness. A faint fire glows in a stone pit." → "A faint fire glows in a stone pit."; the last cue, a bare "Darkness.", is now "Faint red sparks drift downward." (its "Darkness." prefix stripped); new d5 "Fire burns." (0:15.3); "A figure leans forward." no longer voiced; d3 "The figure falls. The logo fades. Snow covers the motionless body." → "Snowy mountains. A figure walks, falls. Logo fades." (the edit was rejected this time, so "Snowy mountains." repeats d2); "Red-haired woman stares intently forward." dropped (465 ms over) |
+| tears-of-steel-40-100 | 15 (3) → 15 (5) | 5 cues with the invented `[footsteps]` and `[Name] This is pretty freaky.` → **omitted** (degraded: no evidenced addition); captions 4 | "Darkness. in metallic silver, centered." is gone: the title is now its own cue "Words appear: TEARS OF STEEL." (0:27.904); the headline is **spoken** as an extended pause `Words appear: "Dr Amstelwijk ROBOTICIST CREATES KILLER ROBOTS"` (0:41.629, was dropped; "Dr Amstelwijk" not checked against the frame); no "Darkness." prefix anywhere (d10 is "Ship deck. Figure kneels beside prone bodies."; the airship cue starts "A dark, complex airship …"); new extended "Words appear: MEMORY PLAYBACK - GLOBAL" (0:07.514); d1 drops "Day. A bridge." for "… standing on a bridge over a canal." **New fault**: "SIMULATION READY... LOCKED." is split at the ellipsis — the pause says "Words appear: SIMULATION READY..." and the AD track voices "LOCKED. Two people at glowing tech tables." (`sentences()` in `textClause.ts` ends the bare text at "..."; not fixed) |
+
+S3 clean-up: deleted `published/tears-of-steel-40-100/sdh.m3u8`, `sdh.vtt` and `sdh/1.vtt`–`sdh/6.vtt` (8 objects) after the new
+master.m3u8 showed no `sdh` reference; CloudFront now answers 403 for them. The Sintel `sdh.vtt`, `sdh.m3u8` and `sdh/` listed as stale
+below are live again (this run overwrote all 15 segments and the master names them), so they were not deleted. Still unreferenced
+and left in S3: `published/tears-of-steel-40-100/descriptions/16.vtt` (the old run had one more segment) and the previous run's
+`cues/cue_*.<hash>.mp3` clips whose hash changed (immutable keys, nothing points at them).
+
+Pipeline-side notes from these runs (not fixed here):
+- Captions and Rich captions carry Transcribe's speaker labels as WebVTT voice spans (`<v spk_0>`), as before; valid VTT, and the
+  speaker tag rule only adds a name when one is spoken, but a renderer that shows voice names would show "spk_0".
+- Work dirs are not kept anywhere durable: a `--from fit` re-run needs the machine the title was run on. Uploading
+  `described.json` (and `shots.json`) to `work/<slug>/` in S3 would make these re-runs restorable.
+
 Fixed after review (2026-10-14, PR #33):
 - Cue ends in film time (`packages/pipeline/src/cues.ts` `filmEnds`): an extended cue's end from 06-voice is start + clip
   length, but the film is paused while that clip plays, so it overlapped the next cue (Tears of Steel d7 26.004–28.116 over d8
@@ -94,16 +135,17 @@ Fixed after review (2026-10-14, PR #33):
   `published/{big-buck-bunny-0-60,elephants-dream-0-60,caminandes-35-95}/sdh.vtt`, `published/caminandes-35-95/captions.vtt`).
   Also left over: `published/sintel-90-150-r2/sdh.vtt`, `sdh.m3u8` and its 15 segments under `sdh/`, from the 2026-10-04 run
   (checked with `aws s3 ls` on 2026-10-14; the current master.m3u8 does not name them). Harmless: no master references them, so
-  no player requests them; delete by hand with the others.
+  no player requests them; delete by hand with the others. *Update:* the Sintel re-run after #39 publishes Rich captions again, so its
+  `sdh.vtt`, `sdh.m3u8` and `sdh/` are current and must stay.
 
 Follow-ups from this batch (not fixed before the freeze):
 - ~~08-text: a Nova Lite `ModelErrorException` (424) fails the SDH step; SDH is not repeatable~~ — fixed (claude/desc-010-sdh-fixes):
   the 424 is retried once, then the window stays plain and the title is marked degraded; replies are cached per window
   (`work/{slug}/cache/sdh/`) and decoded greedily (temperature 0 plus `topK` 1; temperature 0 alone gave two different replies to one
   request), so a `--from text` re-run gives the same SDH.
-- 06-voice: when a text clause is split off, drop the clause's trailing modifier ("in metallic silver, centered") with it instead of voicing it alone. **Fixed** (0008): the modifier is part of the clause and goes into the text pause; needs a re-run from fit.
-- Describe prompt / textClause: on-screen text the model reports as `headline: "…"` or `sign reads …` is not recognised as a text clause, so it can be dropped rather than paused on. **Fixed** (0008): recognised (headline:, … reads, a quoted caption or title card), and the prompt asks for "Words appear:"; needs a re-run from fit.
-- Describe: "Darkness." should be the whole line or absent — a dark frame that still shows something is not darkness. **Fixed** (0008): a "Darkness." prefix is stripped in describe and fit, and the prompt says "Darkness." only when nothing is visible (Gate C to re-check); needs a re-run from fit.
+- 06-voice: when a text clause is split off, drop the clause's trailing modifier ("in metallic silver, centered") with it instead of voicing it alone. **Fixed** (0008): the modifier is part of the clause and goes into the text pause; re-run done (2026-10-14, see "Re-runs after #37 and #39").
+- Describe prompt / textClause: on-screen text the model reports as `headline: "…"` or `sign reads …` is not recognised as a text clause, so it can be dropped rather than paused on. **Fixed** (0008): recognised (headline:, … reads, a quoted caption or title card), and the prompt asks for "Words appear:"; re-run done — the Tears of Steel headline is now spoken.
+- Describe: "Darkness." should be the whole line or absent — a dark frame that still shows something is not darkness. **Fixed** (0008): a "Darkness." prefix is stripped in describe and fit, and the prompt says "Darkness." only when nothing is visible (Gate C to re-check); re-run done (Sintel, Tears of Steel).
 - SDH degraded on all four titles with speech ("no window added anything"). Cause (claude/desc-010-sdh-fixes, 6 Nova Lite calls,
   $0.0009): Nova Lite sees only the captions and the visual descriptions, so it returned sights as sounds ("fire glows", "bearded man
   holds", zero length, no brackets) and voice labels or placeholders as names ("[spk_1]", "[Name]"); the merge rightly dropped all of
@@ -123,9 +165,9 @@ Follow-ups from this batch (not fixed before the freeze):
   - `SOUND_WORDS` and `SOURCE_SOUNDS` are English only: a `de` title gets no sound cues until German sound words are added.
   - The SDH cache (`work/{slug}/cache/sdh/`) replays a valid-but-wrong reply for as long as the input is unchanged; delete that
     directory to sample Nova Lite again.
-  - After the Tears of Steel re-run, delete the stale Rich captions objects by hand: `published/tears-of-steel-40-100/sdh.vtt`,
+  - ~~After the Tears of Steel re-run, delete the stale Rich captions objects by hand: `published/tears-of-steel-40-100/sdh.vtt`,
     `sdh.m3u8` and the 6 segments under `sdh/` (checked with `aws s3 ls` on 2026-10-14; no master names them once 09-package omits
-    the track).
+    the track).~~ Done 2026-10-14 (8 objects deleted; see "Re-runs after #37 and #39"). The Sintel re-run `--from text` is superseded by its `--from fit` re-run, which published Rich captions.
   - Follow-up idea, not built: an onset rule (momentary loudness jumping 6–10 LU above the short-term level) would be stronger evidence
     of a discrete sound than the −55 LUFS audibility floor, which a music bed also passes.
 - The six `grid-test-*` filler rows from the 2026-10 device run are still published (poster-less, no stream, "Test row." in About).
