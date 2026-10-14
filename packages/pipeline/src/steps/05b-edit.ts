@@ -7,6 +7,7 @@ import { textClauses, type FitCue } from './05-fit'
 import { NEXT_CUE_SPACING_MS } from './06-voice'
 import { sentences, stripDarkness, textSpans } from '../textClause'
 import { contentWords, stem } from '../contentWords'
+import { editReadsAsSentences } from '../sentenceGuard'
 import { editRequest, editModelId, shortenEditWithNovaLite, stripFence, type EditConverse, type EditCueInput, bedrockEditSend } from '../prompts'
 import { meter } from '../cost'
 
@@ -26,7 +27,8 @@ export const FIT_CUES_FILE = 'cues.fit.json'
  * Every edit passes a deterministic guard before it replaces the original (applyEdits): index known and unedited so far, one line,
  * not an on-screen text cue, the on-screen text clauses of the original kept verbatim and in order (none added), no content word
  * outside the shot descriptions between the previous action cue and this cue's shot plus the two cues' own text (faithful), no fact
- * of the original lost unless the previous cue said it (keeps facts), and within the cue's budget — checked last, so an over-budget
+ * of the original lost unless the previous cue said it (keeps facts), still sentences (../sentenceGuard editReadsAsSentences: no
+ * noun list, not only a subject — DESC-028), and within the cue's budget — checked last, so an over-budget
  * edit that would fail anyway costs no shortening call. An unreadable reply, or a failed call, keeps every original cue (the step is
  * an improvement, never a dependency).
  * Reads cues.fit.json (cues.json when an older work dir has none), writes cues.json (same length and order) and edit.json (what
@@ -115,7 +117,7 @@ export async function editScene(cues: FitCue[], shots: Described[], words: Word[
     if (reply === undefined) continue
     const edits = replyEdits(reply)
     if (!edits) { console.warn(`edit: reply for cues ${from}–${to - 1} is not {"edits":[…]}; keeping the original cues`, (typeof reply === 'string' ? reply : JSON.stringify(reply) ?? '').slice(0, 200)); continue }
-    const out = applyEdits(cues, shots, edits, budgets, [from, to])
+    const out = applyEdits(cues, shots, edits, budgets, [from, to], language)
     const retry: Edit[] = []
     for (const r of out.rejected) {
       if (!r.reason.startsWith('over budget')) { report.rejected.push(r); continue }
@@ -129,7 +131,7 @@ export async function editScene(cues: FitCue[], shots: Described[], words: Word[
       // An empty reply, or one that was only an annotation, is no shortening: the edit's own over-budget rejection stands.
       if (shorter && shorter !== r.text) retry.push({ cue: r.i, text: shorter }); else report.rejected.push(r)
     }
-    const again = retry.length ? applyEdits(cues, shots, retry, budgets, [from, to]) : { applied: [], rejected: [] }
+    const again = retry.length ? applyEdits(cues, shots, retry, budgets, [from, to], language) : { applied: [], rejected: [] }
     for (const a of [...out.applied, ...again.applied]) { report.cues[a.i]!.text = a.to; report.cues[a.i]!.wordCount = wordCount(a.to); report.applied.push(a) }
     report.rejected.push(...again.rejected.map((r) => ({ ...r, reason: `${r.reason} (after shortening)` })))
   }
@@ -316,7 +318,7 @@ export const textClauseStrings = (t: string) => textSpans(t).map((s) => t.slice(
  * rejection for budget is the only kind worth a shortening call. Timing, order, count, extended and shotIndex are never touched.
  * Returns the cues (copies) and what was applied / rejected.
  */
-export function applyEdits(cues: readonly FitCue[], shots: readonly Described[], edits: readonly Edit[], budgets = editBudgets(cues), window: [number, number] = [0, cues.length]): { cues: FitCue[]; applied: EditReport['applied']; rejected: EditReport['rejected'] } {
+export function applyEdits(cues: readonly FitCue[], shots: readonly Described[], edits: readonly Edit[], budgets = editBudgets(cues), window: [number, number] = [0, cues.length], language: 'en' | 'de' = 'en'): { cues: FitCue[]; applied: EditReport['applied']; rejected: EditReport['rejected'] } {
   const out = cues.map((c) => ({ ...c }))
   const applied: EditReport['applied'] = [], rejected: EditReport['rejected'] = []
   const seen = new Set<number>()
@@ -342,6 +344,8 @@ export function applyEdits(cues: readonly FitCue[], shots: readonly Described[],
     if (bad.length) { reject(`not in any shot description: ${bad.join(', ')}`); continue }
     const lost = droppedFacts(c.text, text, previous)
     if (lost.length) { reject(`drops a fact: ${lost.join(', ')}`); continue }
+    const fragment = editReadsAsSentences(c.text, text, allowed, language) // DESC-028: g9 shot 26 "Scaled creature, horns, bloodied wing, stares."
+    if (fragment) { reject(`not a sentence: ${fragment}`); continue }
     if (wordCount(text) > budgets[i]!) { reject(`over budget (${wordCount(text)} > ${budgets[i]} words)`); continue }
     out[i] = { ...c, text, wordCount: wordCount(text) }
     applied.push({ i, from: c.text, to: text })

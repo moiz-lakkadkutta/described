@@ -20,4 +20,11 @@ describe('abort signal', () => {
     await metered(() => shortenWithNovaLite('Snow falls on the hills.', 2, 'en'), ac.signal)
     expect(sent[0]!.opts?.abortSignal).toBe(ac.signal)
   })
+  // DESC-028: g9 shot 14 "City, central pyramid." — the shortener is told to write sentences with verbs, not a noun list
+  it('asks the Nova Lite shortener for complete sentences with their verbs', async () => {
+    await shortenWithNovaLite('Dense city under hazy sky, central pyramid structure.', 3, 'en')
+    const system = (sent[0]!.input as { system: Array<{ text: string }> }).system[0]!.text
+    expect(system).toContain('complete present-tense sentences, each with its verb; never a list of nouns')
+    expect(system).toContain('at most 3 words')
+  })
 })

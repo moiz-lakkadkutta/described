@@ -22,7 +22,9 @@ const SNOW_SHORT = 'Snow falls on the hills.' // shortenDeterministic(SNOW, 3)
 const STREET = 'Night. A man in a long dark coat walks slowly along the wet street, past the old bakery, the closed bank and the bright cinema, while snow falls on the quiet rooftops.' // 32 words
 const STREET_SHORT = 'Night. A man in a dark coat walks along the street, past the bakery, the closed bank and the cinema, while snow falls on the quiet rooftops.' // shortenDeterministic(STREET, 28): 27 words
 const STREET_CAPPED = 'Night. A man in a dark coat walks along the street, past the bakery, the closed bank and the cinema.' // capExtended(STREET_SHORT): 20 words
+const CREATURE = 'A scaled creature with horns and bloodied wing stares as a gloved hand reaches toward it.' // sintel-90-210 shot 26 (g9)
 const DURATIONS: Record<string, number> = {
+  [CREATURE]: 6000,
   'Smoke rises.': 1200, 'Snow falls.': 1100, 'She waits.': 1300, 'Words appear: North.': 1700,
   [LONG]: 4000, [SHORT]: 1900, [MID]: 3000, [NIGHT]: 5000, [NIGHT_SHORT]: 2500, [SNOW]: 6000, [SNOW_SHORT]: 2600,
   [STREET]: 11200, [STREET_SHORT]: 10400, [STREET_CAPPED]: 7800,
@@ -132,6 +134,15 @@ describe('voice', () => {
     expect(JSON.parse(await readFile(`${work}/${cueSidecarFile(0)}`, 'utf8'))).toMatchObject({ text: STREET_CAPPED, ssml: cueSsml(STREET_CAPPED), durationMs: 7800 })
     // Each of the three calls is billed exactly once: the two discarded clips and the kept one.
     expect(costUsd).toBeCloseTo(pollyUsd(STREET.length + STREET_SHORT.length + STREET_CAPPED.length), 12)
+  })
+  it('DESC-028: an overrun shortening that keeps only the subject is not voiced; the cue takes the existing path (here: dropped)', async () => {
+    // 20000 + 6000 > 22200 → maxWords = max(3, floor(16 × 2000 / 6000)) = 5 → "A scaled creature with horns." (the subject only):
+    // rejected, no second call; not new information, no plot event → dropped
+    await writeCues([cue(1000, 'Smoke rises.', 5000), cue(20000, CREATURE, 22000), cue(30000, 'She waits.', 34000)])
+    const f = fakes()
+    await voice(ctx(), f)
+    expect(f.synthesize.mock.calls.map((c) => c[0])).toEqual(['Smoke rises.', CREATURE, 'She waits.'])
+    expect((await readCues()).map((c) => c.text)).toEqual(['Smoke rises.', 'She waits.'])
   })
   it('a second overrun is dropped otherwise', async () => {
     // middle cue: 20000 + 6000 > 22200 → maxWords = max(3, floor(9 × 2000 / 6000)) = 3 → SNOW_SHORT; 20000 + 2600 still > 22200 → dropped

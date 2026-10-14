@@ -53,9 +53,11 @@ describe('sintel-90-210 run A2 golden replay', () => {
     // With 450 ms, the 4-word "Red-haired girl accepts bowl." has no room in 37240–38989 and becomes fit's own event pause (DESC-020);
     // the pause starts at the estimated end of shot 7's placed cue, not inside it (decision 0009 review);
     // shot 3 (1449 ms left in 0–16720) and shot 27 are not placed; longer lines are estimated longer, so later cues start later and
-    // shot 22 loses its slot to 23.
+    // shot 22 loses its slot to 23. DESC-028: shot 26's only shortening that fits its slot, "A scaled creature with horns.", has
+    // neither of its verbs (looks, reaches) and is rejected; shot 26 is not placed and shot 27 takes the slot, whole.
     expect(cues.map((c) => [c.shotIndex, c.extended])).toEqual([[0, false], [1, false], [2, false], [4, false], [7, false], [8, true], [9, false], [12, false], [13, false], [14, false],
-      [15, false], [16, false], [17, false], [18, false], [19, false], [20, false], [21, false], [23, false], [24, false], [25, false], [26, false]])
+      [15, false], [16, false], [17, false], [18, false], [19, false], [20, false], [21, false], [23, false], [24, false], [25, false], [27, false]])
+    expect(cues.find((c) => c.shotIndex === 27)).toMatchObject({ text: 'Red-haired woman smiles. Scaly beast roars.' })
     expect(cues.find((c) => c.shotIndex === 8)).toMatchObject({ text: 'Red-haired girl accepts bowl.', event: true })
     // DESC-010 follow-up: fit strips a "Darkness." prefix in front of a visible scene (shot 2)
     expect(cues.find((c) => c.shotIndex === 2)).toMatchObject({ text: 'A fire pit glows faintly in a dim room.', startMs: 11208, endMs: 11208 + estimateClipMs(9) })
@@ -64,7 +66,7 @@ describe('sintel-90-210 run A2 golden replay', () => {
       expect(c.endMs).toBeLessThanOrEqual(c.limitMs!)
     }
     const placed = new Set(cues.map((c) => c.shotIndex))
-    expect(described.filter((s) => !placed.has(s.index)).map((s) => s.index)).toEqual([3, 5, 6, 10, 11, 22, 27, 28])
+    expect(described.filter((s) => !placed.has(s.index)).map((s) => s.index)).toEqual([3, 5, 6, 10, 11, 22, 26, 28])
   })
 
   it('voice: shots 8 and 24 become extended event cues; every other cue is as the run voiced it (golden list)', async () => {

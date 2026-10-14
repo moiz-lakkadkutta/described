@@ -268,9 +268,9 @@ describe('on-screen text clause', () => {
     expect(await safeShorten(SHOT0, 3, () => '')).toBe(SHOT0)
     // capExtended's word cut (a failing shortener) keeps the clause too, with a sentence end before it
     const long = `${'Snow falls on the hills, '.repeat(6).trim()} Words appear: SINTEL.`
-    expect((await capExtended(long, (t) => t)).text).toMatch(/hills\. Words appear: SINTEL\.$/)
-    expect((await capExtended(long, (t) => t)).wordCount).toBeLessThanOrEqual(EXTENDED_WORDS)
-    expect((await capExtended(`${'snow '.repeat(30).trim()} Words appear: SINTEL.`, (t) => t)).text).toBe(`${'snow '.repeat(22).trim()}. Words appear: SINTEL.`)
+    expect((await capExtended(long, (t) => t))!.text).toMatch(/hills\. Words appear: SINTEL\.$/)
+    expect((await capExtended(long, (t) => t))!.wordCount).toBeLessThanOrEqual(EXTENDED_WORDS)
+    expect((await capExtended(`${'snow '.repeat(30).trim()} Words appear: SINTEL.`, (t) => t))!.text).toBe(`${'snow '.repeat(22).trim()}. Words appear: SINTEL.`)
   })
   // PR #25 review M1, M2
   it('reads bare on-screen text up to its sentence end, not to a period inside it', () => {
@@ -305,9 +305,13 @@ describe('on-screen text clause', () => {
       { startMs: 0, endMs: 100, text: 'Words appear: "The Hunt for the Dragon".', extended: true, wordCount: 7, shotIndex: 0 },
       expect.objectContaining({ startMs: 0, text: 'A girl runs.', extended: false, limitMs: 1750 }),
     ])
-    // the text fits but not beside any of the action: still split, the action shortened
-    const two = await fit([shot(SHOT0), shot('Smoke rises.', 1, 3000)], [{ startMs: 0, endMs: 1950 }, { startMs: 3000, endMs: 6000 }], (t, n) => safeShorten(t, n, () => 'Mountains walk.'))
-    expect(two.map((c) => [c.startMs, c.extended, c.text])).toEqual([[0, true, 'Words appear: SINTEL.'], [400, false, 'Snowy mountains.'], [3000, false, 'Smoke rises.']])
+    // the text fits but not beside any of the action: still split, the action shortened (both at the gap start: a 4-word gap has no room to delay 3 words)
+    const gaps2 = [{ startMs: 0, endMs: 1950 }, { startMs: 3000, endMs: 6000 }]
+    const two = await fit([shot(SHOT0), shot('Smoke rises.', 1, 3000)], gaps2, (t, n) => safeShorten(t, n, () => 'Figure walks left.'))
+    expect(two.map((c) => [c.startMs, c.extended, c.text])).toEqual([[0, true, 'Words appear: SINTEL.'], [0, false, 'Figure walks left.'], [3000, false, 'Smoke rises.']])
+    // a verbless first sentence of the original is still a shortening (the verb checks fail open, PR #52 review)
+    const verbless = await fit([shot(SHOT0), shot('Smoke rises.', 1, 3000)], gaps2, (t, n) => safeShorten(t, n, () => 'Mountains walk.'))
+    expect(verbless.map((c) => [c.startMs, c.extended, c.text])).toEqual([[0, true, 'Words appear: SINTEL.'], [400, false, 'Snowy mountains.'], [3000, false, 'Smoke rises.']])
   })
   // PR #25 round 2, M2 (reviewer's repro)
   it('places the whole text in a later gap of the shot window before splitting it', async () => {
