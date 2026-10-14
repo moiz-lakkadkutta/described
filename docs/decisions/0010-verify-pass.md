@@ -35,31 +35,47 @@ what kind of creature or object, screen direction, eye state, who holds or does 
 with no example pair from this film (that would teach the evaluation clip's answers). It says: delete every detail that is not
 clearly visible; a wrong word for a thing that is there may become a general word (creature, animal, person, figure, object,
 weapon, someone, something); prefer deleting to guessing; never add a fact; keep on-screen text clauses ("Words appear:", German
-"Text erscheint:"), names and the draft's order; write sentences, not noun lists, adding only the linking words is, are, has,
-have, with, there, a, an, the (and "visible"); at most N words, N = `wordCap`. Reply: JSON `{text, removed[]}`.
+"Text erscheint:"), names, every negation and the draft's order; use only the draft's words in the same form and order, except
+the linking words is, are, has, have, with, there, a, an, the (German ist, sind, hat, haben, mit, es gibt, der/die/das and the
+other articles) and "is/are visible" after the subject of a draft sentence; at most N words, N = `wordCap`. Reply: JSON
+`{text, removed[]}`.
 
-**Guards** (`checkVerified`, deterministic; any failure keeps the draft and the reason is recorded). Description words are the
-content words (`src/contentWords.ts`: the edit pass's STOP list and Porter stem) of the text **without its on-screen text
-clauses**, so "Words appear: DRAGON." never licenses "a dragon sign".
+**Guards** (`checkVerified`, deterministic; any failure keeps the draft and the reason is recorded). Same principle the human
+chose for the edit pass's repeat guard (#44): **exact words, only a tiny allow-list is free.** Verify has its own normalisation
+(`tokens`): the description without its on-screen text clauses, lower-cased, cut into words — no shared stop list, no stemming.
+So "Words appear: DRAGON." never licenses "a dragon sign", "pours" ≠ "pouring", "fires" ≠ "fire", "attacked" ≠ "attacks".
 1. empty after `parseDescription`'s cleaning (quotes, a SAME reply);
 2. on-screen text changed — the text clauses (`src/textClause.ts`) must equal the draft's, in order;
 3. name dropped — a known name (`knownNames` for the shot) that the draft said is missing;
-4. new words — every description word must be in the draft (by stem) or be a general word (plus "visible"). A name the draft did
-   not have is a new word, so names follow the draft (and the draft followed `knownNames`);
-5. words out of order (`inDraftOrder`) — the reply's description words must be a subsequence of the draft's, where a general word
-   stands in for exactly one draft word at its position (a plural one — creatures, people, objects — only for a plural draft
-   word). Without it a reply made only of draft words could swap roles or sides: "The man hands the girl a sword" → "The girl
-   hands the man a sword", "from left to right" → "from right to left", "Red-haired woman holds dragon. A man watches." →
-   "Woman holds dragon. A red-haired man watches." — all three rejected;
-6. no more description words than the draft;
+4. negation dropped — fewer of any negation word than the draft (not, n't, no, never, nobody, nothing, none, cannot, without;
+   nicht, nie, niemand, nichts, ohne, kein…): "does not hold" → "holds", "No one is in the room" → "One is …", "without a hat"
+   → "with a hat", "hält nicht" → "hält" are all rejected;
+5. new words — every word must be in the draft, exact form, unless it is free. Free are only the linking words above ("with" /
+   "mit" not when the draft has "without" / "ohne"; "es" and "gibt" only together, since "gibt" is also "gives"), the general
+   words, and an added "visible" (guard 6). Prepositions and joining words are not free: "to the hut" → "from the hut",
+   "in" → "on", "while" → "then", "zum Haus" → "vom Haus" are rejected. A name the draft did not have is a new word;
+6. words out of order — the reply's non-free words, matched in order to the draft's by exact form; a general word stands in for
+   exactly one draft word in place (never for a linking word or a negation; a plural one — creatures, people, objects; German
+   Tiere, Personen … — only for a plural word). Rejected: "The man hands the girl a sword" → "The girl hands the man a sword",
+   "from left to right" → "from right to left", "Red-haired woman holds dragon. A man watches." → "Woman holds dragon. A
+   red-haired man watches.". An added "visible" must follow is / are (ist / sind) and its subject must open a draft sentence
+   (only linking words before it): "A girl searches for her dragon among rocks." may become "A girl is visible." but not "Her
+   dragon is visible." (the dragon may be what she is looking for) nor "A girl and her dragon are visible." ("and" is new);
 7. at most `wordCap` words: the draft's length + 3 (`MAX_ADDED_WORDS`, room for "there is" / an article to make a noun list a
    sentence), within the shot's describe word budget (`wordBudget`, passed from `describeShots`) — but never below the draft's own
    length, so a draft that already ran over its budget can still be cut down.
 
-With guards 4–6 the pass can only **delete**, **generalise** one word in place, or **add linking words**: "walks left" can become
-"walks", never "walks right" (guard 4), and no reply can reorder who does what (guard 5). Not called for SAME, empty or
+The pass can only **delete**, **generalise** one word in place, or **add linking words**. Not called for SAME, empty or
 on-screen-text-only drafts. The checked text replaces the reply before `dedupe`, so a later part of a split shot is told what the
 checked earlier part said (`describeAndVerify`, tested).
+
+**What exact matching now rejects among the g9 fixes.** One of the eleven g9 corrections in the tests had to change:
+"Two hands hold a red bowl with a face on the surface." is rejected — "on" is not in the draft ("beneath the surface"). "Two
+hands hold a red bowl with a face." passes. The other ten (direction and staff dropped, tattoo placement and blink dropped, "There
+is a red-haired woman.", bat → creature, staff → weapon, pink-haired and "stands" dropped, "nearby" dropped, "A red-haired girl
+is with a creature.", sleeve dropped, "A dense city is under a hazy sky with a pyramid.") pass unchanged. German inflection is
+strict: "verletzter Fledermaus" → "verletztem Wesen" is rejected (the adjective's ending changes with the noun's gender); the
+model must drop the adjective or keep the noun.
 
 **Cache, cost, audit.** `cache/verify/{sha256(version, model, prompt, frames, draft)}.json`, written atomically, never for a
 `max_tokens` reply: a retry or `--from describe` re-run pays nothing for an unchanged shot. Every fresh call is metered. The shot's

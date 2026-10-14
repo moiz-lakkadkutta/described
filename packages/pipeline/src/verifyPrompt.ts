@@ -7,21 +7,26 @@
  * so old cached replies stop matching; the version is also written to verify.json.
  * The detail classes are named as types only: an example pair from the film we evaluate on would teach that clip's answers.
  */
-export const VERIFY_PROMPT_VERSION = 1
+export const VERIFY_PROMPT_VERSION = 2
 
 /**
- * Words a checked description may use although the draft did not: the general words the prompt allows in place of a wrong
- * specific one ("bat" → "creature", "staff" → "object"), and "visible" so a noun list can become a sentence that claims only
- * presence ("A face is visible."). Everything else must be in the draft (04b-verify's guard). en, de.
+ * The only words a checked description may use that the draft did not have, per language (04b-verify's guards; exact lower-cased
+ * forms, no stop list, no stemming — the principle the human chose for the edit pass's repeat guard, #44):
+ * - LINKING: free to add, to turn a noun list into a sentence. "with" is not free when the draft has "without". "visible" /
+ *   "sichtbar" only as "is/are visible" after a subject that opens a draft sentence (04b-verify: addedVisibleOk).
+ * - GENERAL: each may stand in for exactly one draft word, in place ("bat" → "creature"); a PLURAL one only for a plural word.
  */
-export const GENERAL_WORDS = new Set([
-  'creature', 'animal', 'person', 'figure', 'someone', 'something', 'object', 'weapon', 'visible',
-  'wesen', 'tier', 'person', 'gestalt', 'jemand', 'etwas', 'gegenstand', 'objekt', 'waffe', 'sichtbar',
-])
-/** Plural general words: each may stand in only for a plural draft word (04b-verify's in-order guard). */
-export const PLURAL_GENERAL_WORDS = new Set(['creatures', 'animals', 'people', 'figures', 'objects', 'weapons'])
-/** Words the prompt lets the model add to make a sentence; all are in ../contentWords' STOP list, so no guard counts them as content. */
-export const LINKING_WORDS = 'is, are, has, have, with, there, a, an, the'
+export const LINKING = {
+  en: ['is', 'are', 'has', 'have', 'with', 'there', 'a', 'an', 'the'],
+  de: ['ist', 'sind', 'hat', 'haben', 'mit', 'es', 'gibt', 'der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einen', 'einem', 'einer', 'eines'],
+} as const
+export const VISIBLE = { en: 'visible', de: 'sichtbar' } as const
+export const COPULA = { en: ['is', 'are'], de: ['ist', 'sind'] } as const
+export const GENERAL = {
+  en: ['creature', 'animal', 'person', 'figure', 'someone', 'something', 'object', 'weapon'],
+  de: ['wesen', 'tier', 'person', 'gestalt', 'jemand', 'etwas', 'gegenstand', 'objekt', 'waffe'],
+} as const
+export const PLURAL_GENERAL = { en: ['creatures', 'animals', 'people', 'figures', 'objects', 'weapons'], de: ['tiere', 'personen', 'gestalten', 'gegenstände', 'objekte', 'waffen'] } as const
 
 /**
  * The system prompt. The categories are the kinds of detail raters failed on sintel-90-210 (g9). maxWords is the reply's cap
@@ -39,10 +44,10 @@ export function verifySystemPrompt(language: 'en' | 'de', maxWords: number): str
     '- who holds, gives, takes or does what;',
     '- place: "nearby", "beside" or "then" across a cut to a different place;',
     '- movement or change (something swirling, appearing, opening or closing) that the frames do not show.',
-    'Delete every detail that is not clearly visible in the frames. If a word is wrong but the thing is there, you may replace it with one of these general words only: creature, animal, person, figure, object, weapon, someone, something. Prefer deleting to guessing.',
-    'Never add a fact: no new colour, direction, body part, object, action or name, and no word the draft does not have, except those general words and "visible".',
+    `Delete every detail that is not clearly visible in the frames. If a word is wrong but the thing is there, you may replace it with one of these general words only: ${GENERAL[language].join(', ')}. Prefer deleting to guessing.`,
+    'Never add a fact: no new colour, direction, body part, object, action or name. Use only the words of the draft, in the same form and in the same order, except the words named here. Keep every negation (not, no, never, without).',
     'Keep every on-screen text clause (starting "Words appear:"; in German "Text erscheint:") exactly as written, word for word. Keep names exactly as the draft wrote them, and keep the order of the draft: who does what to whom stays as the draft has it.',
-    `Write complete present-tense sentences with a verb, never a list of nouns. You may add these linking words, which add no fact: ${LINKING_WORDS}; and "visible" ("A face is visible.").`,
+    `Write complete present-tense sentences with a verb, never a list of nouns. You may add these linking words, which add no fact: ${LINKING[language].join(', ')}; and "${COPULA[language][0]} ${VISIBLE[language]}" after the subject of a draft sentence.`,
     `Use at most ${maxWords} words. If every detail is visible, return the draft unchanged.`,
     'Reply with JSON only, no other text: {"text": "<the checked description>", "removed": ["<each detail you deleted or replaced, as the draft wrote it>"]}',
   ].join('\n')

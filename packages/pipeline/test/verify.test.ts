@@ -37,9 +37,11 @@ describe('verify prompt', () => {
     const p = verifySystemPrompt('en', 11)
     for (const s of ['colours', 'on the body', 'what kind of creature or animal', 'what an object is', 'left or right', 'open or closed', 'who holds, gives', '"nearby"', 'movement or change',
       'Delete every detail that is not clearly visible', 'Prefer deleting to guessing', 'Never add a fact', 'exactly as written', '"Text erscheint:"', 'never a list of nouns',
-      'is, are, has, have, with, there', 'Use at most 11 words.', '{"text":', 'Reply in English.'])
+      'is, are, has, have, with, there', 'Keep every negation', 'in the same form and in the same order', 'Use at most 11 words.', '{"text":', 'Reply in English.'])
       expect(p).toContain(s)
     expect(verifySystemPrompt('de', 8)).toContain('Reply in German.')
+    expect(verifySystemPrompt('de', 8)).toContain('ist, sind, hat, haben, mit, es, gibt')
+    expect(verifySystemPrompt('de', 8)).toContain('wesen, tier, person')
   })
   it('does not teach this clip\'s answers: no film-specific example pairs', () => {
     const p = verifySystemPrompt('en', 11)
@@ -79,7 +81,7 @@ describe('checkVerified', () => {
       [G9.walksLeft, 'Words appear: SINTEL. A figure walks across snow, holding an object, beneath icy peaks.'],
       [G9.tattoo, 'The woman with red hair and a grey tank top is in dim light, a tattoo visible.'],
       [G9.opensEyes, 'There is a red-haired woman.'],
-      [G9.mist, 'Two hands hold a red bowl with a face on the surface.'],
+      [G9.mist, 'Two hands hold a red bowl with a face.'], // "… with a face on the surface" is rejected: "on" is not in the draft (it says "beneath")
       [G9.bat, 'Woman kneels beside wounded creature on cobblestones.'],
       [G9.staff, 'Bearded man holds ornate weapon; red-haired woman watches.'],
       [G9.pink, 'Woman in gray tank top near stone wall.'],
@@ -133,6 +135,7 @@ describe('checkVerified', () => {
     expect(checkVerified('Woman kneels beside bat.', { text: 'Woman kneels beside creature creature.', removed: [] }, opts).applied).toBe(false)
     expect(checkVerified('Woman feeds bat.', { text: 'Woman feeds creatures.', removed: [] }, opts)).toMatchObject({ applied: false, reason: 'words out of order' })
     expect(checkVerified('Woman feeds bats.', { text: 'Woman feeds creatures.', removed: [] }, opts).applied).toBe(true)
+    expect(checkVerified('Woman feeds snake.', { text: 'Woman feeds creatures.', removed: [] }, opts).applied).toBe(false)
   })
   it('rejects a reply that drops a name the draft had', () => {
     expect(checkVerified('Sintel reads book.', { text: 'A person reads book.', removed: [] }, { maxWords: 25, names: ['Sintel'] })).toMatchObject({ applied: false, reason: 'name dropped: Sintel' })
@@ -140,13 +143,65 @@ describe('checkVerified', () => {
   })
   it('rejects an empty reply, a SAME reply and a longer one', () => {
     for (const text of ['', '  ', '""', 'SAME']) expect(checkVerified(G9.bat, { text, removed: [] }, opts)).toMatchObject({ applied: false, text: G9.bat, reason: 'empty' })
-    expect(checkVerified(G9.offers, { text: 'There is a woman with a bowl and a man.', removed: [] }, opts)).toMatchObject({ applied: false, reason: 'more than 8 words' }) // draft 5 + 3
+    expect(checkVerified(G9.offers, { text: 'There is a woman with a bowl, with a man.', removed: [] }, opts)).toMatchObject({ applied: false, reason: 'more than 8 words' }) // draft 5 + 3
     expect(checkVerified(G9.offers, { text: 'There is a woman with a bowl.', removed: [] }, { maxWords: 6, names: [] })).toMatchObject({ applied: false, reason: 'more than 6 words' }) // the shot's budget
     expect(checkVerified(G9.tattoo, { text: G9.tattoo.replace('slowly ', ''), removed: [] }, { maxWords: 8, names: [] }).applied).toBe(true) // never below the draft's own length
     expect(checkVerified(G9.book, { text: 'Red-haired girl reads book, creature.', removed: [] }, opts)).toMatchObject({ applied: false })
   })
-  it('matches inflections through the stem, as the edit pass does', () => {
-    expect(checkVerified('Man pours broth.', { text: 'Man pouring broth.', removed: [] }, opts).applied).toBe(true)
+  it('matches exact word forms only: no stem collisions (pours/pouring, fires/fire, watches/watch)', () => {
+    expect(checkVerified('Man pours broth.', { text: 'Man pouring broth.', removed: [] }, opts)).toMatchObject({ applied: false, reason: 'new words: pouring' })
+    expect(checkVerified('The soldier fires at the tower.', { text: 'The fire is at the tower.', removed: [] }, opts)).toMatchObject({ applied: false, reason: 'new words: fire' })
+    expect(checkVerified('The man watches the girl.', { text: 'The watch, the man, the girl.', removed: [] }, opts)).toMatchObject({ applied: false, reason: 'new words: watch' })
+  })
+})
+
+describe('checkVerified: exact words, only the linking and general words are free (round-2 review)', () => {
+  const de = { maxWords: 25, names: [] as string[], language: 'de' as const }
+  const reject = (draft: string, text: string, o = opts) => { const r = checkVerified(draft, { text, removed: [] }, o); expect(r.applied, text).toBe(false); expect(r.text).toBe(draft); return r.reason }
+  it('rejects swapped prepositions and joining words (not free any more)', () => {
+    expect(reject('The man runs to the hut.', 'The man runs from the hut.')).toBe('new words: from')
+    expect(reject('A lamp hangs in the hut.', 'A lamp hangs on the hut.')).toBe('new words: on')
+    expect(reject('The girl eats while the man smokes.', 'The girl eats then the man smokes.')).toBe('new words: then')
+    expect(reject('Der Mann geht zum Haus.', 'Der Mann geht vom Haus.', de)).toBe('new words: vom')
+    expect(reject('Ein Mädchen sitzt auf dem Dach.', 'Ein Mädchen sitzt aus dem Dach.', de)).toBe('new words: aus')
+  })
+  it('rejects a passive turned active', () => {
+    expect(reject('The girl is attacked by the dragon.', 'The girl attacks the dragon.')).toBe('new words: attacks')
+    expect(reject('Das Mädchen wird vom Drachen angegriffen.', 'Das Mädchen greift den Drachen an.', de)).toBe('new words: greift, an')
+  })
+  it('rejects a reply that drops a negation', () => {
+    expect(reject('The man does not hold the sword.', 'The man does hold the sword.')).toBe('negation dropped: not')
+    expect(reject('The man does not hold the sword.', 'The man holds the sword.')).toBe('negation dropped: not')
+    expect(reject("The girl doesn't look back.", 'The girl looks back.')).toBe("negation dropped: doesn't")
+    expect(reject('No one is in the room.', 'One is in the room.')).toBe('negation dropped: no')
+    expect(reject('A face is not visible.', 'A face is visible.')).toBe('negation dropped: not')
+    expect(reject('A man without a hat waves.', 'A man with a hat waves.')).toBe('negation dropped: without')
+    expect(reject('Sie hält nicht das Schwert.', 'Sie hält das Schwert.', de)).toBe('negation dropped: nicht')
+    expect(reject('Ein Mann ohne Hut winkt.', 'Ein Mann mit Hut winkt.', de)).toBe('negation dropped: ohne')
+    expect(reject('Kein Mensch ist im Raum.', 'Ein Mensch ist im Raum.', de)).toBe('negation dropped: kein')
+  })
+  it('does not treat "with" as free when the draft has "without"', () => {
+    expect(reject('Without a hat, a man waves.', 'Without a hat, a man with a hat waves.')).toBe('new words: with')
+    expect(reject('Ohne Hut winkt ein Mann.', 'Ohne Hut winkt ein Mann mit Hut.', de)).toBe('new words: mit')
+  })
+  it('allows an added "visible" only as "is/are visible" after the subject that opens a draft sentence', () => {
+    expect(reject('A girl searches for her dragon among rocks.', 'A girl and her dragon are visible.')).toMatch(/new words: and|visible/)
+    expect(reject('A girl searches for her dragon among rocks.', 'Her dragon is visible.')).toBe('"visible" added for a subject that does not open a draft sentence')
+    expect(reject('Two hands hold a red bowl; a faint face shifts beneath the surface.', 'A face is visible.')).toBe('"visible" added for a subject that does not open a draft sentence')
+    expect(reject('A girl searches for her dragon.', 'A girl searches visible.')).toBe('"visible" added without "is" or "are"')
+    expect(reject('A girl searches for her dragon.', 'A dragon is visible.')).toMatch(/visible/) // the general-word slot is not for "visible" either
+    expect(checkVerified('A girl searches for her dragon among rocks.', { text: 'A girl is visible.', removed: [] }, opts).applied).toBe(true)
+    expect(checkVerified('Two hands hold a red bowl; a faint face shifts beneath the surface.', { text: 'Two hands hold a red bowl; a faint face is visible.', removed: [] }, opts).applied).toBe(true)
+    expect(checkVerified('Eine rothaarige Frau öffnet die Augen.', { text: 'Eine rothaarige Frau ist sichtbar.', removed: [] }, de).applied).toBe(true)
+    expect(reject('Ein Mädchen sucht seinen Drachen.', 'Seinen Drachen ist sichtbar.', de)).toBe('"sichtbar" added for a subject that does not open a draft sentence')
+  })
+  it('German: general words in place, linking words free, exact forms otherwise', () => {
+    expect(checkVerified('Frau kniet neben einer Fledermaus.', { text: 'Frau kniet neben einem Wesen.', removed: [] }, de)).toEqual({ text: 'Frau kniet neben einem Wesen.', applied: true })
+    expect(reject('Frau kniet neben verletzter Fledermaus.', 'Frau kniet neben verletztem Wesen.', de)).toBe('new words: verletztem')
+    expect(reject('Frau kniet neben Fledermaus.', 'Frau kniet neben Drache.', de)).toBe('new words: drache')
+    expect(reject('Der Mann gibt dem Mädchen ein Schwert.', 'Das Mädchen gibt dem Mann ein Schwert.', de)).toBe('words out of order')
+    expect(reject('Der Mann hält dem Mädchen ein Schwert hin.', 'Der Mann gibt dem Mädchen ein Schwert.', de)).toBe('new words: gibt') // "gibt" is free only in "es gibt"
+    expect(checkVerified('Ein Schwert liegt auf dem Tisch.', { text: 'Es gibt ein Schwert.', removed: [] }, de).applied).toBe(true)
   })
 })
 

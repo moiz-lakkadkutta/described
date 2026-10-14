@@ -4,9 +4,8 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { z } from 'zod'
 import { meter } from '../cost'
-import { contentWords, stem } from '../contentWords'
 import { textSpans, withoutSpans } from '../textClause'
-import { GENERAL_WORDS, PLURAL_GENERAL_WORDS, VERIFY_PROMPT_VERSION, verifySystemPrompt, verifyUserText } from '../verifyPrompt'
+import { COPULA, GENERAL, LINKING, PLURAL_GENERAL, VERIFY_PROMPT_VERSION, VISIBLE, verifySystemPrompt, verifyUserText } from '../verifyPrompt'
 import { parseDescription, replyText, type Converse, type RawReply } from './04-describe'
 
 /**
@@ -80,50 +79,43 @@ export function parseVerifyReply(reply: string): Verified | undefined {
 
 const clauses = (t: string) => textSpans(t).map((s) => t.slice(s.start, s.end).trim())
 const words = (t: string) => t.trim().split(/\s+/).filter(Boolean).length
-const unique = (ws: string[]) => [...new Set(ws)]
-/** The description words of t: its content words (../contentWords) with the on-screen text clauses left out. */
-const described = (t: string) => contentWords(withoutSpans(t, textSpans(t)))
 /** The reply's word cap: the draft's length + MAX_ADDED_WORDS within the shot's word budget, never below the draft's own length. */
 export const wordCap = (draft: string, maxWords: number) => Math.max(words(draft), Math.min(words(draft) + MAX_ADDED_WORDS, maxWords))
-const isPlural = (w: string) => /[^s]s$/.test(w) || w === 'people'
 
+/** One word of a description: its exact lower-cased form and its sentence (split at . ! ? ;). */
+interface Tok { w: string; s: number }
 /**
- * True when reply (content words) is a subsequence of draft (content words) by stem, where a general word stands in for exactly
- * one draft word at its position (a plural general word only for a plural draft word). Deleting, generalising and joining a noun
- * list into a sentence keep the order; "The girl hands the man a sword" from "The man hands the girl a sword" does not.
+ * Verify's own normalisation (round-2 review): the description without its on-screen text clauses, lower-cased, cut into words
+ * (letters and digits, with inner ' or -: "doesn't", "red-haired"). No stop list and no stemming: "pours" ≠ "pouring", "fires" ≠ "fire".
  */
-export function inDraftOrder(reply: readonly string[], draft: readonly string[]): boolean {
-  const d = draft.map(stem)
-  const memo = new Map<number, boolean>()
-  const fits = (i: number, j: number): boolean => {
-    if (i === reply.length) return true
-    if (j === draft.length) return false
-    const key = i * (draft.length + 1) + j
-    const hit = memo.get(key)
-    if (hit !== undefined) return hit
-    const w = reply[i]!
-    const here = stem(w) === d[j] || GENERAL_WORDS.has(w) || (PLURAL_GENERAL_WORDS.has(w) && isPlural(draft[j]!))
-    const r = (here && fits(i + 1, j + 1)) || fits(i, j + 1)
-    memo.set(key, r)
-    return r
-  }
-  return fits(0, 0)
+export function tokens(t: string): Tok[] {
+  return withoutSpans(t, textSpans(t)).toLowerCase().replace(/’/g, "'").split(/[.!?;…]+/u)
+    .flatMap((sentence, s) => (sentence.match(/[\p{L}\p{N}]+(?:['-][\p{L}\p{N}]+)*/gu) ?? []).map((w) => ({ w, s })))
 }
+const NEGATIONS = new Set(['not', 'no', 'never', 'nobody', 'nothing', 'none', 'nowhere', 'neither', 'nor', 'cannot', 'without', 'nicht', 'nie', 'niemals', 'niemand', 'nichts', 'nirgends', 'ohne', 'weder'])
+export const isNegation = (w: string) => NEGATIONS.has(w) || /n't$/.test(w) || /^kein/.test(w)
+/** Rough plural test for the word a plural general word replaces: English -s (not -ss) or "people"; German -e, -en, -er, -n. */
+const isPlural = (w: string, lang: 'en' | 'de') => lang === 'en' ? /[^s]s$/.test(w) || w === 'people' : /(?:e|en|er|n)$/.test(w)
 
-export interface CheckOptions { maxWords: number; names: readonly string[] }
+export interface CheckOptions { maxWords: number; names: readonly string[]; language?: 'en' | 'de' }
+
 /**
- * The guards, in order; any failure keeps the draft (applied false, reason). Description words are counted without the on-screen
- * text clauses, so a word of the text ("Words appear: DRAGON.") never licenses the same word in the description.
+ * The guards, in order; any failure keeps the draft (applied false, reason). Words are verify's own exact forms (tokens), without
+ * the on-screen text clauses, so a word of the text ("Words appear: DRAGON.") never licenses the same word in the description.
  * 1. empty — nothing left after parseDescription's cleaning (quotes, a SAME reply);
- * 2. on-screen text changed — the text clauses (../textClause: "Words appear: …", a sign that reads "…") differ from the draft's, in order;
+ * 2. on-screen text changed — the text clauses (../textClause) differ from the draft's, in order;
  * 3. name dropped — a known name (knownNames) the draft said is missing;
- * 4. new words — a content word (../contentWords: not an article, linking conjunction, case preposition, auxiliary) whose stem is not
- *    in the draft and is not a general word. A name the draft did not have is a new word, so names follow the draft;
- * 5. words out of order — the content words are not a subsequence of the draft's (inDraftOrder): no swapped roles, sides or attributes;
- * 6. more content words than the draft — two general words for one specific one;
+ * 4. negation dropped — the reply has fewer of a negation word (not, n't, no, never, without, nicht, kein…, ohne …) than the draft;
+ * 5. new words — a word that is not in the draft and is not free: free are only LINKING (with: not when the draft has "without";
+ *    es / gibt: only together, "es gibt"), the GENERAL words and an added "visible" (guard 6);
+ * 6. words out of order — the reply's non-free words, matched in order to the draft's by exact form, where a general word stands
+ *    in for exactly one draft word in place (not a linking word or a negation; a plural general word only for a plural word); and
+ *    an added "visible" only right after is / are, for a subject that is the opening of a draft sentence (only linking words
+ *    before it): "A girl searches for her dragon." may become "A girl is visible.", never "Her dragon is visible.";
  * 7. more than wordCap(draft, maxWords) words.
  */
 export function checkVerified(draft: string, v: Verified, o: CheckOptions): { text: string; applied: boolean; reason?: string } {
+  const lang = o.language ?? 'en'
   const { description: text, sameAsPrev } = parseDescription(v.text, '')
   const keep = (reason: string) => ({ text: draft, applied: false, reason })
   if (sameAsPrev || !/[\p{L}\p{N}]/u.test(text)) return keep('empty')
@@ -131,15 +123,64 @@ export function checkVerified(draft: string, v: Verified, o: CheckOptions): { te
   const has = (t: string, name: string) => new RegExp(`(?<![\\p{L}])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}])`, 'u').test(t)
   const lost = o.names.filter((n) => has(draft, n) && !has(text, n))
   if (lost.length) return keep(`name dropped: ${lost.join(', ')}`)
-  const d = described(draft), r = described(text)
-  const known = new Set(d.map(stem))
-  const added = unique(r).filter((w) => !known.has(stem(w)) && !GENERAL_WORDS.has(w) && !PLURAL_GENERAL_WORDS.has(w))
+  const d = tokens(draft), r = tokens(text)
+  const count = (ts: Tok[], w: string) => ts.filter((t) => t.w === w).length
+  const negLost = [...new Set(d.map((t) => t.w).filter(isNegation))].filter((w) => count(r, w) < count(d, w))
+  if (negLost.length) return keep(`negation dropped: ${negLost.join(', ')}`)
+
+  const inDraft = new Set(d.map((t) => t.w))
+  const linking = new Set<string>(LINKING[lang])
+  const general = new Set<string>(GENERAL[lang]), plural = new Set<string>(PLURAL_GENERAL[lang])
+  const visible = VISIBLE[lang], copula = new Set<string>(COPULA[lang])
+  const withBlocked = inDraft.has('without') || inDraft.has('ohne')
+  /** Free to add at reply position i: a linking word, with "with"/"mit" not after a draft "without"/"ohne", and es/gibt only as "es gibt". */
+  const freeAt = (ts: Tok[], i: number) => {
+    const w = ts[i]!.w
+    if (!linking.has(w)) return false
+    if ((w === 'with' || w === 'mit') && withBlocked) return false
+    if (w === 'es') return ts[i + 1]?.w === 'gibt'
+    if (w === 'gibt') return ts[i - 1]?.w === 'es'
+    return true
+  }
+  const added = [...new Set(r.filter((t, i) => !inDraft.has(t.w) && !freeAt(r, i) && t.w !== visible && !general.has(t.w) && !plural.has(t.w)).map((t) => t.w))]
   if (added.length) return keep(`new words: ${added.join(', ')}`)
-  if (!inDraftOrder(r, d)) return keep('words out of order')
-  if (unique(r).length > unique(d).length) return keep('more content words than the draft')
+
+  const draftFree = (k: number) => freeAt(d, k) || isNegation(d[k]!.w)
+  const align = new Array<number | undefined>(r.length)
+  let j = 0
+  for (let i = 0; i < r.length; i++) {
+    const w = r[i]!.w
+    let k = d.findIndex((t, m) => m >= j && t.w === w)
+    if (k < 0 && freeAt(r, i)) continue
+    if (k < 0 && w === visible) {
+      const why = addedVisible(r, i, d, align, copula, (m) => freeAt(d, m))
+      if (why) return keep(`"${visible}" added ${why}`)
+      continue
+    }
+    if (k < 0 && (general.has(w) || plural.has(w))) k = d.findIndex((t, m) => m >= j && !draftFree(m) && (!plural.has(w) || isPlural(t.w, lang)))
+    if (k < 0) return keep('words out of order')
+    align[i] = k
+    j = k + 1
+  }
   const cap = wordCap(draft, o.maxWords)
   if (words(text) > cap) return keep(`more than ${cap} words`)
   return { text, applied: true }
+}
+
+/**
+ * Why an added "visible" at reply position i is not allowed, or undefined: it must follow is / are (ist / sind) in its sentence,
+ * after a subject (the reply's matched words before the copula in that sentence) that opens a draft sentence — every draft word from
+ * that sentence's start to the subject's last word is a subject word or a free linking word.
+ */
+function addedVisible(r: Tok[], i: number, d: Tok[], align: (number | undefined)[], copula: Set<string>, free: (m: number) => boolean): string | undefined {
+  if (i === 0 || !copula.has(r[i - 1]!.w) || r[i - 1]!.s !== r[i]!.s) return 'without "is" or "are"'
+  const subject = align.slice(0, i - 1).filter((k, m): k is number => k !== undefined && r[m]!.s === r[i]!.s)
+  const notOpening = 'for a subject that does not open a draft sentence'
+  if (!subject.length) return notOpening
+  const first = Math.min(...subject), last = Math.max(...subject), s = d[first]!.s
+  if (d[last]!.s !== s) return notOpening
+  for (let m = d.findIndex((t) => t.s === s); m <= last; m++) if (!subject.includes(m) && !free(m)) return notOpening
+  return undefined
 }
 
 export interface VerifyShot { index: number; draft: string; text: string; removed: string[]; applied: boolean; changed: boolean; cached: boolean; reason?: string; reply?: string }
