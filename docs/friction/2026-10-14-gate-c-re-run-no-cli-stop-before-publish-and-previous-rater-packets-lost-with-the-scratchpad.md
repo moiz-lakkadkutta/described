@@ -3,7 +3,7 @@
 Task attempted: DESC-024 — re-describe `sintel-90-210` (29 shots) with the decision-0008 prompt and build two blind rater packets
 in the same format as the earlier Gate C runs (0003), without publishing over the catalogue.
 Steps:
-  1. Looked for the earlier packets (`gate-c-eval*`, `eval-1010b/`) under `/private/tmp/claude-502/…/scratchpad`.
+  1. Looked for the earlier packets (`gate-c-eval*`, `eval-1010b/`) in the session scratchpad.
   2. Looked for a `--to <step>` / no-publish option on `pnpm cli describe`.
 Expected: the previous packets (contact sheets, rater instructions, score sheets) to reuse verbatim; a CLI flag that stops after
 `voice` so a quality re-check does not mix, package, upload or publish.
@@ -18,5 +18,5 @@ Workaround: copied the inputs (probe, shots, gaps, words, transcript, mezz) of `
 Suggestion: (1) add `--to <step>` to `describe` (and skip `persistForCli` when it stops before `publish`); (2) keep the Gate C rubric
 and the packet builder in the repo (e.g. `docs/eval/gate-c-rubric.md`, `packages/pipeline/scripts/gate-c-packet.py`) so every
 re-check uses the same words and layout.
-Environment: macOS 25.2, Node via pnpm 9.15.9, commit f7189b1 (origin/main), AWS profile described-dev.
+Environment: macOS 26.2, Node via pnpm 9.15.9, commit f7189b1 (origin/main), AWS profile described-dev.
 Links: docs/decisions/0003-gate-c.md · docs/decisions/0008-text-and-darkness.md · TASKS.md DESC-024
