@@ -97,12 +97,39 @@ Fixed after review (2026-10-14, PR #33):
   no player requests them; delete by hand with the others.
 
 Follow-ups from this batch (not fixed before the freeze):
-- 08-text: a Nova Lite `ModelErrorException` (424, "Model produced invalid sequence as part of ToolUse") fails the SDH step and the
-  run instead of falling back to the plain captions (Tears of Steel `--from text`, 2026-10-14; the retry passed). SDH is also not
-  repeatable: the same captions degraded on the first Tears of Steel run and gave 5 cues on the re-run.
+- ~~08-text: a Nova Lite `ModelErrorException` (424) fails the SDH step; SDH is not repeatable~~ — fixed (claude/desc-010-sdh-fixes):
+  the 424 is retried once, then the window stays plain and the title is marked degraded; replies are cached per window
+  (`work/{slug}/cache/sdh/`) and decoded greedily (temperature 0 plus `topK` 1; temperature 0 alone gave two different replies to one
+  request), so a `--from text` re-run gives the same SDH.
 - 06-voice: when a text clause is split off, drop the clause's trailing modifier ("in metallic silver, centered") with it instead of voicing it alone. **Fixed** (0008): the modifier is part of the clause and goes into the text pause; needs a re-run from fit.
 - Describe prompt / textClause: on-screen text the model reports as `headline: "…"` or `sign reads …` is not recognised as a text clause, so it can be dropped rather than paused on. **Fixed** (0008): recognised (headline:, … reads, a quoted caption or title card), and the prompt asks for "Words appear:"; needs a re-run from fit.
 - Describe: "Darkness." should be the whole line or absent — a dark frame that still shows something is not darkness. **Fixed** (0008): a "Darkness." prefix is stripped in describe and fit, and the prompt says "Darkness." only when nothing is visible (Gate C to re-check); needs a re-run from fit.
-- SDH degraded on all four titles with speech in their first runs ("no window added anything"), so the Rich captions track is omitted on three (Tears of Steel has it after its re-run); Caminandes has no speech, so it has no caption tracks at all. The "sdh" badge in `/catalog` is static (every title shows it).
-- The six `grid-test-*` filler rows from the 2026-10 device run are still published (poster-less, no stream, "Test row." in About):
-  `UPDATE "Title" SET status='draft' WHERE slug LIKE 'grid-test-%';` removes them from the catalogue once the grid no longer needs them.
+- SDH degraded on all four titles with speech ("no window added anything"). Cause (claude/desc-010-sdh-fixes, 6 Nova Lite calls,
+  $0.0009): Nova Lite sees only the captions and the visual descriptions, so it returned sights as sounds ("fire glows", "bearded man
+  holds", zero length, no brackets) and voice labels or placeholders as names ("[spk_1]", "[Name]"); the merge rightly dropped all of
+  it. The Tears of Steel re-run that "added" cues published an invented "[footsteps]" (the description there is "A man gestures") and a
+  literal "[Name] This is pretty freaky.". Now every addition needs evidence: a sound needs a description within 2 s that names its
+  source or action and audible audio over its span (ffmpeg ebur128 momentary loudness ≥ −55 LUFS on mezz.mp4); a speaker tag needs a
+  name spoken in the dialogue, one name per voice. With that, Sintel gets "[broth pours]" (33.2 s, "Old man pours broth.") and Rich
+  captions; Big Buck Bunny, Elephants Dream and Tears of Steel have no description of anything that makes a sound and stay without
+  Rich captions — honest SDH for them needs audio-event data we do not have (feature-requests P1). Re-run `--from text` for
+  sintel-90-150-r2 (gains Rich captions) and tears-of-steel-40-100 (its published Rich captions hold the invented cues and lose them).
+  The "sdh" badge now follows the TextTrack row (#35).
+  Review of #38 tightened the evidence: the agent ("man", "robot") is not evidence of a sound, and the sound word itself must be in the
+  description, or be a sound that a described source or action always makes (`SOURCE_SOUNDS`: "A fire burns" → [fire crackling], "walks" →
+  [footsteps]), so "[tent rustles]" beside "The tent glows" is dropped; a speaker name must be said in another caption by another voice
+  (a name in the tagged line itself is usually the listener: "Sintel, run!").
+  Known limits and clean-up:
+  - `SOUND_WORDS` and `SOURCE_SOUNDS` are English only: a `de` title gets no sound cues until German sound words are added.
+  - The SDH cache (`work/{slug}/cache/sdh/`) replays a valid-but-wrong reply for as long as the input is unchanged; delete that
+    directory to sample Nova Lite again.
+  - After the Tears of Steel re-run, delete the stale Rich captions objects by hand: `published/tears-of-steel-40-100/sdh.vtt`,
+    `sdh.m3u8` and the 6 segments under `sdh/` (checked with `aws s3 ls` on 2026-10-14; no master names them once 09-package omits
+    the track).
+  - Follow-up idea, not built: an onset rule (momentary loudness jumping 6–10 LU above the short-term level) would be stronger evidence
+    of a discrete sound than the −55 LUFS audibility floor, which a music bed also passes.
+- The six `grid-test-*` filler rows from the 2026-10 device run are still published (poster-less, no stream, "Test row." in About).
+  They come only from docs/device-checks/RUN-2026-10.md §17 (`POST /admin/titles`, then a manual `UPDATE … status='published'`); its §18
+  clean-up was not run. A fresh seed cannot create them: prisma/titles.json has the five films only, and `TitleSeed` rejects a
+  non-CC-BY licence and a source key outside `sources/*.mp4`. Remove them with §18:
+  `psql -h /tmp -U postgres described -c "DELETE FROM \"Title\" WHERE slug LIKE 'grid-test-%';"` (list and progress rows cascade).
