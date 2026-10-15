@@ -15,6 +15,7 @@ import { newVerifyReport } from '../src/steps/04b-verify'
 import { voice } from '../src/steps/06-voice'
 import type { Described } from '../src/steps/04-describe'
 import type { Ctx } from '../src/steps/index'
+import { shotsMd, unvoicedText } from '../src/eval/packets'
 
 /**
  * Gate C on sintel-90-210-g10 failed (14 / 29, decision 0012 amendment of 2026-10-15). These cases replay the recorded run: the scene
@@ -266,6 +267,22 @@ describe('4. a setting word is grounded in its own shot or its own scene, never 
     const rep = await editScene(cues, r.shots, [], 'en', send as never, undefined, (t) => t, { scenes: r.scenes, glossary: r.g })
     expect(rep.cues[0]!.text).not.toMatch(/tent/)
     expect(rep.rejected).toEqual([expect.objectContaining({ reason: "another scene's place: tent" })])
+  })
+})
+
+describe('packets: the text to rate for an unvoiced shot is fit\'s grounded description', () => {
+  it('g10 shot 28: the packet shows what fit would voice with a slot — no "inside the tent"', async () => {
+    const r = g10()
+    const d = { shots: fixture<never[]>('sintel-90-210-g10.shots.json'), described: r.shots, gaps: r.gaps, words: fixture<never[]>('sintel-90-210-g10.words.json'), cues: r.finalCues, fitCues: r.oldFit, scenes: r.scenes, glossary: r.g }
+    const md = shotsMd(d as never, new Map(), { title: 't', offsetMs: 0 })
+    const at = md.indexOf('## Shot 28'), section = md.slice(at)
+    const rated = /Rate the text it would have voiced: "([^"]*)"/.exec(section)![1]!
+    // fit, given room for shot 28 (one more gap over it), voices exactly that text
+    const withSlot = await fit(r.shots, [...r.gaps, { startMs: 116000, endMs: 126000 }], (t, n) => safeShorten(t, n, recordedModel(r), 'en'), 'en', { scenes: r.scenes, glossary: r.g })
+    expect(withSlot.find((c) => c.shotIndex === 28)!.text).toBe(rated)
+    expect(rated).toBe(unvoicedText(d, r.shots[28]!))
+    expect(rated).not.toMatch(/tent/)
+    expect(section).toContain('Model description (before placement and shortening): "a young woman with short red hair, in a grey tank top, holds a small tan creature inside the tent"') // the rest of the packet unchanged
   })
 })
 

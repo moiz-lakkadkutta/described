@@ -13,7 +13,7 @@ export const GATE = 0.7
  * inconsistent: the Usable column says yes while a criterion fails — counted unrated (not usable) and reported.
  * skip: the rater wrote "skip" (or "skip (empty)") — a same-as-previous shot, counted neither usable nor not usable (usable null).
  */
-export interface ShotScore { shot: number; usable: boolean | null; criteria: Record<Criterion, boolean | null>; note: string; inconsistent?: true; skip?: true }
+export interface ShotScore { shot: number; usable: boolean | null; criteria: Record<Criterion, boolean | null>; note: string; inconsistent?: true; skip?: true; /** On time is n/a: the rubric's mark for a shot that is not voiced */ notVoiced?: true }
 
 const PASS = new Set(['pass', 'p', 'yes', 'y', 'ok', '✓', '✔', 'n/a', 'na'])
 const FAIL = new Set(['fail', 'f', 'no', 'n', 'x', '✗', '✘'])
@@ -48,13 +48,27 @@ export function parseScores(md: string): ShotScore[] {
     let usable = written ? verdict(written, USABLE, UNUSABLE) : null
     if (!written && values.every((v) => v !== null)) usable = values.every(Boolean)
     const inconsistent = usable === true && values.some((v) => v === false)
-    rows.push({ shot: Number(shot), usable: inconsistent ? null : usable, criteria, note: (cells.slice(7).join('|') ?? '').trim(), ...(inconsistent ? { inconsistent: true as const } : {}) })
+    const notVoiced = /^n\/?a$/.test(cell(cells[2]))
+    rows.push({ shot: Number(shot), usable: inconsistent ? null : usable, criteria, note: (cells.slice(7).join('|') ?? '').trim(), ...(inconsistent ? { inconsistent: true as const } : {}), ...(notVoiced ? { notVoiced: true as const } : {}) })
   }
   if (new Set(rows.map((r) => r.shot)).size !== rows.length) throw new Error('a shot appears twice in the scores table')
   return rows
 }
 
-export interface RaterScores { rater: string; rows: ShotScore[] }
+export interface RaterScores { rater: string; rows: ShotScore[]; /** the shots under scores.md's "Plot events lost" heading */ eventsLost?: number[] }
+
+/** Pure (tested): the shot numbers a rater listed under "Plot events lost" ("- Shot 11: …", "- Shots 4/7/8 …"), in order, once each. */
+export function parseEventsLost(md: string): number[] {
+  const at = md.search(/plot events lost/i)
+  if (at < 0) return []
+  const out: number[] = []
+  for (const line of md.slice(at).split('\n').slice(1)) {
+    if (/^\s*#/.test(line)) break
+    const m = /^\s*[-*]\s*\(?\s*(?:\([^)]*\)\s*)?shots?\s+([\d\s,/and]+)/i.exec(line)
+    if (m) for (const n of m[1]!.match(/\d+/g) ?? []) if (!out.includes(Number(n))) out.push(Number(n))
+  }
+  return out
+}
 /** What packet.json says: every shot (each rater needs a row for each) and the same-as-previous shots that are not rated. */
 export interface Packet { shotIndices?: readonly number[]; skipShots?: readonly number[] }
 /** packet.json's shot indices (a plain list, as before skipShots), or the packet itself. */
@@ -83,6 +97,13 @@ export interface Summary {
   /** Every rater gave the same verdict (usable or not; a skip counts as not usable). */
   agreed: number[]
   disagreements: { shot: number; votes: { rater: string; usable: boolean | null; skip?: true; note: string }[]; majority: boolean }[]
+  /**
+   * Informational only (decision 0012 amendment, 2026-10-15, review): the gate rewards a shot that is not voiced as much as a voiced one,
+   * so `score` also prints how the voiced shots did. voiced: rated shots a majority did not mark "On time: n/a" (the rubric's mark for a
+   * shot that is not voiced); eventsLost: shots a majority listed under "Plot events lost". The pass rule is unchanged.
+   */
+  voiced: number[]
+  eventsLost: number[]
 }
 
 /**
@@ -123,6 +144,8 @@ export function summarise(raters: RaterScores[], expected?: Expected): Summary {
       ratedSkipShot: (packet.skipShots ?? []).filter((x) => ratedIt(r, x)).sort((a, b) => a - b),
     })),
     majority: [], ties: [], allUsable: [], agreed: [], disagreements: [],
+    voiced: rated.filter((x) => raters.filter((r) => byShot(r, x).notVoiced).length * 2 <= n),
+    eventsLost: [...new Set(raters.flatMap((r) => r.eventsLost ?? []))].filter((x) => rated.includes(x) && raters.filter((r) => (r.eventsLost ?? []).includes(x)).length * 2 > n).sort((a, b) => a - b),
   }
   for (const shot of rated) {
     const votes = raters.map((r) => { const x = byShot(r, shot); return { rater: r.rater, usable: x.usable, ...(x.skip ? { skip: true as const } : {}), note: x.note } })
@@ -162,6 +185,7 @@ export function formatSummary(s: Summary, o: { corrected?: boolean } = {}): stri
     `${o.corrected ? 'CORRECTED (not the blind result) ' : ''}majority-usable (≥ ${Math.floor(n / 2) + 1} of ${n} raters usable): ${pct(s.majority.length, N)} — gate ≥ ${GATE * 100} %: ${s.majority.length / N >= GATE ? 'PASS' : 'FAIL'}`,
     `  shots: ${s.majority.join(', ') || 'none'}`,
     `all raters usable: ${pct(s.allUsable.length, N)}`,
+    `informational (not the gate): voiced-usable / voiced: ${s.voiced.length ? pct(s.majority.filter((x) => s.voiced.includes(x)).length, s.voiced.length) : '0 / 0'}; not voiced: ${N - s.voiced.length} shot${N - s.voiced.length === 1 ? '' : 's'}${N - s.voiced.length ? ` (${s.rated.filter((x) => !s.voiced.includes(x)).join(', ')})` : ''}; plot events lost (listed by a majority): ${s.eventsLost.length}${s.eventsLost.length ? ` (shot${s.eventsLost.length > 1 ? 's' : ''} ${s.eventsLost.join(', ')})` : ''}`,
     `all raters agree (same verdict): ${s.agreed.length} / ${N}`)
   if (s.ties.length) out.push(`ties (even number of raters; counted not usable): ${s.ties.join(', ')}`)
   out.push('', s.disagreements.length ? 'disagreements:' : 'disagreements: none')
@@ -183,7 +207,7 @@ export async function readRaters(outDir: string): Promise<RaterScores[]> {
   const dirs = (await readdir(outDir, { withFileTypes: true })).filter((d) => d.isDirectory() && /^rater\d+$/.test(d.name)).map((d) => d.name)
     .sort((a, b) => Number(a.slice(5)) - Number(b.slice(5)))
   if (!dirs.length) throw new Error(`no rater*/ folders in ${outDir}`)
-  return Promise.all(dirs.map(async (rater) => ({ rater, rows: parseScores(await readFile(join(outDir, rater, 'scores.md'), 'utf8')) })))
+  return Promise.all(dirs.map(async (rater) => { const md = await readFile(join(outDir, rater, 'scores.md'), 'utf8'); return { rater, rows: parseScores(md), eventsLost: parseEventsLost(md) } }))
 }
 
 /** Pure (tested): `--skip 16,3` → [3, 16]. */
@@ -227,13 +251,13 @@ export function parseCorrections(md: string): Correction[] {
 /** Pure: the raters' rows with the corrections applied: the criterion fails and the row is not usable (a skip row is left as it is). */
 export function applyCorrections(raters: RaterScores[], corrections: readonly Correction[]): RaterScores[] {
   return raters.map((r) => ({
-    rater: r.rater,
+    rater: r.rater, ...(r.eventsLost ? { eventsLost: r.eventsLost } : {}),
     rows: r.rows.map((row) => {
       const mine = corrections.filter((c) => c.shot === row.shot)
       if (!mine.length || row.skip) return row
       const criteria = { ...row.criteria }
       for (const c of mine) criteria[c.criterion] = false
-      return { shot: row.shot, usable: false, criteria, note: row.note }
+      return { shot: row.shot, usable: false, criteria, note: row.note, ...(row.notVoiced ? { notVoiced: true as const } : {}) }
     }),
   }))
 }
