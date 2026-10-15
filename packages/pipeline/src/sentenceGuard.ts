@@ -254,9 +254,21 @@ export function editReadsAsSentences(original: string, edited: string, sources: 
     const next = ws[k + 1]?.bare ?? ''
     // a comma right before the verb closes a phrase set off by an earlier comma ("A young woman with short red hair, in a grey tank top
     // and brown trousers, climbs a rooftop.", Sintel g11 cue 13), not a list
+    if (openingPhrase(ws, k)) continue
     if (!JOINERS.has(next) && !/ing$/.test(next) && !(verbs.has(k + 1) && ws.slice(0, k).some((x) => /,\W*$/.test(x.raw)))) return `new list comma after "${w.bare}"`
   }
   return language === 'de' ? undefined : onlySubjects(edited, [original, ...sources]) ?? onlyPlace(edited, [original, ...sources])
+}
+/** First words of a sentence-opening place or time phrase: "In the cave, …", "Back in the town, …", "On a misty hillside, …". */
+const OPENERS = new Set(['in', 'inside', 'on', 'at', 'under', 'near', 'by', 'outside', 'beside', 'behind', 'among', 'amid', 'across', 'along', 'beneath', 'above', 'below', 'back', 'atop'])
+/**
+ * The comma at k closes a sentence-opening prepositional phrase (the sentence's first comma, its first word an opener): "Back in the
+ * town, a chicken runs …" (the narrative pass, decision 0017, and fit's own scene lead "In the hideout, …") — not a list.
+ */
+function openingPhrase(ws: readonly Word[], k: number): boolean {
+  let start = k
+  while (start > 0 && ws[start - 1]!.sentence === ws[k]!.sentence) start--
+  return OPENERS.has(ws[start]!.bare) && k - start <= 6 && !ws.slice(start, k).some((x) => /[,;]\W*$/.test(x.raw))
 }
 /** Words that may follow a comma the sources did not have: they open a clause, not the next item of a list. */
 const JOINERS = new Set(['and', 'then', 'while', 'as', 'but', 'who', 'which', 'when', 'before', 'after', 'until', 'where', 'whose'])

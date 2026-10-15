@@ -3,7 +3,7 @@ import type { ConverseCommandInput } from '@aws-sdk/client-bedrock-runtime'
 import { applyEdits, editBudgets, editScene, EDIT_WPS, mustStillSay, type EditGuard } from '../src/steps/05b-edit'
 import { carriedLook, charRefs, excusedByCarry, faithfulText, pronounProblems, referentWindow, unsourcedContinuity, type NarrativeView } from '../src/narrative'
 import { checkVerified } from '../src/steps/04b-verify'
-import { readsAsSentences } from '../src/sentenceGuard'
+import { editReadsAsSentences, readsAsSentences } from '../src/sentenceGuard'
 import { STEPS } from '../src/steps'
 import { loadGlossary, type Glossary } from '../src/glossary'
 import { isTextCue } from '../src/steps/05b-edit'
@@ -102,6 +102,13 @@ describe('carried look', () => {
     expect(edit(t, 1, 'She looks down at a ruined town.').applied).toHaveLength(1)
     expect(edit(t, 3, 'The small tan dragon lies on a stone roof.').applied).toHaveLength(1) // "bleeding wing" was said in cue 2
   })
+  it('"red-haired" (one word to the keeps-facts guard) and a name the scene has said carry too (dry run, cues 93 and 114)', () => {
+    const t = title(['The red-haired young woman, Sintel, runs through a dark cave.', 'The red-haired young woman, Sintel, grips her staff in a dark cave.', 'The red-haired young woman, Sintel, stands on a rocky slope.'], { startMs: 600_000 })
+    expect(edit(t, 1, 'Sintel grips her staff in the dark cave.').applied).toHaveLength(1)
+    expect(edit(t, 2, 'She stands on a rocky slope.').applied).toHaveLength(1)
+    const first = title(['A small tan dragon sleeps.', 'The red-haired young woman, Sintel, stands on a rocky slope.'], { startMs: 600_000 })
+    expect(reasons(edit(first, 1, 'Sintel stands on a rocky slope.'))).toEqual(['drops a fact: red-haired, woman']) // the scene never said them
+  })
   it('never dropped at the scene\'s first mention (spike cue 33: "drops a fact: red, hair")', () => {
     const t = title([DRAGON, 'A young woman with short red hair kneels beside a glowing pink crystal.'])
     expect(reasons(edit(t, 1, 'The young woman kneels beside a glowing pink crystal.'))).toEqual(['drops a fact: red, hair'])
@@ -122,6 +129,15 @@ describe('carried look', () => {
     expect(mustStillSay(t.cues, 1, (k) => t.cues[k]!.text, t.scenes, SINTEL)).toEqual(['smiles'])
     const first = title([DRAGON, 'A young woman with short red hair smiles.'])
     expect(mustStillSay(first.cues, 1, (k) => first.cues[k]!.text, first.scenes, SINTEL)).toEqual(['woman', 'red', 'hair', 'smiles'])
+  })
+})
+
+describe('a sentence-opening place phrase is not a list (editReadsAsSentences)', () => {
+  it('"Back in the town, a chicken runs…" and "On a misty green hillside, a warrior… stands." (dry run, cues 36 and 62)', () => {
+    expect(editReadsAsSentences('A chicken runs through a sunlit alley.', 'Back in the town, a chicken runs through a sunlit alley.', ['A chicken runs through a sunlit alley.'])).toBeUndefined()
+    expect(editReadsAsSentences('A warrior stands on a hillside.', 'On a misty green hillside, a warrior stands.', ['A warrior stands on a hillside.'])).toBeUndefined()
+    expect(editReadsAsSentences('A man holds a staff.', 'In the tent, the man, a staff, a bowl.', ['A man holds a staff.'])).toMatch(/new list comma after "man"/) // only the opening comma
+    expect(editReadsAsSentences('A dragon flies.', 'Scaled creature, horns, bloodied wing, stares.', ['A dragon flies.'])).toMatch(/new list comma/)
   })
 })
 

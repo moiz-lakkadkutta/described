@@ -138,6 +138,7 @@ export function unsourcedContinuity(edited: string, own: readonly string[], orig
  * counts as said in a cue that has one of its look words and a reference to it (pronoun, kind noun or name): "a young woman with
  * short red hair" says Sintel's look, "runs across" does not say the shaman's ("face paint across his eyes"). Place words never carry
  * (a look such as "curled up asleep in the dark cave" must not make "cave" droppable: the place rules own it — Sintel cues 77, 84, 95, 99).
+ * A glossary name said in the scene is carried too, so a rewrite may say "she" for Sintel once the scene has named her.
  */
 export function carriedLook(v: NarrativeView, i: number): Map<string, CharRef[]> {
   const sc = sceneId(v, i)
@@ -152,6 +153,8 @@ export function carriedLook(v: NarrativeView, i: number): Map<string, CharRef[]>
     for (const c of chars) {
       const hit = said.filter((w) => c.look.has(w))
       if (hit.length && c.ref.test(text)) { for (const w of hit) add(w, c); add(stem(c.kind), c) }
+      // a name the scene has said is carried like the look: "She stands…" after "Sintel turns…" (the name guard still decides where a name may be said)
+      if (isProperName(c) && new RegExp(`\\b${c.name}\\b`).test(text)) { add(stem(c.name.toLowerCase()), c); add(stem(c.kind), c) }
     }
   }
   return out
@@ -159,5 +162,7 @@ export function carriedLook(v: NarrativeView, i: number): Map<string, CharRef[]>
 
 /** The lost stems of a rewrite that the carried look excuses: carried, and the rewrite still refers to that character. */
 export function excusedByCarry(lost: readonly string[], edited: string, carried: ReadonlyMap<string, CharRef[]>): Set<string> {
-  return new Set(lost.filter((w) => (carried.get(stem(w)) ?? []).some((c) => c.ref.test(edited))))
+  // "red-haired" is one word to the keeps-facts guard and "red hair" to the look: every part must be carried
+  const parts = (w: string) => contentWords(hyphenHair(w)).flatMap((x) => x.split('-')).filter(Boolean).map(stem)
+  return new Set(lost.filter((w) => { const ps = parts(w); return ps.length > 0 && ps.every((p) => (carried.get(p) ?? []).some((c) => c.ref.test(edited))) }))
 }
