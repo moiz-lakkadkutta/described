@@ -10,7 +10,15 @@ A run passes when **at least 70 % of the shots are majority-usable**: rated usab
 
 - A shot is usable when all five rubric criteria pass: faithful, on time, style, clean, fits
   ([rubric template](../packages/pipeline/src/eval/RUBRIC.template.md)). "Fits" is decision 0009's rule, quoted verbatim.
-- The denominator is every shot of the clip.
+- The denominator is every shot of the clip except the same-as-previous shots (decision 0003: usable / (shots −
+  same-as-previous)). `gate-c packets` finds them — describe marked the shot same-as-previous **and** nothing is voiced or placed
+  for it — labels them "Same as previous shot — not rated", pre-fills their rows "skip" and records them in `packet.json` as
+  `skipShots`. This matches DESC-017's rule (decision 0003): a continuation that has text is rated against its frames like any
+  other shot; a same-as-previous shot with no cue has nothing to rate. A rater may override a skip by rating the shot; it is
+  counted only when most raters rate it, and `score` warns either way.
+- Only `skipShots` leave the denominator. A "skip" on any other shot counts as not usable and is warned about (`score` exits
+  1), even when every rater wrote it. An empty description that describe did **not** mark same-as-previous is a pipeline
+  failure: it is labelled "Not voiced: empty description" and rated (usable: no).
 - Three raters, so there is no tie. A row marked usable with a failed criterion is sent back to its rater (`score` counts it
   unrated).
 - Runs up to DESC-024 used two raters and counted a shot only when both said usable; those
@@ -44,3 +52,25 @@ A run passes when **at least 70 % of the shots are majority-usable**: rated usab
 
 Record each result in the decision or ticket it informs: commit, eval slugs, cost (`work/<eval>/gate-c.json`), the score table
 for both clips, and the disagreements.
+
+## Known limits
+
+- **Dialogue Transcribe missed is not in the packet.** The packet shows dialogue and the dialogue-free gaps from Transcribe's
+  words. A shout or a short line that Transcribe did not return is in neither, so a placed cue can talk over it and the raters
+  cannot see it: "on time" and "fits" pass on the numbers. In `tos-390-510` (Tears of Steel 6:30–8:30), "Come on!" at 103 s lies
+  under shot 25's cue (101853–105501 ms), and the yell at 112 s under shot 28's (110178–113274 ms); `words.json` has nothing
+  between 41.2 s and 114.0 s, so both sit in one 72 s "gap". Listening to the mix is the only check.
+- **Recording a correction.** The scorer does not edit a rater's `scores.md`. A correction goes in `corrections.md` next to
+  `packet.json`, one row per shot and criterion, with a reason:
+
+  ```md
+  | Shot | Criterion | Verdict | Reason |
+  |---|---|---|---|
+  | 25 | on time | fail | talks over "Come on!" at 103 s (missed by Transcribe) |
+  | 28 | on time | fail | talks over the yell at 112 s (missed by Transcribe) |
+  ```
+
+  Criterion is faithful, on time, style, clean or fits. Corrections are **fail-only**: the verdict is fail or blank, and "pass"
+  is refused, so a correction can lower the score but never raise it. It applies to every rater. `pnpm gate-c score <out>` then
+  prints the as-rated result, the corrections, and the corrected result, whose gate line starts "CORRECTED (not the blind
+  result)". Report both; the as-rated figure is the blind one, and it alone sets the exit code.

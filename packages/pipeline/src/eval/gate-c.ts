@@ -10,7 +10,7 @@ import { resolveLanguageAndVoice } from '../steps/06-voice'
 import { buildPackets } from './packets'
 import { DEFAULT_PREPARE_CAP_USD, prepareGateC } from './prepare'
 import { CapExceeded, DEFAULT_CAP_USD, EVAL_STEPS, parseSteps, runGateC } from './run'
-import { formatSummary, readExpected, readRaters, summarise } from './score'
+import { parseShotList, scoreDir } from './score'
 
 /**
  * `pnpm gate-c …` (root package.json → `pnpm --filter @described/pipeline gate-c`) — the Gate C evaluation, reproducible from the repo
@@ -99,12 +99,15 @@ program.command('packets <evalSlug> <outDir>')
   })
 
 program.command('score <outDir>')
-  .description('read <outDir>/rater*/scores.md and print usable counts, the majority-usable score, agreement and disagreements')
-  .action(async (outDir: string) => {
-    const dir = here(outDir)
-    const s = summarise(await readRaters(dir), await readExpected(dir))
-    for (const l of formatSummary(s)) console.log(l)
-    if (s.perRater.some((r) => r.unrated.length)) process.exitCode = 1
+  .description('read <outDir>/rater*/scores.md and print usable counts, the majority-usable score, agreement and disagreements; with <outDir>/corrections.md, also the corrected result')
+  .option('--skip <shots>', 'same-as-previous shots to leave unrated, for a packet.json written before skipShots (e.g. 16 or 3,16)', (v: string) => {
+    try { return parseShotList(v) } catch (e) { throw new InvalidArgumentError((e as Error).message) }
+  })
+  .option('--corrections <file>', 'the scorer\'s corrections (default: <outDir>/corrections.md when it exists)')
+  .action(async (outDir: string, o: { skip?: number[]; corrections?: string }) => {
+    const r = await scoreDir(here(outDir), { skip: o.skip, corrections: o.corrections && here(o.corrections) })
+    for (const l of r.lines) console.log(l)
+    if (r.exitCode) process.exitCode = r.exitCode
   })
 
 program.parseAsync().catch((e: unknown) => { console.error((e as Error).message); process.exit(1) })
