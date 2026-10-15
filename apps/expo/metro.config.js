@@ -1,6 +1,7 @@
 // Metro for a pnpm monorepo plus the linked vega-media-kit — friction 2026-09-26 "Metro exports condition order".
 // https://docs.expo.dev/guides/monorepos/ · https://metrobundler.dev/docs/resolution/ · https://metrobundler.dev/docs/package-exports/
 const { getDefaultConfig } = require('expo/metro-config')
+const { publicEnvKey } = require('./scripts/public-env')
 const fs = require('fs')
 const path = require('path')
 
@@ -37,5 +38,8 @@ config.resolver.resolveRequest = (context, name, platform) => {
   if (context.originModulePath.startsWith(kit + path.sep) && !name.startsWith('.')) return context.resolveRequest(from(context, app), name, platform)
   return context.resolveRequest(context, name, platform)
 }
+
+// Inlined EXPO_PUBLIC_* values are not in Expo's transform cache key; make them part of it (scripts/public-env.js).
+config.cacheVersion = [config.cacheVersion ?? '', publicEnvKey(process.env)].join('\n')
 
 module.exports = config

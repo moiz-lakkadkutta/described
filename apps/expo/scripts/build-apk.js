@@ -3,7 +3,8 @@
 // `-- --url http://<mac-ip>:4100` builds against your own machine, as README step 5 does by hand.
 // No device needed: prebuild, then Gradle's assembleRelease (signed with the debug key, as Expo's prebuild template does,
 // which is enough for `adb install`). The API URL is fixed into the JS bundle and, for http, into the cleartext
-// allow-list (plugins/withLocalApi.js), so it is exported before prebuild and kept for Gradle's bundle step.
+// allow-list (plugins/withLocalApi.js), so it is exported before prebuild and kept for Gradle's bundle step. Metro's
+// transform cache now keys on it (scripts/public-env.js), and the built APK's bundle is checked for it before it is kept.
 const { execFileSync } = require('node:child_process')
 const { createHash } = require('node:crypto')
 const fs = require('node:fs')
@@ -36,6 +37,21 @@ function resolveApiUrl({ argv = [], env = {}, readOutputs = () => fs.readFileSyn
   return url.replace(/\/+$/, '')
 }
 
+/** The URL App.tsx falls back to when EXPO_PUBLIC_API_URL was not inlined (an emulator talking to a local API). */
+const FALLBACK_URL = 'http://10.0.2.2:4000'
+
+/**
+ * Pure (tested). What is wrong with the JS bundle (Hermes bytecode or plain JS) taken from the APK, for a build against
+ * `url`: it must contain the URL, and must not contain the fallback (unless the fallback is the URL asked for).
+ */
+function bundleProblems(bundle, url) {
+  const text = Buffer.isBuffer(bundle) ? bundle.toString('latin1') : String(bundle)
+  const problems = []
+  if (!text.includes(url)) problems.push(`the bundle does not contain the API URL ${url}`)
+  if (url !== FALLBACK_URL && text.includes(FALLBACK_URL)) problems.push(`the bundle still contains the fallback ${FALLBACK_URL}`)
+  return problems
+}
+
 function main() {
   const url = resolveApiUrl({ argv: process.argv.slice(2), env: process.env })
   const env = { ...process.env, EXPO_PUBLIC_API_URL: url, CI: '1' }
@@ -51,11 +67,19 @@ function main() {
   const out = path.join(EXPO, 'dist', `described-${version}.apk`)
   fs.mkdirSync(path.dirname(out), { recursive: true })
   fs.copyFileSync(path.join(EXPO, 'android/app/build/outputs/apk/release/app-release.apk'), out)
+  // Never hand out an APK that talks to the wrong API: read the bundle back out of it.
+  const bundle = execFileSync('unzip', ['-p', out, 'assets/index.android.bundle'], { maxBuffer: 1 << 30 })
+  const problems = bundleProblems(bundle, url)
+  if (problems.length) {
+    fs.rmSync(out, { force: true })
+    throw new Error(`${problems.join('; ')}. Removed ${out}. Clear Metro's cache (npx expo start --clear) and build again.`)
+  }
+  console.log(`bundle contains ${url}`)
   const sha = createHash('sha256').update(fs.readFileSync(out)).digest('hex')
   console.log(`APK: ${path.relative(process.cwd(), out)}\nsha256: ${sha}`)
 }
 
-module.exports = { resolveApiUrl }
+module.exports = { resolveApiUrl, bundleProblems, FALLBACK_URL }
 if (require.main === module) {
   try { main() } catch (e) { console.error(e instanceof Error ? e.message : e); process.exit(1) }
 }
