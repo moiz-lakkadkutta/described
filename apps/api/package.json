@@ -10,31 +10,38 @@
     "typecheck": "tsc --noEmit",
     "prisma": "prisma",
     "seed:titles": "tsx prisma/seed-titles.ts",
-    "lint": "eslint src"
+    "lint": "eslint src",
+    "build:lambda": "node scripts/build-lambda.mjs",
+    "export:catalogue": "tsx prisma/export-catalogue.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed-titles.ts"
   },
   "dependencies": {
+    "@described/contracts": "workspace:*",
+    "@moizp/vega-media-kit": "^0.1.0-alpha.0",
     "@prisma/client": "^6.0.0",
     "cors": "^2.8.5",
     "express": "^4.21.0",
     "helmet": "^8.0.0",
+    "pg": "^8.23.1",
     "pg-boss": "^10.1.0",
     "pino": "^9.4.0",
     "pino-http": "^10.3.0",
+    "serverless-http": "^4.0.0",
     "socket.io": "^4.8.0",
-    "zod": "^3.23.0",
-    "@described/contracts": "workspace:*",
-    "@moizp/vega-media-kit": "^0.1.0-alpha.0"
+    "zod": "^3.23.0"
   },
   "devDependencies": {
+    "@types/aws-lambda": "^8.10.164",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
+    "@types/pg": "^8.23.1",
+    "@types/supertest": "^6.0.2",
+    "esbuild": "^0.28.2",
     "prisma": "^6.0.0",
     "supertest": "^7.0.0",
-    "@types/supertest": "^6.0.2",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"

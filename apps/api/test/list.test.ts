@@ -7,9 +7,14 @@ const titles = [
 ]
 let items: { profileId: string; titleId: string; createdAt: Date }[] = []
 let clock = 0
+const profiles = new Set<string>()
 const bySlug = (slug: string) => titles.find((t) => t.slug === slug)
 const db = {
-  profile: { upsert: vi.fn(async ({ where }: { where: { deviceId: string } }) => ({ id: `p:${where.deviceId}` })) },
+  // Profiles exist once a write made them; GET /me/list only looks one up (DESC-034: reads never insert).
+  profile: {
+    upsert: vi.fn(async ({ where }: { where: { deviceId: string } }) => { profiles.add(where.deviceId); return { id: `p:${where.deviceId}` } }),
+    findUnique: vi.fn(async ({ where }: { where: { deviceId: string } }) => (profiles.has(where.deviceId) ? { id: `p:${where.deviceId}` } : null)),
+  },
   title: { findFirst: vi.fn(async ({ where }: { where: { slug: string; status: string } }) => titles.find((t) => t.slug === where.slug && t.status === where.status) ?? null) },
   listItem: {
     findMany: vi.fn(async ({ where, orderBy }: { where: { profileId: string; title: { status: string } }; orderBy: { createdAt: 'desc' } }) => {
@@ -37,7 +42,7 @@ const db = {
 vi.mock('../src/lib/db', () => ({ db }))
 const { createApp } = await import('../src/app')
 const app = serve(createApp())
-beforeEach(() => { items = []; clock = 0 })
+beforeEach(() => { items = []; clock = 0; profiles.clear(); db.profile.upsert.mockClear() })
 
 const list = async (device: string) => (await app().get('/me/list').set('x-device-id', device)).body.data
 
@@ -46,7 +51,8 @@ describe('My list', () => {
     const res = await app().get('/me/list').set('x-device-id', 'fireos-new')
     expect(res.status).toBe(200)
     expect(res.body).toEqual({ success: true, data: { slugs: [] } })
-    expect(db.profile.upsert.mock.calls.at(-1)![0]).toMatchObject({ where: { deviceId: 'fireos-new' } })
+    expect(db.profile.findUnique.mock.calls.at(-1)![0]).toMatchObject({ where: { deviceId: 'fireos-new' } })
+    expect(db.profile.upsert).not.toHaveBeenCalled()
   })
 
   it('PUT /me/list/:slug adds a published title once', async () => {

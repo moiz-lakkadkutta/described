@@ -14,6 +14,8 @@ packages/pipeline/work
 infra/cdk-outputs.json
 apps/expo/android
 apps/expo/ios
-
-# Gradle output of local Expo modules (prebuild/compile in apps/expo/android)
-apps/expo/modules/*/android/build/
+apps/api/.hosted
+apps/api/dist-lambda
+apps/expo/dist
+infra/cdk-outputs-viewer.json
+apps/expo/modules/*/android/build
