@@ -1,0 +1,162 @@
+[
+  {
+    "index": 0,
+    "startMs": 0,
+    "endMs": 250,
+    "description": "A man in a dark jacket gestures while speaking to a woman with a mechanical arm, standing on a bridge over a canal.",
+    "sameAsPrev": false,
+    "tokens": 1566,
+    "outputTokens": 26,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 1,
+    "startMs": 250,
+    "endMs": 2083,
+    "description": "Two glowing wireframe figures, one orange, one blue, clash in a dim, debris-filled industrial space.",
+    "sameAsPrev": false,
+    "tokens": 1566,
+    "outputTokens": 23,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 2,
+    "startMs": 2083,
+    "endMs": 7125,
+    "description": "Words appear: 40 YEARS LATER.",
+    "sameAsPrev": false,
+    "tokens": 2401,
+    "outputTokens": 11,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 3,
+    "startMs": 7125,
+    "endMs": 11125,
+    "description": "Words appear: MEMORY PLAYBACK - GLOBAL",
+    "sameAsPrev": false,
+    "tokens": 1983,
+    "outputTokens": 9,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 4,
+    "startMs": 11125,
+    "endMs": 13667,
+    "description": "Man in glasses gestures at glowing console.",
+    "sameAsPrev": false,
+    "tokens": 1565,
+    "outputTokens": 9,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 5,
+    "startMs": 13667,
+    "endMs": 16667,
+    "description": "Words appear: SIMULATION READY... LOCKED. Two people at glowing tech tables.",
+    "sameAsPrev": false,
+    "tokens": 1565,
+    "outputTokens": 18,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 6,
+    "startMs": 16667,
+    "endMs": 24458,
+    "description": "A man with a mechanical eye peers at a brain on a plate.",
+    "sameAsPrev": false,
+    "tokens": 2820,
+    "outputTokens": 15,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 7,
+    "startMs": 24458,
+    "endMs": 29917,
+    "description": "Words appear: TEARS OF STEEL.",
+    "sameAsPrev": false,
+    "tokens": 2402,
+    "outputTokens": 10,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 8,
+    "startMs": 29917,
+    "endMs": 34083,
+    "description": "A gloomy cityscape with smoke rising, a tall spire, and a massive dark machine looming over rooftops.",
+    "sameAsPrev": false,
+    "tokens": 1984,
+    "outputTokens": 25,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 9,
+    "startMs": 34083,
+    "endMs": 39375,
+    "description": "Dim ship deck. Figure kneels beside prone bodies, candles flicker nearby.",
+    "sameAsPrev": false,
+    "tokens": 2402,
+    "outputTokens": 17,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 10,
+    "startMs": 39375,
+    "endMs": 42125,
+    "description": "Words appear: \"Dr Amstelwijk ROBOTICIST CREATES KILLER ROBOTS\"",
+    "sameAsPrev": false,
+    "tokens": 1566,
+    "outputTokens": 24,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 11,
+    "startMs": 42125,
+    "endMs": 44833,
+    "description": "Man in dark jacket aims rifle from balcony.",
+    "sameAsPrev": false,
+    "tokens": 1565,
+    "outputTokens": 10,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 12,
+    "startMs": 44833,
+    "endMs": 52417,
+    "description": "A dark, complex airship floats over a misty city, viewed through a circular window, its lights glowing faintly.",
+    "sameAsPrev": false,
+    "tokens": 2820,
+    "outputTokens": 26,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 13,
+    "startMs": 52417,
+    "endMs": 55417,
+    "description": "A woman aims a futuristic rifle, eye focused.",
+    "sameAsPrev": false,
+    "tokens": 1566,
+    "outputTokens": 11,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 14,
+    "startMs": 55417,
+    "endMs": 58208,
+    "description": "A dark airship hovers over red-roofed buildings.",
+    "sameAsPrev": false,
+    "tokens": 1566,
+    "outputTokens": 14,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 15,
+    "startMs": 58208,
+    "endMs": 60000,
+    "description": "A man reads newspaper. Another aims rifle.",
+    "sameAsPrev": false,
+    "tokens": 1565,
+    "outputTokens": 10,
+    "stopReason": "end_turn"
+  }
+]

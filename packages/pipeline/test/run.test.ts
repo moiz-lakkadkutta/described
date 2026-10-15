@@ -13,7 +13,7 @@ const input = { slug: 'sintel-90-150', source: 's3://bucket/sintel.mp4', languag
 describe('runDescribe', () => {
   it('throws on an unknown --from step and lists the valid steps', async () => {
     await expect(runDescribe({ ...input, fromStep: 'transcribe' })).rejects.toThrow(`unknown step "transcribe"; valid steps: ${STEPS.join(', ')}`)
-    expect(STEPS).toEqual(['probe', 'shots', 'speech', 'describe', 'fit', 'edit', 'voice', 'mix', 'text', 'package', 'validate', 'publish'])
+    expect(STEPS).toEqual(['probe', 'shots', 'speech', 'describe', 'scenes', 'fit', 'edit', 'voice', 'mix', 'text', 'package', 'validate', 'publish'])
   })
   it('runDescribe runs validate between package and publish', async () => {
     calls.length = 0
@@ -45,6 +45,15 @@ describe('runDescribe', () => {
     await runJobStep('finish', { ...input, work: 'work/x' })
     expect(calls[0]).toBe('edit') // the scene edit pass (DESC-018) runs in the finish job, before voice
     expect(calls.slice(-3)).toEqual(['package', 'validate', 'publish'])
+    spy.mockRestore()
+  })
+  it('the fit job groups scenes first (DESC-029)', async () => {
+    calls.length = 0
+    const runStep = await import('../src/steps')
+    const spy = vi.spyOn(runStep, 'runStep')
+    spy.mockImplementation(async (s) => { calls.push(s) })
+    await runJobStep('fit', { ...input, work: 'work/x' })
+    expect(calls).toEqual(['scenes', 'fit'])
     spy.mockRestore()
   })
   it('rejects a slug outside ^[a-z0-9-]{1,64}$ before running any step', async () => {

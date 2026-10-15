@@ -9,6 +9,7 @@ import { contentWords, STOP, stem } from './contentWords'
  * 2. no new list comma — a comma or semicolon in the shortening follows a word that had one in the original. Dropping the words
  *    between two nouns and joining them with a comma is how a sentence becomes a list ("Scaled creature, horns, bloodied wing, stares.").
  *    This is the check that catches both g9 fragments;
+ * 2a. one source sentence per clause (DESC-029, joinsSentences) — "Tent interior. Fire glows." → "Tent glows." is rejected;
  * 3. not only a subject (English only) — a sentence of the shortening is rejected when it has no verb of its own (verbIndexes) and
  *    every content word in it comes from the subject of a clause of the original that has a verb: the words before that clause's
  *    first verb ("A scaled creature with horns." from "A scaled creature with horns and bloodied wing stares as …"). Reason 'no verb'
@@ -21,8 +22,34 @@ export function readsAsSentences(original: string, shortened: string, language: 
   const orig = words(original)
   const aligned = align(orig, words(shortened))
   for (const a of aligned) if (/[,;]\W*$/.test(a.raw) && (a.at < 0 || !/[,;:]\W*$/.test(orig[a.at]!.raw))) return `new list comma after "${a.bare}"`
+  const joined = joinsSentences(orig, aligned)
+  if (joined) return joined
   if (language === 'de') return undefined
   return endsMidPhrase(orig, aligned) ?? onlySubjects(shortened, [original])
+}
+
+const SUBJECT_PRONOUNS = new Set(['he', 'she', 'it', 'they', 'er', 'sie', 'es'])
+/**
+ * Check 2a (DESC-029, every language): one source sentence per clause. A clause of the shortening (cut at , ; : . ! ? … and before "and")
+ * takes its content words from one sentence of the original. "Tent interior. Fire glows." → "Tent glows." keeps every word in order
+ * but joins the subject of one sentence to the verb of another, so the tent glows (sintel-90-150-r2 shot 9, published 0:41.6). Whole
+ * sentences may still be dropped, kept, or joined with "and" ("The girl runs and the dragon follows.").
+ */
+function joinsSentences(orig: readonly Word[], aligned: ReadonlyArray<Word & { at: number }>): string | undefined {
+  let clause: Array<Word & { at: number }> = []
+  /** A sentence that opens with a subject pronoun refers back to the one before: "Old man sits. He holds a staff." → "Old man holds a staff." */
+  const opensWithPronoun = (sentence: number) => SUBJECT_PRONOUNS.has(orig.find((w) => w.sentence === sentence)?.bare ?? '')
+  const check = () => {
+    const from = [...new Set(clause.filter((a) => a.at >= 0 && !STOP.has(a.bare)).map((a) => orig[a.at]!.sentence))].sort((a, b) => a - b)
+    const ok = from.length <= 1 || from.slice(1).every((s, k) => s === from[k]! + 1 && opensWithPronoun(s))
+    return ok ? undefined : `joins two sentences: "${clause.map((a) => a.raw).join(' ')}"`
+  }
+  for (const a of aligned) {
+    if (a.bare === 'and' && clause.length) { const why = check(); if (why) return why; clause = [] }
+    clause.push(a)
+    if (/[,;:.!?…]["'”’)\]]*$/.test(a.raw)) { const why = check(); if (why) return why; clause = [] }
+  }
+  return clause.length ? check() : undefined
 }
 
 /** Articles, possessives and prepositions a sentence cannot end on ("…toward a."); not "her" ("hands the cup to her."). */

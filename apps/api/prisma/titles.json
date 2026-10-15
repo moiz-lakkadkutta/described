@@ -9,7 +9,15 @@
     "language": "en",
     "voice": "Joanna",
     "sourceS3Key": "sources/sintel-90-150.mp4",
-    "source": { "film": "Sintel (Durian open movie, 2010)", "url": "https://download.blender.org/durian/movies/Sintel.2010.1080p.mkv", "segment": "1:30–2:30" }
+    "source": { "film": "Sintel (Durian open movie, 2010)", "url": "https://download.blender.org/durian/movies/Sintel.2010.1080p.mkv", "segment": "1:30–2:30" },
+    "characters": [
+      { "name": "Sintel", "look": "a young woman with short red hair, in a grey tank top; out in the snow, a small lone figure carrying a spear", "short": "the red-haired young woman", "role": "a lone traveller searching the mountains for a lost dragon", "revealedAtS": null, "nameEvidence": "Not said or shown inside the segment. Official subtitles (durian.blender.org/wp-content/content/subtitles/sintel_en.srt): \"These are dragon lands, Sintel.\" at film 7:37, after the segment (1:30–2:30) ends; the \"SINTEL\" title card names the film, not the figure." },
+      { "name": "Shaman", "look": "an old man with a grey beard, a red stripe of face paint across his eyes and a beaded headband, in red-brown robes, holding a staff", "short": "the old bearded man", "role": "the old man who has taken her into his tent and tends her by the fire", "revealedAtS": null, "nameEvidence": "End credits only (\"Shaman\"); never said or shown in the film." }
+    ],
+    "settings": [
+      { "name": "the snowy mountains", "look": "a white mountainside deep in snow", "firstAtS": 0 },
+      { "name": "the tent", "look": "a dim round tent with a fire pit at its centre, charms hanging from its roof poles", "firstAtS": 11.2 }
+    ]
   },
   {
     "slug": "big-buck-bunny-0-60",
@@ -21,7 +29,15 @@
     "language": "en",
     "voice": "Joanna",
     "sourceS3Key": "sources/big-buck-bunny-0-60.mp4",
-    "source": { "film": "Big Buck Bunny (Peach open movie, 2008; 2013 sunflower re-render)", "url": "https://download.blender.org/demo/movies/BBB/bbb_sunflower_1080p_30fps_normal.mp4.zip", "segment": "0:00–1:00" }
+    "source": { "film": "Big Buck Bunny (Peach open movie, 2008; 2013 sunflower re-render)", "url": "https://download.blender.org/demo/movies/BBB/bbb_sunflower_1080p_30fps_normal.mp4.zip", "segment": "0:00–1:00" },
+    "characters": [
+      { "name": "Big Buck Bunny", "look": "a huge, round grey rabbit with long ears", "short": "the big grey rabbit", "role": "a gentle giant of a rabbit waking to a spring morning", "revealedAtS": null, "nameEvidence": "The \"Big Buck Bunny\" title card (about 0:25) names the film; there is no dialogue, and nothing in this segment ties the words to the rabbit." },
+      { "name": "the bird", "look": "a plump grey-purple bird with an orange beak and orange feet", "short": "the grey bird", "role": "a bird waking on a branch at sunrise", "revealedAtS": null, "nameEvidence": "Never named." }
+    ],
+    "settings": [
+      { "name": "the meadow", "look": "a green meadow of rolling hills, tall trees, flowers and a stream under a pink-clouded sky", "firstAtS": 0 },
+      { "name": "the burrow", "look": "a dark hole under a mossy mound, grey rocks around it", "firstAtS": 25 }
+    ]
   },
   {
     "slug": "elephants-dream-0-60",
@@ -33,7 +49,15 @@
     "language": "en",
     "voice": "Matthew",
     "sourceS3Key": "sources/elephants-dream-0-60.mp4",
-    "source": { "film": "Elephants Dream (Orange open movie, 2006)", "url": "https://download.blender.org/ED/elephantsdream-1024-h264-st-aac.mov", "segment": "0:00–1:00" }
+    "source": { "film": "Elephants Dream (Orange open movie, 2006)", "url": "https://download.blender.org/ED/elephantsdream-1024-h264-st-aac.mov", "segment": "0:00–1:00" },
+    "characters": [
+      { "name": "Proog", "look": "a bald old man with a long nose, in a long brown coat and a red tie", "short": "the bald old man", "role": "the old man leading Emo through the machine, insisting that everything is safe", "revealedAtS": null, "nameEvidence": "Not said in this segment (captions c1–c12, packages/pipeline/test/fixtures/sdh/elephants-dream-0-60.captions.vtt); the synopsis (\"Proog leads Emo…\") and later dialogue name him." },
+      { "name": "Emo", "look": "a thin young man with short dark hair and large ears, in a pale green shirt", "short": "the thin young man", "role": "the young man the old man is leading through the machine", "revealedAtS": 25.1, "nameEvidence": "Caption c3 \"Emo,\" (spk_0, the old man, 25.07 s), echoed in c4 \"Emo.\" (26.39 s): packages/pipeline/test/fixtures/sdh/elephants-dream-0-60.captions.vtt." }
+    ],
+    "settings": [
+      { "name": "the tiled wall", "look": "a stained wall of cracked tiles strewn with machine parts", "firstAtS": 0 },
+      { "name": "the white chamber", "look": "a pale blue-white chamber of cables and glowing panels, a narrow platform", "firstAtS": 27 }
+    ]
   },
   {
     "slug": "caminandes-35-95",
@@ -45,7 +69,13 @@
     "language": "en",
     "voice": "Joanna",
     "sourceS3Key": "sources/caminandes-35-95.mp4",
-    "source": { "film": "Caminandes 2: Gran Dillama (Blender Institute, 2013)", "url": "https://download.blender.org/demo/movies/caminandes_gran_dillama.mp4.zip", "segment": "0:35–1:35" }
+    "source": { "film": "Caminandes 2: Gran Dillama (Blender Institute, 2013)", "url": "https://download.blender.org/demo/movies/caminandes_gran_dillama.mp4.zip", "segment": "0:35–1:35" },
+    "characters": [
+      { "name": "Koro", "look": "a tan-and-white llama with a long neck, big round eyes and dark brows", "short": "the llama", "role": "a llama set on getting past an electric fence", "revealedAtS": null, "nameEvidence": "Never said or shown in the film (no dialogue); the name comes from caminandes.org and the synopsis (\"Koro the llama…\")." }
+    ],
+    "settings": [
+      { "name": "the high plain", "look": "a dry high plain of tufted yellow grass along a wire fence, snow-capped mountains beyond", "firstAtS": 0 }
+    ]
   },
   {
     "slug": "tears-of-steel-40-100",
@@ -57,6 +87,18 @@
     "language": "en",
     "voice": "Matthew",
     "sourceS3Key": "sources/tears-of-steel-40-100.mp4",
-    "source": { "film": "Tears of Steel (Mango open movie, 2012)", "url": "https://download.blender.org/demo/movies/ToS/tears_of_steel_1080p.mov.zip", "segment": "0:40–1:40" }
+    "source": { "film": "Tears of Steel (Mango open movie, 2012)", "url": "https://download.blender.org/demo/movies/ToS/tears_of_steel_1080p.mov.zip", "segment": "0:40–1:40" },
+    "characters": [
+      { "name": "Thom", "look": "a young man with dark side-parted hair, in a dark grey leather jacket over a patterned grey T-shirt", "short": "the young man in the leather jacket", "role": "a young man arguing with the woman on a canal bridge", "revealedAtS": 2.2, "nameEvidence": "Official subtitles (download.blender.org/demo/movies/ToS/subtitles/TOS-en.srt): \"Whatever, Thom. We're done.\" at film 0:42–0:45 = segment 2.2–5.0 s (Transcribe heard only \"We're done.\")." },
+      { "name": "Celia", "look": "a young woman with auburn hair tied back, in a black vest over a bright blue jacket, with a mechanical arm", "short": "the woman with the mechanical arm", "role": "the young woman ending things with the man on the bridge", "revealedAtS": null, "nameEvidence": "Not said or shown inside the segment: \"Look Celia…\" is at film 0:25, before the segment (0:40–1:40) starts (TOS-en.srt)." },
+      { "name": "the man in glasses", "look": "a young man with curly hair and glasses, in a hooded top, at a glowing console", "short": "the man in glasses", "role": "a technician running the memory playback", "revealedAtS": null, "nameEvidence": "Not named in this segment." },
+      { "name": "the sniper", "look": "a man in a dark padded jacket with a fur-trimmed collar, aiming a long scoped rifle", "short": "the man with the rifle", "role": "a soldier keeping watch over the city from a balcony", "revealedAtS": null, "nameEvidence": "Not named in this segment; later subtitles name a Captain and Barley, but nothing here ties either name to a figure." }
+    ],
+    "settings": [
+      { "name": "the canal bridge", "look": "a bridge over a tree-lined canal between old brick houses", "firstAtS": 0 },
+      { "name": "the lab", "look": "a cluttered lab of glowing consoles, holograms and screens", "firstAtS": 7.1 },
+      { "name": "the smoking city", "look": "a grey, smoking city of old rooftops and spires under a huge dark machine", "firstAtS": 29.9 },
+      { "name": "the hideout", "look": "a dim room high above the city, lit by candles, opening onto a balcony of stone balusters", "firstAtS": 34.1 }
+    ]
   }
 ]

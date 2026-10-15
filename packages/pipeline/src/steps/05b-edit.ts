@@ -10,6 +10,10 @@ import { contentWords, stem } from '../contentWords'
 import { editReadsAsSentences } from '../sentenceGuard'
 import { editRequest, editModelId, shortenEditWithNovaLite, stripFence, type EditConverse, type EditCueInput, bedrockEditSend } from '../prompts'
 import { meter } from '../cost'
+import { allowedNames, EMPTY_GLOSSARY, glossaryFor, glossarySettingStems, isEmpty, isProperName, matchedCharacters, nameEvidence, nameRevealed, placeStems, shortOf, withoutName, type Glossary, type NameSource } from '../glossary'
+import { sceneStems, statesPlace } from '../sceneSetting'
+import { knownNames } from './04-describe'
+import { readScenes, sceneOf, type Scene } from './04c-scenes'
 
 export { contentWords, stem } from '../contentWords'
 
@@ -47,11 +51,42 @@ export async function editCues(ctx: Ctx, send: EditConverse = bedrockEditSend) {
   }
   const shots = JSON.parse(await readFile(`${ctx.work}/described.json`, 'utf8')) as Described[]
   const words = JSON.parse(await readFile(`${ctx.work}/words.json`, 'utf8').catch(() => '[]')) as Word[]
-  const report = await editScene(cues, shots, words, ctx.language, send, ctx.signal)
+  const scenes = await readScenes(ctx.work) // DESC-029: windows per scene, setting and name rules; absent in older work dirs
+  const report = await editScene(cues, shots, words, ctx.language, send, ctx.signal, undefined, { scenes, glossary: glossaryFor(ctx) })
   console.log(`edit: ${report.applied.length} of ${cues.length} cues revised, ${report.rejected.length} edits rejected`)
   await writeFile(`${ctx.work}/cues.json`, JSON.stringify(report.cues, null, 2))
-  await writeFile(`${ctx.work}/edit.json`, JSON.stringify({ model: report.model, applied: report.applied, rejected: report.rejected, usage: report.usage, shorteningCalls: report.shorteningCalls }, null, 2))
+  await writeFile(`${ctx.work}/edit.json`, JSON.stringify({ model: report.model, applied: report.applied, rejected: report.rejected, usage: report.usage, shorteningCalls: report.shorteningCalls, evidence: report.evidence }, null, 2))
 }
+
+/** What the edit pass knows of the title beyond its cues (DESC-029): the scenes (04c-scenes) and the glossary (../glossary). */
+export interface EditContext { scenes?: readonly Scene[]; glossary?: Glossary }
+
+/**
+ * The windows of one Converse call each, as [from, to) cue ranges: one scene at a time when scenes are known (consecutive cues whose shot
+ * is in one scene; a scene of more than EDIT_CHUNK_CUES cues is split), else blocks of EDIT_CHUNK_CUES cues as before.
+ */
+export function editWindows(cues: readonly FitCue[], scenes?: readonly Scene[]): Array<[number, number]> {
+  const out: Array<[number, number]> = []
+  if (!scenes?.length) { for (let from = 0; from < cues.length; from += EDIT_CHUNK_CUES) out.push([from, Math.min(cues.length, from + EDIT_CHUNK_CUES)]); return out }
+  let from = 0
+  for (let i = 1; i <= cues.length; i++) {
+    const same = i < cues.length && sceneOf(scenes, cues[i]!.shotIndex)?.id === sceneOf(scenes, cues[from]!.shotIndex)?.id
+    if (same && i - from < EDIT_CHUNK_CUES) continue
+    out.push([from, i])
+    from = i
+  }
+  return out
+}
+
+/** Names the dialogue says, each with the first time (s) knownNames allows it: the dialogue evidence of the grounding guard. */
+export function spokenNames(words: readonly Word[], language: 'en' | 'de'): { name: string; at: number }[] {
+  const out: { name: string; at: number }[] = []
+  for (const w of words) for (const n of knownNames(words as Word[], w.end * 1000, language)) if (!out.some((x) => x.name === n)) out.push({ name: n, at: w.end })
+  return out
+}
+
+/** Per cue, the names and place words it says and where each comes from (edit.json `evidence`; like SDH's speaker evidence, #39 / 0008). */
+export interface CueEvidence { i: number; names: NameSource[]; setting: { scene?: number; words: { word: string; source: 'description' | 'glossary' | 'scene'; shot?: number; setting?: string }[] } }
 
 /** Cues per Converse call: an output of up to ~30 edits stays well inside Nova Lite's reply budget; a title's cues go in order. */
 export const EDIT_CHUNK_CUES = 30
@@ -63,7 +98,7 @@ export const EDIT_CHUNK_CUES = 30
 export const EDIT_WPS = 2.2
 
 export interface TokenUsage { inputTokens: number; outputTokens: number }
-export interface EditReport { cues: FitCue[]; applied: { i: number; from: string; to: string; by?: 'repeat' }[]; rejected: { i: number; text: string; reason: string }[]; model: string; usage: TokenUsage; shorteningCalls: number }
+export interface EditReport { cues: FitCue[]; applied: { i: number; from: string; to: string; by?: 'repeat' | 'name' }[]; rejected: { i: number; text: string; reason: string }[]; model: string; usage: TokenUsage; shorteningCalls: number; evidence: CueEvidence[] }
 
 /** Shortens `text` to maxWords keeping every fact of `keep` (the cue's original text): one Nova Lite call by default (with its usage); tests inject their own. */
 export type ShortenReply = string | { text: string; usage?: Partial<TokenUsage> }
@@ -79,25 +114,33 @@ const prevActionIndex = (cues: readonly FitCue[], i: number) => { for (let k = i
  * An edit over its budget gets one shortening call (the model appends a dropped description whole rather than compressing it — probe
  * round 5: 17 words into 11), and the shortened text goes through the same guards; it is dropped when it still does not fit.
  */
-export async function editScene(cues: FitCue[], shots: Described[], words: Word[], language: 'en' | 'de', send: EditConverse, signal?: AbortSignal, shorten: Shorten = (t, n, keep, must) => shortenEditWithNovaLite(t, n, keep, must, language)): Promise<EditReport> {
+export async function editScene(cues: FitCue[], shots: Described[], words: Word[], language: 'en' | 'de', send: EditConverse, signal?: AbortSignal, shorten: Shorten = (t, n, keep, must) => shortenEditWithNovaLite(t, n, keep, must, language), context: EditContext = {}): Promise<EditReport> {
   shots = shots.map((s) => ({ ...s, description: stripDarkness(s.description) })) // as fit read them: "Darkness." never comes back through an edit
   const model = editModelId()
-  const report: EditReport = { cues: cues.map((c) => ({ ...c })), applied: [], rejected: [], model, usage: { inputTokens: 0, outputTokens: 0 }, shorteningCalls: 0 }
+  const report: EditReport = { cues: cues.map((c) => ({ ...c })), applied: [], rejected: [], model, usage: { inputTokens: 0, outputTokens: 0 }, shorteningCalls: 0, evidence: [] }
   if (!cues.length) return report
+  const glossary = context.glossary ?? EMPTY_GLOSSARY, scenes = context.scenes
+  const guard: EditGuard = { glossary, spoken: spokenNames(words, language), scenes }
   const budgets = editBudgets(cues)
   const voiced = new Set(cues.map((c) => c.shotIndex))
   const add = (u: Partial<TokenUsage> | undefined) => { report.usage.inputTokens += u?.inputTokens ?? 0; report.usage.outputTokens += u?.outputTokens ?? 0 }
-  for (let from = 0; from < cues.length; from += EDIT_CHUNK_CUES) {
-    const to = Math.min(cues.length, from + EDIT_CHUNK_CUES)
+  for (const [from, to] of editWindows(cues, scenes)) {
+    const named = (atMs: number) => allowedNames(glossary, atMs, guard.spoken.filter((s) => s.at * 1000 <= atMs).map((s) => s.name))
     const window: EditCueInput[] = cues.slice(from, to).map((c, k) => {
       const i = from + k, text = isTextCue(c)
       const p = prevActionIndex(cues, i), prevShot = p < 0 ? -1 : cues[p]!.shotIndex
       // Dropped shots go to the action cue that follows them, never to an on-screen text cue (frozen) and never twice.
       const missed = text ? [] : shots.filter((x) => !voiced.has(x.index) && !x.sameAsPrev && x.description && x.index > prevShot && x.index < c.shotIndex).map((x) => x.description)
-      return { i, startMs: c.startMs, text: c.text, wordCount: c.wordCount, budget: budgets[i]!, extended: c.extended, onScreenText: text, missed, ...(text ? {} : { mustSay: factWords(c.text, p < 0 ? '' : cues[p]!.text) }) }
+      const mayName = text || (isEmpty(glossary) && !guard.spoken.length) ? undefined : named(c.startMs)
+      return { i, startMs: c.startMs, text: c.text, wordCount: c.wordCount, budget: budgets[i]!, extended: c.extended, onScreenText: text, missed, ...(text ? {} : { mustSay: factWords(c.text, p < 0 ? '' : cues[p]!.text) }), ...(mayName ? { mayName } : {}) }
     })
     const heard = from ? report.cues[from - 1]!.text : undefined
-    const input = { language, cues: window, dialogue: dialogueTurns(words, cues[from]!.startMs - 10_000, cues[to - 1]!.endMs + 10_000), heard }
+    const sc = scenes ? sceneOf(scenes, cues[from]!.shotIndex) : undefined
+    const set = sc?.settingName ? glossary.settings.find((x) => x.name === sc.settingName) : undefined
+    const scene = sc && { setting: sc.setting, ...(set ? { looks: set.look } : {}), returning: sc.returning, placeAlreadySaid: report.cues.slice(0, from).some((c) => sc.shots.includes(c.shotIndex) && statesPlace(c.text, sceneStems(sc, glossary))) }
+    const end = cues[to - 1]!.startMs
+    const people = isEmpty(glossary) ? undefined : glossary.characters.map((c) => (isProperName(c) && nameRevealed(c, end) ? { look: c.look, name: c.name, namedFrom: c.revealedAtS! } : { look: c.look }))
+    const input = { language, cues: window, dialogue: dialogueTurns(words, cues[from]!.startMs - 10_000, cues[to - 1]!.endMs + 10_000), heard, ...(scene ? { scene } : {}), ...(people ? { people } : {}) }
     let reply: unknown
     // The forced tool first; when that call fails (Nova Lite: "Model produced invalid sequence as part of ToolUse" on some inputs, probe
     // round 3) the same window is asked once more for plain JSON text. A second failure keeps the window's original cues.
@@ -117,7 +160,7 @@ export async function editScene(cues: FitCue[], shots: Described[], words: Word[
     if (reply === undefined) continue
     const edits = replyEdits(reply)
     if (!edits) { console.warn(`edit: reply for cues ${from}–${to - 1} is not {"edits":[…]}; keeping the original cues`, (typeof reply === 'string' ? reply : JSON.stringify(reply) ?? '').slice(0, 200)); continue }
-    const out = applyEdits(cues, shots, edits, budgets, [from, to], language)
+    const out = applyEdits(cues, shots, edits, budgets, [from, to], language, { ...guard, current: report.cues })
     const retry: Edit[] = []
     for (const r of out.rejected) {
       if (!r.reason.startsWith('over budget')) { report.rejected.push(r); continue }
@@ -131,7 +174,7 @@ export async function editScene(cues: FitCue[], shots: Described[], words: Word[
       // An empty reply, or one that was only an annotation, is no shortening: the edit's own over-budget rejection stands.
       if (shorter && shorter !== r.text) retry.push({ cue: r.i, text: shorter }); else report.rejected.push(r)
     }
-    const again = retry.length ? applyEdits(cues, shots, retry, budgets, [from, to], language) : { applied: [], rejected: [] }
+    const again = retry.length ? applyEdits(cues, shots, retry, budgets, [from, to], language, { ...guard, current: report.cues }) : { applied: [], rejected: [] }
     for (const a of [...out.applied, ...again.applied]) { report.cues[a.i]!.text = a.to; report.cues[a.i]!.wordCount = wordCount(a.to); report.applied.push(a) }
     report.rejected.push(...again.rejected.map((r) => ({ ...r, reason: `${r.reason} (after shortening)` })))
   }
@@ -144,9 +187,56 @@ export async function editScene(cues: FitCue[], shots: Described[], words: Word[
     report.applied.push({ i, from: report.cues[i]!.text, to: c.text, by: 'repeat' })
     report.cues[i] = c
   })
+  // DESC-029 grounding guard, on every final cue (the model's edits and fit's own text alike): a glossary name not yet revealed is
+  // replaced by the character's short look; each cue records where its names and place words come from (edit.json `evidence`).
+  report.cues.forEach((c, i) => {
+    if (isTextCue(c)) return
+    const check = nameEvidence(c.text, c.startMs, glossary, guard.spoken, cueShotTexts(cues, shots, i))
+    const text = [...check.premature, ...check.unbound].reduce((t, n) => withoutName(t, n, glossary), c.text)
+    if (text !== c.text) { report.applied.push({ i, from: c.text, to: text, by: 'name' }); report.cues[i] = { ...c, text, wordCount: wordCount(text) } }
+    report.evidence.push(cueEvidence(i, report.cues[i]!, shots, guard, cueShotTexts(cues, shots, i)))
+  })
   report.applied.sort((x, y) => x.i - y.i) // stable: a cue's model edit stays before its trim
   for (const r of report.rejected) console.warn(`edit: rejected edit of cue ${r.i} (${r.reason}):`, JSON.stringify(r.text))
   return report
+}
+
+/**
+ * What the guards know of the title (DESC-029): its glossary, the names the dialogue says (spokenNames), the scenes, and `current` —
+ * the cues as the viewer hears them so far (earlier windows' accepted edits), for "the place was already said".
+ */
+export interface EditGuard { glossary: Glossary; spoken: readonly { name: string; at: number }[]; scenes?: readonly Scene[]; current?: readonly FitCue[] }
+
+/** The descriptions of cue i's shots: the shots between the previous action cue and its own (dropped ones it may absorb included). */
+export function cueShotTexts(cues: readonly FitCue[], shots: readonly Described[], i: number): string[] {
+  const p = prevActionIndex(cues, i), prevShot = p < 0 ? -1 : cues[p]!.shotIndex
+  return shots.filter((s) => s.index > prevShot && s.index <= cues[i]!.shotIndex && !s.sameAsPrev).map((s) => s.description)
+}
+
+/**
+ * One cue's evidence: its names (nameEvidence: glossary once revealed, or the dialogue), names with none (`unbacked`: a capitalised word
+ * no glossary or dialogue backs — left in a fit cue for review, rejected in an edit), and its place words (PLACE_NOUNS and the scene's
+ * place words), each from a description of the scene's shots, the scene label's evidence, or the glossary.
+ */
+export function cueEvidence(i: number, c: FitCue, shots: readonly Described[], guard: EditGuard, own: readonly string[] = shots.filter((s) => s.index === c.shotIndex).map((s) => s.description)): CueEvidence & { unbacked?: string[] } {
+  const check = nameEvidence(c.text, c.startMs, guard.glossary, guard.spoken, own)
+  const sc = guard.scenes ? sceneOf(guard.scenes, c.shotIndex) : undefined
+  const sceneShots = sc ? shots.filter((s) => sc.shots.includes(s.index)) : shots.filter((s) => s.index === c.shotIndex)
+  const extra = new Set([...glossarySettingStems(guard.glossary), ...(sc ? sceneStems(sc, guard.glossary) : [])])
+  const placeWords = [...new Set(contentWords(c.text).filter((w) => placeStems(w, extra).length))]
+  const setting: CueEvidence['setting'] = { ...(sc ? { scene: sc.id } : {}), words: [] }
+  const unbacked = [...check.invented, ...check.premature, ...check.unbound]
+  for (const w of placeWords) {
+    const st = stem(w)
+    const shot = sceneShots.find((s) => contentWords(s.description).some((x) => stem(x) === st))
+    const label = sc?.evidence.find((e) => stem(e.word) === st)
+    const set = guard.glossary.settings.find((s) => contentWords(`${s.name} ${s.look}`).some((x) => stem(x) === st))
+    if (shot) setting.words.push({ word: w, source: 'description', shot: shot.index })
+    else if (label) setting.words.push({ word: w, source: 'scene', ...(label.shot !== undefined ? { shot: label.shot } : {}), ...(label.setting ? { setting: label.setting } : {}) })
+    else if (set) setting.words.push({ word: w, source: 'glossary', setting: set.name })
+    else unbacked.push(w)
+  }
+  return { i, names: check.names, setting, ...(unbacked.length ? { unbacked } : {}) }
 }
 
 /** The repeat guard compares a cue only with the previous action cue that starts at most this long before it. */
@@ -318,13 +408,16 @@ export const textClauseStrings = (t: string) => textSpans(t).map((s) => t.slice(
  * rejection for budget is the only kind worth a shortening call. Timing, order, count, extended and shotIndex are never touched.
  * Returns the cues (copies) and what was applied / rejected.
  */
-export function applyEdits(cues: readonly FitCue[], shots: readonly Described[], edits: readonly Edit[], budgets = editBudgets(cues), window: [number, number] = [0, cues.length], language: 'en' | 'de' = 'en'): { cues: FitCue[]; applied: EditReport['applied']; rejected: EditReport['rejected'] } {
+export function applyEdits(cues: readonly FitCue[], shots: readonly Described[], edits: readonly Edit[], budgets = editBudgets(cues), window: [number, number] = [0, cues.length], language: 'en' | 'de' = 'en', guard?: EditGuard): { cues: FitCue[]; applied: EditReport['applied']; rejected: EditReport['rejected'] } {
   const out = cues.map((c) => ({ ...c }))
   const applied: EditReport['applied'] = [], rejected: EditReport['rejected'] = []
   const seen = new Set<number>()
-  for (const e of edits) {
+  // In cue order, so "the place was already said" sees the edits accepted before this one (`out`), whatever order the model sent.
+  const order = new Map(edits.map((e, k) => [e, k]))
+  const rank = new Map<object, number>()
+  for (const e of [...edits].sort((a, b) => (Number.isInteger(a.cue) && Number.isInteger(b.cue) ? a.cue - b.cue : 0))) {
     const i = e.cue, text = e.text.replace(/\s+/g, ' ').trim()
-    const reject = (reason: string) => rejected.push({ i, text: e.text, reason })
+    const reject = (reason: string) => { const r = { i, text: e.text, reason }; rank.set(r, order.get(e)!); rejected.push(r) }
     if (!Number.isInteger(i) || i < 0 || i >= cues.length) { reject('unknown cue'); continue }
     if (i < window[0] || i >= window[1]) { reject('cue outside this window'); continue }
     if (seen.has(i)) { reject('cue edited twice'); continue }
@@ -340,8 +433,29 @@ export function applyEdits(cues: readonly FitCue[], shots: readonly Described[],
     // NEXT cue only; probe round 7: Nova folded shot 11's "veiled face" — the description Gate C flagged — into the cue of shot 14).
     const p = prevActionIndex(cues, i), prevShot = p < 0 ? -1 : cues[p]!.shotIndex, previous = p < 0 ? '' : cues[p]!.text
     const allowed = [...shots.filter((s) => s.index > prevShot && s.index <= c.shotIndex).map((s) => s.description), c.text, previous]
-    const bad = unfaithfulWords(text, allowed)
+    // DESC-029: names only once revealed (glossary or dialogue), never invented; a scene's place said once, then not again.
+    const sc = guard?.scenes ? sceneOf(guard.scenes, c.shotIndex) : undefined
+    const own = shots.filter((s) => s.index > prevShot && s.index <= c.shotIndex).map((s) => s.description) // this cue's shots, missed ones included
+    if (guard) {
+      // A capitalised word a description of these shots says is grounded there (a missed shot's "Dr. Smith"); a glossary name must be
+      // revealed by the cue's start and shown by look in these shots (binding: "Thom" never on the sniper's shot).
+      const grounded = new Set(own.flatMap((d) => nameEvidence(d, c.startMs, guard.glossary, guard.spoken).invented))
+      const before = nameEvidence(c.text, c.startMs, guard.glossary, guard.spoken, own), after = nameEvidence(text, c.startMs, guard.glossary, guard.spoken, own)
+      const had = [...before.premature, ...before.invented, ...before.unbound]
+      const wrong = [...after.premature, ...after.invented.filter((n) => !grounded.has(n)), ...after.unbound].filter((n) => !had.includes(n))
+      if (wrong.length) { reject(`name not revealed, not shown in its shots, or in no glossary or dialogue: ${wrong.join(', ')}`); continue }
+    }
+    const heard = (k: number) => (k >= window[0] ? out[k]! : (guard?.current?.[k] ?? cues[k]!))
+    const firstOfScene = !!sc && !cues.slice(0, i).some((x) => !isTextCue(x) && sc.shots.includes(x.shotIndex))
+    const set = sc?.settingName && guard ? guard.glossary.settings.find((x) => x.name === sc.settingName) : undefined
+    const gate = guard && { glossary: guard.glossary, atMs: c.startMs, spoken: guard.spoken, shots: [...own, c.text], extra: sc ? [sc.setting, ...(set ? [`${set.name} ${set.look}`] : []), ...(sc.returning && firstOfScene ? ['back in'] : [])] : [] }
+    const bad = unfaithfulWords(text, allowed, gate)
     if (bad.length) { reject(`not in any shot description: ${bad.join(', ')}`); continue }
+    if (sc && guard) {
+      const stems = sceneStems(sc, guard.glossary)
+      const said = Array.from({ length: i }, (_, k) => heard(k)).some((x) => sc.shots.includes(x.shotIndex) && statesPlace(x.text, stems))
+      if (said && !statesPlace(c.text, stems) && statesPlace(text, stems)) { reject('says the scene\'s place again'); continue }
+    }
     const lost = droppedFacts(c.text, text, previous)
     if (lost.length) { reject(`drops a fact: ${lost.join(', ')}`); continue }
     const fragment = editReadsAsSentences(c.text, text, allowed, language) // DESC-028: g9 shot 26 "Scaled creature, horns, bloodied wing, stares."
@@ -350,6 +464,7 @@ export function applyEdits(cues: readonly FitCue[], shots: readonly Described[],
     out[i] = { ...c, text, wordCount: wordCount(text) }
     applied.push({ i, from: c.text, to: text })
   }
+  rejected.sort((a, b) => rank.get(a)! - rank.get(b)!) // reported in the order the model sent them
   return { cues: out, applied, rejected }
 }
 
@@ -357,9 +472,22 @@ export function applyEdits(cues: readonly FitCue[], shots: readonly Described[],
  * Content words of `text` whose stem is in none of `allowed` (the shot descriptions the cue may absorb and the cue texts, see applyEdits).
  * Lower-cased, punctuation stripped, stop-words removed; inflections match through stem(): "stir" ~ "stirs" ~ "stirring".
  * Empty means faithful: the edit names nothing a description did not.
+ * DESC-029 (`gate`): the glossary is evidence only where it applies — a character's look and short reference only when the cue's shot
+ * descriptions (`shots`) show that character (matchedCharacters), and its name only once revealed at `atMs` as well; a name the dialogue
+ * has said by then; and `extra` (the cue's own scene: its label and glossary place, "back in" on a return). Never a role, never another
+ * scene's place, never a look the shots do not show.
  */
-export function unfaithfulWords(text: string, allowed: readonly string[]): string[] {
-  const ok = new Set(allowed.flatMap((a) => contentWords(a).map(stem)))
+export interface NameGate { glossary: Glossary; atMs: number; spoken?: readonly { name: string; at: number }[]; extra?: readonly string[]; shots?: readonly string[] }
+export function unfaithfulWords(text: string, allowed: readonly string[], gate?: NameGate): string[] {
+  const more: string[] = []
+  if (gate) {
+    const shown = matchedCharacters(gate.shots ?? allowed, gate.glossary)
+    const revealed = allowedNames(gate.glossary, gate.atMs)
+    const spoken = (gate.spoken ?? []).filter((s) => s.at * 1000 <= gate.atMs).map((s) => s.name)
+    for (const c of gate.glossary.characters.filter((x) => shown.has(x.name))) more.push(c.look, shortOf(c), ...(revealed.includes(c.name) ? [c.name] : []))
+    more.push(...spoken, ...(gate.extra ?? [])) // a name the dialogue has said by then is evidence on any shot, as before DESC-029
+  }
+  const ok = new Set([...allowed, ...more].flatMap((a) => contentWords(a).map(stem)))
   return [...new Set(contentWords(text))].filter((w) => !ok.has(stem(w)))
 }
 

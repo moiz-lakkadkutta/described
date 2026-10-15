@@ -61,3 +61,4 @@ export type PromptKey = z.infer<typeof PromptKey>
 export type About = z.infer<typeof About>
 export * from './deepLink'
 export * from './list'
+export * from './glossary'

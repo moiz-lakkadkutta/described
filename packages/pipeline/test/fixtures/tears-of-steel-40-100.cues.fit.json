@@ -1,0 +1,125 @@
+[
+  {
+    "startMs": 0,
+    "endMs": 100,
+    "text": "A man in a dark jacket gestures while speaking to a woman with a mechanical arm, standing on a bridge over a canal.",
+    "extended": true,
+    "wordCount": 23,
+    "shotIndex": 0
+  },
+  {
+    "startMs": 5330,
+    "endMs": 7505,
+    "text": "Words appear: 40 YEARS LATER.",
+    "extended": false,
+    "wordCount": 5,
+    "shotIndex": 2,
+    "limitMs": 9839
+  },
+  {
+    "startMs": 7125,
+    "endMs": 7225,
+    "text": "Words appear: MEMORY PLAYBACK - GLOBAL",
+    "extended": true,
+    "wordCount": 6,
+    "shotIndex": 3
+  },
+  {
+    "startMs": 13960,
+    "endMs": 16885,
+    "text": "Man in glasses gestures at glowing console.",
+    "extended": false,
+    "wordCount": 7,
+    "shotIndex": 4,
+    "limitMs": 20699
+  },
+  {
+    "startMs": 17035,
+    "endMs": 20699,
+    "text": "Words appear: SIMULATION READY... LOCKED. Two people at tables.",
+    "extended": false,
+    "wordCount": 9,
+    "shotIndex": 5,
+    "limitMs": 20699
+  },
+  {
+    "startMs": 22579,
+    "endMs": 27754,
+    "text": "A man with a mechanical eye peers at a brain on a plate.",
+    "extended": false,
+    "wordCount": 13,
+    "shotIndex": 6,
+    "limitMs": 60000
+  },
+  {
+    "startMs": 27904,
+    "endMs": 30079,
+    "text": "Words appear: TEARS OF STEEL.",
+    "extended": false,
+    "wordCount": 5,
+    "shotIndex": 7,
+    "limitMs": 60000
+  },
+  {
+    "startMs": 30229,
+    "endMs": 36904,
+    "text": "A gloomy cityscape with smoke rising, a tall spire, and a massive dark machine looming over rooftops.",
+    "extended": false,
+    "wordCount": 17,
+    "shotIndex": 8,
+    "limitMs": 60000
+  },
+  {
+    "startMs": 37054,
+    "endMs": 41479,
+    "text": "Dim ship deck. Figure kneels beside prone bodies, candles flicker nearby.",
+    "extended": false,
+    "wordCount": 11,
+    "shotIndex": 9,
+    "limitMs": 60000
+  },
+  {
+    "startMs": 41629,
+    "endMs": 44929,
+    "text": "Words appear: \"Dr Amstelwijk ROBOTICIST CREATES KILLER ROBOTS\"",
+    "extended": false,
+    "wordCount": 8,
+    "shotIndex": 10,
+    "limitMs": 60000
+  },
+  {
+    "startMs": 45079,
+    "endMs": 48379,
+    "text": "Man in dark jacket aims rifle from balcony.",
+    "extended": false,
+    "wordCount": 8,
+    "shotIndex": 11,
+    "limitMs": 60000
+  },
+  {
+    "startMs": 48529,
+    "endMs": 55579,
+    "text": "A dark, complex airship floats over a misty city, viewed through a circular window, its lights glowing faintly.",
+    "extended": false,
+    "wordCount": 18,
+    "shotIndex": 12,
+    "limitMs": 60000
+  },
+  {
+    "startMs": 55729,
+    "endMs": 59029,
+    "text": "A woman aims a futuristic rifle, eye focused.",
+    "extended": false,
+    "wordCount": 8,
+    "shotIndex": 13,
+    "limitMs": 60000
+  },
+  {
+    "startMs": 58208,
+    "endMs": 58308,
+    "text": "A man reads newspaper. Another aims rifle.",
+    "extended": true,
+    "wordCount": 7,
+    "shotIndex": 15
+  }
+]

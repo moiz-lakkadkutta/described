@@ -3,7 +3,7 @@ import { TITLES_FILE, TitleSeed, loadTitles, seedTitles, titleUpsert } from '../
 const sintel: TitleSeed = {
   slug: 'sintel-90-150-r2', name: 'Sintel', year: 2010, license: 'CC-BY 3.0', attribution: 'Sintel © Blender Foundation, CC-BY 3.0. Described by Described.',
   synopsis: 'A girl and a dragon.', language: 'en', voice: 'Joanna', sourceS3Key: 'sources/sintel-90-150.mp4',
-  source: { film: 'Sintel', url: 'https://download.blender.org/demo/movies/', segment: '1:30–2:30' },
+  source: { film: 'Sintel', url: 'https://download.blender.org/demo/movies/', segment: '1:30–2:30' }, characters: [], settings: [],
 }
 
 describe('prisma/titles.json (the catalogue, DESC-010)', () => {
@@ -16,6 +16,32 @@ describe('prisma/titles.json (the catalogue, DESC-010)', () => {
       expect(t.source.url).toMatch(/^https:\/\/download\.blender\.org\//)
       expect(t.sourceS3Key).toBe(`sources/${t.slug === 'sintel-90-150-r2' ? 'sintel-90-150' : t.slug}.mp4`)
     }
+  })
+  // DESC-029 (docs/decisions/0012-characters-and-scenes.md): every title has its people and places, each name with its evidence.
+  it('has characters and settings for every title, each name revealed at a segment time or never, with its evidence', async () => {
+    const titles = await loadTitles(TITLES_FILE)
+    for (const t of titles) {
+      expect(t.characters.length, t.slug).toBeGreaterThan(0)
+      expect(t.settings.length, t.slug).toBeGreaterThan(0)
+      for (const c of t.characters) {
+        expect(c.nameEvidence.length, c.name).toBeGreaterThan(10)
+        if (c.revealedAtS !== null) expect(c.nameEvidence, c.name).toMatch(/\d/) // a time or a caption number
+        if (c.revealedAtS !== null) expect(c.revealedAtS, c.name).toBeGreaterThanOrEqual(0) // revealed inside the segment only (0012)
+        expect(c.look, c.name).not.toContain(c.name) // the look is how to refer to them before the name
+      }
+      for (const s of t.settings) if (s.firstAtS !== undefined) { expect(s.firstAtS).toBeGreaterThanOrEqual(0); expect(s.firstAtS).toBeLessThan(60) }
+    }
+    const named = (slug: string) => Object.fromEntries(titles.find((t) => t.slug === slug)!.characters.map((c) => [c.name, c.revealedAtS]))
+    expect(named('elephants-dream-0-60')).toEqual({ Proog: null, Emo: 25.1 }) // "Emo," at 25.07 s; Proog never said in the segment
+    expect(named('tears-of-steel-40-100')).toMatchObject({ Thom: 2.2, Celia: null }) // "Whatever, Thom." inside the segment; Celia only before it starts
+    expect(named('sintel-90-150-r2').Sintel).toBeNull() // film 7:37, after the segment
+  })
+  it('rejects a malformed character (no evidence, a revealedAtS that is not a number or null)', () => {
+    const c = { name: 'Emo', look: 'a thin young man', short: 'the thin young man', role: 'the young man', revealedAtS: 25.1, nameEvidence: 'Caption c3 "Emo," 25.07 s' }
+    expect(TitleSeed.parse({ ...sintel, characters: [c] }).characters).toEqual([c])
+    expect(() => TitleSeed.parse({ ...sintel, characters: [{ ...c, nameEvidence: '' }] })).toThrow()
+    expect(() => TitleSeed.parse({ ...sintel, characters: [{ ...c, revealedAtS: undefined }] })).toThrow()
+    expect(TitleSeed.parse({ ...sintel, characters: undefined, settings: undefined })).toMatchObject({ characters: [], settings: [] })
   })
   it('rejects a title that is not CC-BY, an attribution that is not a full sentence, or a source off download.blender.org', () => {
     expect(() => TitleSeed.parse({ ...sintel, license: 'CC-BY-NC 3.0' })).toThrow()
@@ -35,7 +61,7 @@ describe('seedTitles', () => {
     })
     const u = titleUpsert({ ...sintel, year: undefined, synopsis: undefined }, 'eu-central-1')
     expect(u.update).toMatchObject({ year: null, synopsis: null })
-    for (const k of ['status', 'durationS', 'posterKey', 'heroKey', 'assets', 'voice', 'language']) expect(u.update).not.toHaveProperty(k) // voice/language: what the run spoke
+    for (const k of ['status', 'durationS', 'posterKey', 'heroKey', 'assets', 'voice', 'language', 'characters', 'settings']) expect(u.update).not.toHaveProperty(k) // voice/language: what the run spoke
   })
   it('seeds every entry in order and refuses a duplicate slug before writing anything', async () => {
     const upsert = vi.fn<(args: ReturnType<typeof titleUpsert>) => Promise<unknown>>(async () => ({}))

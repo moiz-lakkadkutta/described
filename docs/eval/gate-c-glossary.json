@@ -1,0 +1,48 @@
+[
+  {
+    "slug": "sintel-90-210",
+    "characters": [
+      {
+        "name": "Sintel",
+        "look": "a young woman with short red hair, in a grey tank top; out in the snow, a small lone figure carrying a spear; in the town, in brown trousers and boots",
+        "short": "the red-haired young woman",
+        "role": "a lone traveller searching the mountains for a lost dragon",
+        "revealedAtS": null,
+        "nameEvidence": "Not said or shown inside the segment (1:30–3:30). Official subtitles (durian.blender.org/wp-content/content/subtitles/sintel_en.srt): \"These are dragon lands, Sintel.\" at film 7:37."
+      },
+      {
+        "name": "Shaman",
+        "look": "an old man with a grey beard, a red stripe of face paint across his eyes and a beaded headband, in red-brown robes, holding a staff",
+        "short": "the old bearded man",
+        "role": "the old man who has taken her into his tent and tends her by the fire",
+        "revealedAtS": null,
+        "nameEvidence": "End credits only (\"Shaman\"); never said or shown in the film."
+      },
+      {
+        "name": "Scales",
+        "look": "a small tan dragon with a bleeding wing",
+        "short": "the small dragon",
+        "role": "the baby dragon she finds wounded on a rooftop",
+        "revealedAtS": null,
+        "nameEvidence": "Not said inside the segment (1:30–3:30): official subtitles \"Scales!\" at film 3:48."
+      }
+    ],
+    "settings": [
+      {
+        "name": "the snowy mountains",
+        "look": "a white mountainside deep in snow",
+        "firstAtS": 0
+      },
+      {
+        "name": "the tent",
+        "look": "a dim round tent with a fire pit at its centre, charms hanging from its roof poles",
+        "firstAtS": 11.2
+      },
+      {
+        "name": "the town",
+        "look": "a sunlit town of stone and timber houses, narrow alleys and tiled rooftops",
+        "firstAtS": 58.4
+      }
+    ]
+  }
+]

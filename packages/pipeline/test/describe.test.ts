@@ -6,6 +6,7 @@ import { alreadySaid, buildDescribeRequest, cachedDescribe, clampKeyframeTimes, 
 import { wordsFromTranscribe, type Word } from '../src/steps/03-speech'
 import { metered } from '../src/cost'
 import { describeSystemPrompt } from '../src/prompts'
+import { allowedNames, loadGlossary, peopleAndPlaces } from '../src/glossary'
 import { shotsFromCuts, type Shot } from '../src/steps/02-shots'
 
 const p = 'Man holds large weapon.'
@@ -45,6 +46,22 @@ describe('describeSystemPrompt', () => {
     expect(t).toContain('Output: one line, at most 8 words, no preamble, no quotes.')
     expect(t).toContain('Reply in English.')
     expect(describeSystemPrompt({ maxWords: 8, knownNames: ['Sintel'], language: 'de' })).toMatch(/Reply in German\.[\s\S]*Known names so far: Sintel\./)
+  })
+  // DESC-029: with a title glossary the prompt carries "People and places in this film"; without one it is the approved prompt.
+  it('adds the people-and-places block and points the descriptor rule at it, only when the title has a glossary', () => {
+    const ed = loadGlossary('elephants-dream-0-60')
+    const plain = describeSystemPrompt({ maxWords: 8, knownNames: [], language: 'en' })
+    expect(describeSystemPrompt({ maxWords: 8, knownNames: [], language: 'en', people: '' })).toBe(plain)
+    // pinned to main's prompt at e02cf2b (the 0009 prompt Gate C is re-checked against): no glossary, no change
+    expect(describeSystemPrompt({ maxWords: 8, knownNames: ['Sintel'], language: 'en' })).toBe(readFileSync(new URL('./fixtures/describe-prompt-main-e02cf2b.txt', import.meta.url), 'utf8'))
+    expect(plain).toContain('use one stable visible descriptor (e.g. "the woman in the red coat")')
+    const t = describeSystemPrompt({ maxWords: 8, knownNames: allowedNames(ed, 40_000), language: 'en', people: peopleAndPlaces(ed, 40_000) })
+    expect(t).toContain('refer to a listed person by their look from the list')
+    expect(t).not.toContain('the woman in the red coat')
+    expect(t).toContain('Known names so far: Emo.')
+    expect(t).toContain('when the place is one of the listed places, use its words')
+    expect(t.endsWith(peopleAndPlaces(ed, 40_000))).toBe(true)
+    expect(describeSystemPrompt({ maxWords: 8, knownNames: allowedNames(ed, 10_000), language: 'en', people: peopleAndPlaces(ed, 10_000) })).not.toMatch(/\bEmo\b/)
   })
 })
 
@@ -220,6 +237,20 @@ describe('known names', () => {
     expect(knownNames(said('Look. Dragons fly. So, What now? I see Mr. Smith.'), 99000, 'en')).toEqual(['Smith'])
     expect(knownNames(said('Hello there Hope. I hope so.'), 99000, 'en')).toEqual([])
     expect(knownNames(said('Run Fast', ['spk_0', 'spk_1']), 99000, 'en')).toEqual([])
+  })
+  // elephants-dream-0-60 (test/fixtures/sdh/elephants-dream-0-60.captions.vtt c3, c4, c12): Transcribe wrote "Emo," at 25.1 s, "Emo." at
+  // 26.4 s and "emo, it's not." at 58.4 s. The lowercase token used to be read from the whole title, so "Emo" never reached the prompt.
+  it('a name heard capitalised is not vetoed by a later lowercase transcription (Elephants Dream "Emo" / "emo")', () => {
+    const at = (start: number, text: string, speaker: string): Word => ({ start, end: start + 0.4, text, speaker })
+    const w = [at(20.6, 'everything', 'spk_0'), at(21.0, 'is', 'spk_0'), at(21.4, 'safe.', 'spk_0'), at(25.07, 'Emo,', 'spk_0'), at(26.39, 'Emo.', 'spk_1'),
+      at(29.06, "What's", 'spk_1'), at(29.5, 'that.', 'spk_1'), at(58.41, 'emo,', 'spk_0'), at(58.9, "it's", 'spk_0'), at(59.3, 'not.', 'spk_0')]
+    expect(knownNames(w, 20000, 'en')).toEqual([])
+    for (const ms of [30000, 40000, 58000, 60000]) expect(knownNames(w, ms, 'en'), `${ms}`).toEqual(['Emo'])
+  })
+  it('a name capitalised mid-sentence counts; lowercase vetoes only when heard first or at least as often', () => {
+    expect(knownNames(said('I see Proog there. Where is proog now? Proog waits.'), 99000, 'en')).toEqual(['Proog']) // 2 capitalised, 1 lowercase
+    expect(knownNames(said('Where is proog now? I see Proog there.'), 99000, 'en')).toEqual([]) // lowercase heard first
+    expect(knownNames(said('I see Proog there.'), 99000, 'en')).toEqual(['Proog'])
   })
   it('finds no names in the sintel-90-150 transcript, and none for a German line said once', () => {
     const t = JSON.parse(readFileSync(new URL('./fixtures/sintel-90-150.transcript.json', import.meta.url), 'utf8'))
