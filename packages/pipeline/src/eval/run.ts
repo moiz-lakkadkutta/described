@@ -176,6 +176,7 @@ const git: Git = (args) => { try { return execFileSync('git', args, { encoding: 
 /**
  * Everything that decides what the steps do besides the inputs: commit (and whether a tracked file had uncommitted changes —
  * untracked files such as work dirs or scratch notes do not change the code that ran), models, switches, versions.
+ * Caveat: a NEW source file that is not yet `git add`ed is untracked, so a run that imported it still reports dirty: false.
  */
 export function runSettings(steps: readonly Step[], language: string, voice: string, env: Record<string, string | undefined> = process.env, gitRun: Git = git) {
   const status = gitRun(['status', '--porcelain', '--untracked-files=no'])

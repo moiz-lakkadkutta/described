@@ -11,8 +11,14 @@ A run passes when **at least 70 % of the shots are majority-usable**: rated usab
 - A shot is usable when all five rubric criteria pass: faithful, on time, style, clean, fits
   ([rubric template](../packages/pipeline/src/eval/RUBRIC.template.md)). "Fits" is decision 0009's rule, quoted verbatim.
 - The denominator is every shot of the clip except the same-as-previous shots (decision 0003: usable / (shots −
-  same-as-previous)). `gate-c packets` finds them (nothing voiced, and describe marked the shot same-as-previous or left its text
-  empty), labels them "Same as previous shot — not rated" and records them in `packet.json` as `skipShots`.
+  same-as-previous)). `gate-c packets` finds them — describe marked the shot same-as-previous **and** nothing is voiced or placed
+  for it — labels them "Same as previous shot — not rated", pre-fills their rows "skip" and records them in `packet.json` as
+  `skipShots`. This matches DESC-017's rule (decision 0003): a continuation that has text is rated against its frames like any
+  other shot; a same-as-previous shot with no cue has nothing to rate. A rater may override a skip by rating the shot; it is
+  counted only when most raters rate it, and `score` warns either way.
+- Only `skipShots` leave the denominator. A "skip" on any other shot counts as not usable and is warned about (`score` exits
+  1), even when every rater wrote it. An empty description that describe did **not** mark same-as-previous is a pipeline
+  failure: it is labelled "Not voiced: empty description" and rated (usable: no).
 - Three raters, so there is no tie. A row marked usable with a failed criterion is sent back to its rater (`score` counts it
   unrated).
 - Runs up to DESC-024 used two raters and counted a shot only when both said usable; those
@@ -64,6 +70,7 @@ for both clips, and the disagreements.
   | 28 | on time | fail | talks over the yell at 112 s (missed by Transcribe) |
   ```
 
-  Criterion is faithful, on time, style, clean or fits; verdict is pass or fail (blank = fail). It applies to every rater.
-  `pnpm gate-c score <out>` then prints both the as-rated and the corrected result, and the corrections between them. Report
-  both; the as-rated figure is the blind one.
+  Criterion is faithful, on time, style, clean or fits. Corrections are **fail-only**: the verdict is fail or blank, and "pass"
+  is refused, so a correction can lower the score but never raise it. It applies to every rater. `pnpm gate-c score <out>` then
+  prints the as-rated result, the corrections, and the corrected result, whose gate line starts "CORRECTED (not the blind
+  result)". Report both; the as-rated figure is the blind one, and it alone sets the exit code.

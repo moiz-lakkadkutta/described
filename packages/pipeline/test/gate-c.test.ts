@@ -12,7 +12,7 @@ import { defaultCredit, preparePlan, prepareGateC, PREPARE_STEPS, type PrepareDe
 import { editModelId, LITE } from '../src/prompts'
 import { verifyModelId } from '../src/steps/04b-verify'
 import { chmod } from 'node:fs/promises'
-import { formatSummary, parseCorrections, parseScores, parseShotList, readExpected, readPacket, readRaters, scoreDir, summarise, type RaterScores } from '../src/eval/score'
+import { formatSummary, needsAttention, parseCorrections, parseScores, parseShotList, readExpected, readPacket, readRaters, scoreDir, summarise, type RaterScores } from '../src/eval/score'
 
 let root: string
 beforeEach(async () => { root = await mkdtemp(join(tmpdir(), 'gate-c-')); noStep.mockClear() })
@@ -463,7 +463,7 @@ describe('gate-c packets: same-as-previous shots are not rated', () => {
     expect(s16).not.toMatch(/no room in the dialogue gaps|Rate the text/)
     expect(section(md, 17)).not.toContain('not rated')
   })
-  it('a voiced shot, or one fit placed, is rated even when marked same-as-previous; empty text with no cue is skipped', () => {
+  it('only sameAsPrev with no cue is skipped; a voiced or fit-placed shot is rated; an empty description NOT marked same-as-previous is rated (a pipeline failure)', () => {
     const d: PacketData = {
       shots: [0, 1, 2, 3].map((i) => ({ index: i, startMs: i * 1000, endMs: i * 1000 + 1000 })),
       described: [
@@ -476,7 +476,18 @@ describe('gate-c packets: same-as-previous shots are not rated', () => {
       cues: [{ startMs: 3000, endMs: 3500, text: 'He sits.', extended: false, wordCount: 2, shotIndex: 3 }],
       fitCues: [],
     }
-    expect(skipShots(d)).toEqual([1, 2])
+    expect(skipShots(d)).toEqual([2])
+    const md = shotsMd(d, new Map(), { title: 'T', offsetMs: 0 })
+    expect(section(md, 1)).toContain('**Not voiced: empty description**')
+    expect(section(md, 1)).not.toMatch(/not rated|no room in the dialogue gaps/)
+    expect(scoresMd(d.shots, skipShots(d))).toContain('| 1 | | | | | | | |')
+  })
+  it('the rubric says one thing about same-as-previous: not rated when nothing is voiced, a continuation with text is rated, raters may override', async () => {
+    const r = await readFile(RUBRIC_TEMPLATE, 'utf8')
+    expect(r).toMatch(/Same as previous shot — not rated/)
+    expect(r).toMatch(/continuation with text[^.]*is rated/i)
+    expect(r).toMatch(/Not voiced: empty description/)
+    expect(r).not.toMatch(/same as previous[^\n]*Rate it against its own\s+frames like any other shot\. A shot/i)
   })
   it('scores.md pre-fills a skip row, and the total is out of the rated shots', async () => {
     const d = await tosData()
@@ -505,9 +516,10 @@ describe('gate-c packets: same-as-previous shots are not rated', () => {
 describe('gate-c score: skip rows and skipShots', () => {
   const sheet = (rows: string[]) => `| Shot | Faithful | On time | Style | Clean | Fits | Usable | Note |\n|---|---|---|---|---|---|---|---|\n${rows.join('\n')}\n`
   const ok = (i: number) => `| ${i} | pass | pass | pass | pass | pass | yes | |`
-  it('"skip (empty)" and "skip" parse as skip, in the Usable column or a criterion', () => {
-    const rows = parseScores(sheet([ok(0), '| 1 | skip (empty) | n/a | n/a | n/a | n/a | skip (empty) | text to rate is empty |', '| 2 | n/a | n/a | n/a | n/a | n/a | skip | |', '| 3 | skip (empty) | | | | | skip (empty) | x |']))
-    expect(rows.map((r) => [r.usable, r.skip ?? false])).toEqual([[true, false], [null, true], [null, true], [null, true]])
+  it('only exactly "skip" or "skip (empty)" in the Usable column is a skip', () => {
+    const rows = parseScores(sheet([ok(0), '| 1 | skip (empty) | n/a | n/a | n/a | n/a | skip (empty) | text to rate is empty |', '| 2 | n/a | n/a | n/a | n/a | n/a | skip | |', '| 3 | skip (empty) | | | | | **Skip** | x |',
+      '| 4 | skip (empty) | | | | | | only a criterion says skip |', '| 5 | pass | pass | pass | pass | pass | skipped | |', '| 6 | pass | pass | pass | pass | pass | skip it | |']))
+    expect(rows.map((r) => [r.usable, r.skip ?? false])).toEqual([[true, false], [null, true], [null, true], [null, true], [null, false], [null, false], [null, false]])
   })
   it('skipShots leave the denominator; a skip row is not unrated; a rating given anyway is ignored', () => {
     const r1 = parseScores(sheet([ok(0), '| 1 | | | | | | skip | |', '| 2 | fail | pass | pass | pass | pass | no | wrong |']))
@@ -522,41 +534,75 @@ describe('gate-c score: skip rows and skipShots', () => {
     expect(text).toMatch(/same as previous, not rated \(decision 0003\): shot 1/)
     expect(text).not.toMatch(/UNRATED/)
   })
-  it('a skip on a shot that is not in skipShots counts neither way and is listed', () => {
+  it('a skip on a shot NOT in skipShots counts as not usable, is warned about and fails the command', () => {
     const skipRow = parseScores(sheet([ok(0), '| 1 | | | | | | skip (empty) | empty? |']))
     const yes = parseScores(sheet([ok(0), ok(1)]))
     const no = parseScores(sheet([ok(0), '| 1 | fail | pass | pass | pass | pass | no | x |']))
     const s = summarise([{ rater: 'rater1', rows: skipRow }, { rater: 'rater2', rows: yes }, { rater: 'rater3', rows: no }], { shotIndices: [0, 1], skipShots: [] })
     expect(s.rated).toEqual([0, 1])
     expect(s.perRater[0]).toMatchObject({ usable: 1, unrated: [], skippedByRater: [1] })
-    expect(s.ties).toEqual([1]) // 1 yes, 1 no, 1 abstains
     expect(s.majority).toEqual([0])
-    expect(formatSummary(s).join('\n')).toMatch(/rater1 marked shot 1 skip.*counted neither usable nor not usable/)
+    expect(formatSummary(s).join('\n')).toMatch(/warning: rater1 marked shot 1 skip, but it is not a same-as-previous shot.*counted not usable/)
+    expect(needsAttention(s)).toBe(true)
   })
-  it('every rater skipping a shot drops it like a skipShot (old packets without skipShots)', () => {
+  it('abuse: one "yes" and two "skip" on a rated shot is NOT majority-usable and NOT all-usable', () => {
+    const y = parseScores(sheet([ok(0), ok(1)]))
+    const k = parseScores(sheet([ok(0), '| 1 | | | | | | skip | |']))
+    const s = summarise([{ rater: 'rater1', rows: y }, { rater: 'rater2', rows: k }, { rater: 'rater3', rows: k }], { shotIndices: [0, 1] })
+    expect(s.majority).toEqual([0])
+    expect(s.allUsable).toEqual([0])
+    expect(s.rated).toEqual([0, 1])
+    expect(formatSummary(s).join('\n')).toContain('majority-usable (≥ 2 of 3 raters usable): 1 / 2 = 50.0 %')
+  })
+  it('abuse: every rater skipping a shot that is not in skipShots keeps it in the denominator, not usable and flagged', () => {
     const rows = parseScores(sheet([ok(0), '| 1 | | | | | | skip | |']))
     const s = summarise([{ rater: 'rater1', rows }, { rater: 'rater2', rows }, { rater: 'rater3', rows }], { shotIndices: [0, 1] })
-    expect(s.skipped).toEqual([1])
-    expect(s.majority.length / s.rated.length).toBe(1)
+    expect(s.skipped).toEqual([])
+    expect(s.rated).toEqual([0, 1])
+    expect(s.majority).toEqual([0])
+    expect(s.allSkipped).toEqual([1])
+    const text = formatSummary(s).join('\n')
+    expect(text).toMatch(/warning: every rater marked shot 1 skip.*not in packet\.json skipShots.*counted not usable/)
+    expect(text).not.toMatch(/same as previous, not rated/)
+    expect(needsAttention(s)).toBe(true)
+  })
+  it('a skipShot rated anyway: warned; it counts as rated only when a majority of raters rated it', () => {
+    const k = parseScores(sheet([ok(0), '| 1 | | | | | | skip | |']))
+    const y = parseScores(sheet([ok(0), ok(1)]))
+    const one = summarise([{ rater: 'rater1', rows: y }, { rater: 'rater2', rows: k }, { rater: 'rater3', rows: k }], { shotIndices: [0, 1], skipShots: [1] })
+    expect(one.skipped).toEqual([1])
+    expect(one.rated).toEqual([0])
+    expect(one.perRater[0]!.ratedSkipShot).toEqual([1])
+    expect(formatSummary(one).join('\n')).toMatch(/warning: rater1 rated shot 1 \(same as previous, not rated\) anyway; ignored: only 1 of 3 raters rated it/)
+    const two = summarise([{ rater: 'rater1', rows: y }, { rater: 'rater2', rows: y }, { rater: 'rater3', rows: k }], { shotIndices: [0, 1], skipShots: [1] })
+    expect(two.skipped).toEqual([])
+    expect(two.rated).toEqual([0, 1])
+    expect(two.overridden).toEqual([1])
+    expect(two.majority).toEqual([0, 1]) // 2 of 3 usable; rater3's skip now counts not usable
+    expect(formatSummary(two).join('\n')).toMatch(/warning: shot 1 is in skipShots but 2 of 3 raters rated it; counted as rated/)
   })
 })
 
 describe('gate-c score: corrections.md', () => {
-  const md = '# Corrections\n\n| Shot | Criterion | Verdict | Reason |\n|---|---|---|---|\n| 25 | on time | fail | talks over "Come on!" at 103 s, missed by Transcribe |\n| 2 | Faithful | pass | the colour is right on frame 4 |\n| 28 | on time | | talks over the yell at 112 s |\n'
+  const md = '# Corrections\n\n| Shot | Criterion | Verdict | Reason |\n|---|---|---|---|\n| 25 | on time | fail | talks over "Come on!" at 103 s, missed by Transcribe |\n| 2 | Faithful | fail | the coat is grey on frame 4 |\n| 28 | on time | | talks over the yell at 112 s |\n'
   it('parses shot, criterion, verdict (fail when blank) and reason', () => {
     expect(parseCorrections(md)).toEqual([
-      { shot: 25, criterion: 'onTime', verdict: false, reason: 'talks over "Come on!" at 103 s, missed by Transcribe' },
-      { shot: 2, criterion: 'faithful', verdict: true, reason: 'the colour is right on frame 4' },
-      { shot: 28, criterion: 'onTime', verdict: false, reason: 'talks over the yell at 112 s' },
+      { shot: 25, criterion: 'onTime', reason: 'talks over "Come on!" at 103 s, missed by Transcribe' },
+      { shot: 2, criterion: 'faithful', reason: 'the coat is grey on frame 4' },
+      { shot: 28, criterion: 'onTime', reason: 'talks over the yell at 112 s' },
     ])
     expect(() => parseCorrections('| 3 | colour | fail | x |')).toThrow(/criterion/)
     expect(() => parseCorrections('| 3 | fits | fail | |')).toThrow(/reason/)
+  })
+  it('abuse: a correction can only fail a criterion; "pass" is refused', () => {
+    expect(() => parseCorrections('| 2 | faithful | pass | the colour is right |')).toThrow(/fail-only/)
+    expect(() => parseCorrections('| 2 | faithful | yes | x |')).toThrow(/fail-only/)
   })
   it('applies to every rater; score prints the as-rated and the corrected result', async () => {
     const sheet = (rows: string[]) => `| Shot | Faithful | On time | Style | Clean | Fits | Usable | Note |\n|---|---|---|---|---|---|---|---|\n${rows.join('\n')}\n`
     for (const r of ['rater1', 'rater2', 'rater3']) {
       await mkdir(join(root, r))
-      await writeFile(join(root, r, 'scores.md'), sheet(['| 2 | fail | pass | pass | pass | pass | no | colour |', '| 25 | pass | pass | pass | pass | pass | yes | |', '| 28 | pass | pass | pass | pass | pass | yes | |']))
+      await writeFile(join(root, r, 'scores.md'), sheet(['| 2 | pass | pass | pass | pass | pass | yes | |', '| 25 | pass | pass | pass | pass | pass | yes | |', '| 28 | pass | pass | pass | pass | pass | yes | |']))
     }
     await writeFile(join(root, 'packet.json'), JSON.stringify({ shotIndices: [2, 25, 28] }))
     const before = await readFile(join(root, 'rater1', 'scores.md'), 'utf8')
@@ -565,8 +611,9 @@ describe('gate-c score: corrections.md', () => {
     await writeFile(join(root, 'corrections.md'), md)
     const r = await scoreDir(root)
     const text = r.lines.join('\n')
-    expect(text).toMatch(/as rated[\s\S]*majority-usable .*: 2 \/ 3 = 66\.7 %/)
-    expect(text).toMatch(/corrected \(corrections\.md, 3 corrections\)[\s\S]*majority-usable .*: 1 \/ 3 = 33\.3 %/)
+    expect(text).toMatch(/as rated[\s\S]*\nmajority-usable .*: 3 \/ 3 = 100\.0 % — gate ≥ 70 %: PASS/)
+    expect(text).toMatch(/corrected \(corrections\.md, 3 corrections\)[\s\S]*CORRECTED \(not the blind result\) majority-usable .*: 0 \/ 3 = 0\.0 % — gate ≥ 70 %: FAIL/)
+    expect(r.exitCode).toBe(0) // the exit code follows the as-rated result
     expect(text).toContain('shot 25 on time → fail: talks over "Come on!" at 103 s, missed by Transcribe')
     expect(await readFile(join(root, 'rater1', 'scores.md'), 'utf8')).toBe(before) // the raters' sheets are never written
   })
@@ -575,10 +622,12 @@ describe('gate-c score: corrections.md', () => {
     await mkdir(join(root, 'rater1'))
     await writeFile(join(root, 'rater1', 'scores.md'), sheet(['| 0 | pass | pass | pass | pass | pass | yes | |', '| 1 | | | | | | | |']))
     await writeFile(join(root, 'packet.json'), JSON.stringify({ shotIndices: [0, 1] }))
-    expect((await scoreDir(root)).unrated).toBe(true)
+    expect((await scoreDir(root)).exitCode).toBe(1)
     const r = await scoreDir(root, { skip: [1] })
-    expect(r.unrated).toBe(false)
+    expect(r.exitCode).toBe(0)
     expect(r.lines.join('\n')).toContain('majority-usable (≥ 1 of 1 raters usable): 1 / 1 = 100.0 %')
+    await writeFile(join(root, 'packet.json'), JSON.stringify({ shotIndices: [0, 1], skipShots: [] }))
+    await expect(scoreDir(root, { skip: [1] })).rejects.toThrow(/already has skipShots/)
     expect(parseShotList('16, 3')).toEqual([3, 16])
     expect(() => parseShotList('x')).toThrow()
   })

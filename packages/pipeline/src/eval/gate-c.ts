@@ -107,7 +107,7 @@ program.command('score <outDir>')
   .action(async (outDir: string, o: { skip?: number[]; corrections?: string }) => {
     const r = await scoreDir(here(outDir), { skip: o.skip, corrections: o.corrections && here(o.corrections) })
     for (const l of r.lines) console.log(l)
-    if (r.unrated) process.exitCode = 1
+    if (r.exitCode) process.exitCode = r.exitCode
   })
 
 program.parseAsync().catch((e: unknown) => { console.error((e as Error).message); process.exit(1) })

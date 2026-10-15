@@ -59,16 +59,17 @@ export const nextWordMs = (words: readonly Word[], t: number) => { const w = wor
 /** The label of a shot that is not rated (decision 0003: score = usable / (shots − same-as-previous)). */
 export const SKIP_LABEL = 'Same as previous shot — not rated'
 /**
- * Pure (tested): the same-as-previous shots, which are not rated and leave the denominator (decision 0003). A shot is one when
- * nothing would be voiced for it — no cue in cues.json, none placed by fit — and describe marked it same-as-previous or left its text
- * empty (a continuation with nothing new). A voiced shot is always rated, whatever describe marked.
+ * Pure (tested): the same-as-previous shots, which are not rated and leave the denominator (decision 0003). A shot is one only when
+ * describe marked it same-as-previous (sameAsPrev === true) AND nothing would be voiced for it — no cue in cues.json, none placed by
+ * fit. A voiced continuation is rated (DESC-017). An empty description NOT marked same-as-previous is a pipeline failure: it is
+ * rated, labelled "Not voiced: empty description". Raters can override a skip by rating the shot (score.ts, majority rule).
  */
 export function skipShots(d: Pick<PacketData, 'shots' | 'described' | 'cues' | 'fitCues'>): number[] {
   const has = (cs: readonly FitCue[], i: number) => cs.some((c) => c.shotIndex === i && c.text.trim())
   return d.shots.map((s) => s.index).filter((i) => {
     if (has(d.cues, i) || has(d.fitCues, i)) return false
     const desc = d.described.find((x) => x.index === i)
-    return !!desc && (desc.sameAsPrev || !desc.description.trim())
+    return desc?.sameAsPrev === true
   })
 }
 
@@ -109,6 +110,8 @@ export function shotsMd(d: PacketData, speechMs: ReadonlyMap<number, number | un
         + ` · next placed cue: ${np ? `${np.startMs} ms` : 'none'}`)
     }
     if (skip.has(i)) md.push(`- **${SKIP_LABEL}.** Nothing new to voice; leave its pre-filled "skip" row in scores.md as it is.`)
+    else if (!voiced.length && !d.fitCues.some((c) => c.shotIndex === i) && desc && !desc.description.trim())
+      md.push('- **Not voiced: empty description** (describe returned no text and did not mark the shot same as previous; a pipeline failure). See RUBRIC.md.')
     else if (!voiced.length) {
       const fc = d.fitCues.find((c) => c.shotIndex === i)
       const would = fc?.text ?? desc?.description ?? ''

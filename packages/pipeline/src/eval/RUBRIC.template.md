@@ -42,9 +42,13 @@ in a dialogue-free gap while the film plays) or **extended** (the film pauses wh
 
 - **Not voiced**: rate the text it would have voiced on faithful, style and clean; on time and fits are n/a (count as pass).
   If the shot carries a plot event the viewer now misses, list it at the end of `scores.md` — it does not make the shot unusable.
-- **Same as previous / continuation**: a later part of one camera shot may say only what is new. Rate it against its own
-  frames like any other shot. A shot with nothing new to voice is marked "Same as previous shot — not rated" in `shots.md`; its
-  row in `scores.md` is pre-filled "skip". Leave it: it is not rated and is not counted (decision 0003).
+- **Same as previous / continuation**: a later part of one camera shot may say only what is new. A continuation with text
+  (voiced, or not voiced with the text it would have voiced) is rated against its own frames like any other shot. A shot marked
+  "Same as previous shot — not rated" in `shots.md` has nothing to voice: its row in `scores.md` is pre-filled "skip" and it is
+  not counted (decision 0003). Leave it, unless its frames show something new the viewer needs: then replace "skip" with your
+  ratings and say why in the note (it is counted only when most raters rate it).
+- **Not voiced: empty description**: describe returned no text for a shot it did not mark same as previous. Rate it usable
+  **no**, note "empty description".
 - Rate the **voiced** text. The model description is context only (it shows what was shortened).
 
 ## Score

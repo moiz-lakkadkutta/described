@@ -21,14 +21,14 @@ const USABLE = new Set(['yes', 'y', 'usable', 'pass', '✓', '✔'])
 const UNUSABLE = new Set(['no', 'n', 'unusable', 'not usable', 'fail', '✗', '✘', 'x'])
 const cell = (s: string | undefined) => (s ?? '').replace(/\*\*/g, '').trim().toLowerCase()
 const verdict = (s: string, yes: Set<string>, no: Set<string>) => (yes.has(s) ? true : no.has(s) ? false : null)
-const isSkip = (s: string) => /^skip\b/.test(s)
+/** Exactly "skip" or "skip (empty)" (case and bold ignored), and only in the Usable column. */
+const isSkip = (s: string) => s === 'skip' || s === 'skip (empty)'
 
 /**
  * Pure (tested): the rows of a scores.md table `| Shot | Faithful | On time | Style | Clean | Fits | Usable | Note |`. A row is any
  * table line whose first cell is a shot number. Usable is read from its column; when that is blank it is derived from the five
  * criteria (all pass or n/a → usable), and stays null (unrated) while any criterion is blank or unreadable, or when it says usable
- * while a criterion fails (inconsistent). "skip" / "skip (empty)" in the Usable column (or, with Usable blank, in a criterion) marks
- * the row skip.
+ * while a criterion fails (inconsistent). Exactly "skip" or "skip (empty)" in the Usable column marks the row skip.
  */
 export function parseScores(md: string): ShotScore[] {
   const rows: ShotScore[] = []
@@ -41,7 +41,7 @@ export function parseScores(md: string): ShotScore[] {
     const values = CRITERIA.map((_, k) => verdict(cell(cells[k + 1]), PASS, FAIL))
     const criteria = Object.fromEntries(CRITERIA.map((c, k) => [c, values[k]!])) as Record<Criterion, boolean | null>
     const written = cell(cells[6])
-    if (isSkip(written) || (!written && CRITERIA.some((_, k) => isSkip(cell(cells[k + 1]))))) {
+    if (isSkip(written)) {
       rows.push({ shot: Number(shot), usable: null, criteria, note: (cells.slice(7).join('|') ?? '').trim(), skip: true })
       continue
     }
@@ -62,25 +62,33 @@ export type Expected = readonly number[] | Packet | undefined
 export interface Summary {
   raters: string[]
   shots: number[]
-  /** Same-as-previous shots (packet.json skipShots, --skip, or skipped by every rater): out of the denominator (decision 0003). */
+  /** packet.json skipShots (or --skip) that are not rated: out of the denominator (decision 0003). Nothing else leaves it. */
   skipped: number[]
   /** The denominator: shots − skipped. */
   rated: number[]
-  /** unrated: blank or unreadable (counted not usable). skippedByRater: a rated shot this rater marked skip (counted neither way). */
-  perRater: { rater: string; usable: number; unrated: number[]; inconsistent: number[]; skippedByRater: number[] }[]
-  /** Usable when more than half of the raters who voted say usable (a skip vote abstains); a tie counts as not usable. */
+  /** skipShots that a majority of raters rated anyway: counted as rated (a rater's override), with a warning. */
+  overridden: number[]
+  /** Rated shots every rater marked skip: not usable, flagged. */
+  allSkipped: number[]
+  /**
+   * unrated: blank or unreadable (counted not usable). skippedByRater: a rated shot this rater marked skip (counted not usable,
+   * warned). ratedSkipShot: a skipShot this rater rated anyway (warned).
+   */
+  perRater: { rater: string; usable: number; unrated: number[]; inconsistent: number[]; skippedByRater: number[]; ratedSkipShot: number[] }[]
+  /** Usable when more than half of ALL raters say usable; a skip, a blank and a tie count as not usable. */
   majority: number[]
   ties: number[]
-  /** Every voting rater says usable (the strict "both raters" figure of the two-rater runs). */
+  /** Every rater says usable (the strict "both raters" figure of the two-rater runs). */
   allUsable: number[]
-  /** Every voting rater gave the same verdict (usable or not). */
+  /** Every rater gave the same verdict (usable or not; a skip counts as not usable). */
   agreed: number[]
   disagreements: { shot: number; votes: { rater: string; usable: boolean | null; skip?: true; note: string }[]; majority: boolean }[]
 }
 
 /**
- * Pure (tested). Every rater must have rated the same shots; an unrated shot counts as not usable and is listed. Same-as-previous
- * shots leave the denominator and are never unrated; a skip on any other shot counts neither way and is listed.
+ * Pure (tested). Every rater must have rated the same shots; an unrated shot counts as not usable and is listed. Only packet.json's
+ * skipShots leave the denominator; a skip on any other shot counts as not usable and is warned about. A skipShot that most raters
+ * rated anyway is counted as rated.
  */
 export function summarise(raters: RaterScores[], expected?: Expected): Summary {
   if (!raters.length) throw new Error('no raters')
@@ -97,37 +105,45 @@ export function summarise(raters: RaterScores[], expected?: Expected): Summary {
     if (mine.join() !== shots.join()) throw new Error(`${r.rater} rated shots ${mine.join(',')} but ${raters[0]!.rater} rated ${shots.join(',')}`)
   }
   const byShot = (r: RaterScores, s: number) => r.rows.find((x) => x.shot === s)!
+  const n = raters.length
   const unknown = (packet.skipShots ?? []).filter((x) => !shots.includes(x))
   if (unknown.length) throw new Error(`skip shots ${unknown.join(', ')} are not in the score sheets`)
-  const skipSet = new Set([...(packet.skipShots ?? []), ...shots.filter((x) => raters.every((r) => byShot(r, x).skip))])
+  const ratedIt = (r: RaterScores, x: number) => { const row = byShot(r, x); return !row.skip && row.usable !== null }
+  const overridden = (packet.skipShots ?? []).filter((x) => raters.filter((r) => ratedIt(r, x)).length * 2 > n).sort((a, b) => a - b)
+  const skipSet = new Set((packet.skipShots ?? []).filter((x) => !overridden.includes(x)))
   const skipped = shots.filter((x) => skipSet.has(x)), rated = shots.filter((x) => !skipSet.has(x))
   const mine = (r: RaterScores) => r.rows.filter((x) => !skipSet.has(x.shot))
   const s: Summary = {
-    raters: raters.map((r) => r.rater), shots, skipped, rated,
+    raters: raters.map((r) => r.rater), shots, skipped, rated, overridden,
+    allSkipped: rated.filter((x) => raters.every((r) => byShot(r, x).skip)),
     perRater: raters.map((r) => ({
       rater: r.rater, usable: mine(r).filter((x) => x.usable === true).length, unrated: mine(r).filter((x) => x.usable === null && !x.skip).map((x) => x.shot),
-      inconsistent: mine(r).filter((x) => x.inconsistent).map((x) => x.shot), skippedByRater: mine(r).filter((x) => x.skip).map((x) => x.shot),
+      inconsistent: mine(r).filter((x) => x.inconsistent).map((x) => x.shot),
+      skippedByRater: mine(r).filter((x) => x.skip && !(packet.skipShots ?? []).includes(x.shot)).map((x) => x.shot),
+      ratedSkipShot: (packet.skipShots ?? []).filter((x) => ratedIt(r, x)).sort((a, b) => a - b),
     })),
     majority: [], ties: [], allUsable: [], agreed: [], disagreements: [],
   }
   for (const shot of rated) {
     const votes = raters.map((r) => { const x = byShot(r, shot); return { rater: r.rater, usable: x.usable, ...(x.skip ? { skip: true as const } : {}), note: x.note } })
-    const voting = votes.filter((v) => !v.skip), n = voting.length
-    const yes = voting.filter((v) => v.usable === true).length
+    const yes = votes.filter((v) => v.usable === true).length
     const majority = yes * 2 > n
     if (majority) s.majority.push(shot)
-    if (n && yes * 2 === n) s.ties.push(shot)
-    if (n && yes === n) s.allUsable.push(shot)
-    if (n && (yes === n || voting.every((v) => v.usable === false)) && voting.length === votes.length) s.agreed.push(shot)
+    if (yes * 2 === n) s.ties.push(shot)
+    if (yes === n) s.allUsable.push(shot)
+    if (yes === n || votes.every((v) => v.usable === false || v.skip)) s.agreed.push(shot)
     else s.disagreements.push({ shot, votes, majority })
   }
   return s
 }
 
+/** Rows a person must look at: unrated rows, and skips on shots that are not same-as-previous. `score` exits 1 on these. */
+export const needsAttention = (s: Summary) => s.perRater.some((r) => r.unrated.length > 0 || r.skippedByRater.length > 0)
+
 const pct = (k: number, of: number) => `${k} / ${of} = ${((100 * k) / of).toFixed(1)} %`
 
 /** Pure (tested): the printed report. */
-export function formatSummary(s: Summary): string[] {
+export function formatSummary(s: Summary, o: { corrected?: boolean } = {}): string[] {
   const N = s.rated.length, n = s.raters.length
   const out = [`${n} raters (${s.raters.join(', ')}), ${s.shots.length} shots${s.skipped.length ? `, ${N} rated` : ''}`]
   if (s.skipped.length) out.push(`same as previous, not rated (decision 0003): shot${s.skipped.length > 1 ? 's' : ''} ${s.skipped.join(', ')} — score = usable / (${s.shots.length} − ${s.skipped.length})`)
@@ -135,10 +151,15 @@ export function formatSummary(s: Summary): string[] {
   for (const r of s.perRater) {
     out.push(`${r.rater}: usable ${pct(r.usable, N)}${r.unrated.length ? `; UNRATED shots ${r.unrated.join(', ')} (counted not usable)` : ''}`)
     if (r.inconsistent.length) out.push(`  warning: ${r.rater} marked shots ${r.inconsistent.join(', ')} usable with a failed criterion; counted unrated — ask the rater`)
-    for (const k of r.skippedByRater) out.push(`  note: ${r.rater} marked shot ${k} skip, but it is not a same-as-previous shot; counted neither usable nor not usable (the other raters decide)`)
+    for (const k of r.skippedByRater) out.push(`  warning: ${r.rater} marked shot ${k} skip, but it is not a same-as-previous shot (packet.json skipShots); counted not usable — ask the rater`)
+    for (const k of r.ratedSkipShot) {
+      if (s.skipped.includes(k)) out.push(`  warning: ${r.rater} rated shot ${k} (same as previous, not rated) anyway; ignored: only ${s.perRater.filter((p) => p.ratedSkipShot.includes(k)).length} of ${n} raters rated it`)
+    }
   }
+  for (const k of s.overridden) out.push(`warning: shot ${k} is in skipShots but ${s.perRater.filter((p) => p.ratedSkipShot.includes(k)).length} of ${n} raters rated it; counted as rated (a skip on it counts not usable)`)
+  for (const k of s.allSkipped) out.push(`warning: every rater marked shot ${k} skip, but it is not in packet.json skipShots; counted not usable`)
   out.push('',
-    `majority-usable (≥ ${Math.floor(n / 2) + 1} of ${n} raters usable): ${pct(s.majority.length, N)} — gate ≥ ${GATE * 100} %: ${s.majority.length / N >= GATE ? 'PASS' : 'FAIL'}`,
+    `${o.corrected ? 'CORRECTED (not the blind result) ' : ''}majority-usable (≥ ${Math.floor(n / 2) + 1} of ${n} raters usable): ${pct(s.majority.length, N)} — gate ≥ ${GATE * 100} %: ${s.majority.length / N >= GATE ? 'PASS' : 'FAIL'}`,
     `  shots: ${s.majority.join(', ') || 'none'}`,
     `all raters usable: ${pct(s.allUsable.length, N)}`,
     `all raters agree (same verdict): ${s.agreed.length} / ${N}`)
@@ -174,14 +195,15 @@ export function parseShotList(v: string): number[] {
 
 /**
  * The scorer's corrections, from `corrections.md` next to packet.json (docs/evaluation.md, "Known limits"): a correction is for
- * something the packet did not show the raters (e.g. dialogue Transcribe missed, so a cue talks over it unseen). It sets one
- * criterion of one shot for every rater; the raters' scores.md files are never changed, and `score` prints both results.
+ * something the packet did not show the raters (e.g. dialogue Transcribe missed, so a cue talks over it unseen). It is FAIL-ONLY:
+ * it fails one criterion of one shot for every rater, so it can lower the score but never raise it. The raters' scores.md files are
+ * never changed, and `score` prints both results; the as-rated one is the blind result and sets the exit code.
  */
-export interface Correction { shot: number; criterion: Criterion; verdict: boolean; reason: string }
+export interface Correction { shot: number; criterion: Criterion; reason: string }
 const CRITERION_NAMES: Record<string, Criterion> = { faithful: 'faithful', ontime: 'onTime', style: 'style', clean: 'clean', fits: 'fits' }
 export const criterionLabel = (c: Criterion) => (c === 'onTime' ? 'on time' : c)
 
-/** Pure (tested): rows `| Shot | Criterion | Verdict | Reason |` (verdict pass / fail, blank = fail) or `| Shot | Criterion | Reason |`. */
+/** Pure (tested): rows `| Shot | Criterion | Verdict | Reason |` (verdict fail or blank; anything else is refused) or `| Shot | Criterion | Reason |`. */
 export function parseCorrections(md: string): Correction[] {
   const out: Correction[] = []
   for (const line of md.split('\n')) {
@@ -193,16 +215,16 @@ export function parseCorrections(md: string): Correction[] {
     const criterion = CRITERION_NAMES[cell(cells[1]).replace(/[^a-z]/g, '')]
     if (!criterion) throw new Error(`corrections.md shot ${shot}: unknown criterion "${cells[1]}" (faithful, on time, style, clean, fits)`)
     const v = cell(cells[2])
-    const hasVerdict = cells.length >= 4 && (v === '' || PASS.has(v) || FAIL.has(v))
-    if (cells.length >= 4 && !hasVerdict) throw new Error(`corrections.md shot ${shot}: verdict must be pass or fail; got "${cells[2]}"`)
+    const hasVerdict = cells.length >= 4
+    if (hasVerdict && v !== '' && !FAIL.has(v)) throw new Error(`corrections.md shot ${shot}: corrections are fail-only (they can lower the score, never raise it); verdict must be fail or blank, got "${cells[2]}"`)
     const reason = (hasVerdict ? cells.slice(3) : cells.slice(2)).join('|').trim()
     if (!reason) throw new Error(`corrections.md shot ${shot}: a correction needs a reason`)
-    out.push({ shot, criterion, verdict: hasVerdict && PASS.has(v), reason })
+    out.push({ shot, criterion, reason })
   }
   return out
 }
 
-/** Pure: the raters' rows with the corrections applied (a skip row is left as it is). Usable follows the corrected criteria. */
+/** Pure: the raters' rows with the corrections applied: the criterion fails and the row is not usable (a skip row is left as it is). */
 export function applyCorrections(raters: RaterScores[], corrections: readonly Correction[]): RaterScores[] {
   return raters.map((r) => ({
     rater: r.rater,
@@ -210,10 +232,8 @@ export function applyCorrections(raters: RaterScores[], corrections: readonly Co
       const mine = corrections.filter((c) => c.shot === row.shot)
       if (!mine.length || row.skip) return row
       const criteria = { ...row.criteria }
-      for (const c of mine) criteria[c.criterion] = c.verdict
-      const values = CRITERIA.map((c) => criteria[c])
-      const usable = values.some((v) => v === false) ? false : values.every((v) => v === true) ? true : row.inconsistent ? null : row.usable
-      return { shot: row.shot, usable, criteria, note: row.note }
+      for (const c of mine) criteria[c.criterion] = false
+      return { shot: row.shot, usable: false, criteria, note: row.note }
     }),
   }))
 }
@@ -223,22 +243,24 @@ export function applyCorrections(raters: RaterScores[], corrections: readonly Co
  * the printed lines — the as-rated result, then the corrected one when there are corrections. o.skip adds same-as-previous shots
  * for a packet.json written before skipShots existed. Reads only; never writes a file.
  */
-export async function scoreDir(outDir: string, o: { skip?: readonly number[]; corrections?: string } = {}): Promise<{ lines: string[]; unrated: boolean }> {
+export async function scoreDir(outDir: string, o: { skip?: readonly number[]; corrections?: string } = {}): Promise<{ lines: string[]; exitCode: 0 | 1 }> {
   const raters = await readRaters(outDir)
   const packet = await readPacket(outDir)
+  if (o.skip?.length && packet.skipShots) throw new Error(`packet.json already has skipShots (${packet.skipShots.join(', ') || 'none'}); --skip is only for packets written before skipShots existed`)
   const skipShots = [...new Set([...(packet.skipShots ?? []), ...(o.skip ?? [])])].sort((a, b) => a - b)
   const s = summarise(raters, { shotIndices: packet.shotIndices, skipShots })
   const lines: string[] = []
-  if (o.skip?.length) lines.push(`--skip ${o.skip.join(',')}: not rated as same as previous${packet.skipShots ? ` (packet.json skipShots: ${packet.skipShots.join(', ') || 'none'})` : ' (packet.json has no skipShots)'}`, '')
+  if (o.skip?.length) lines.push(`--skip ${o.skip.join(',')}: not rated as same as previous (packet.json has no skipShots)`, '')
   const file = o.corrections ?? join(outDir, 'corrections.md')
   const corrections = existsSync(file) ? parseCorrections(await readFile(file, 'utf8')) : []
   if (o.corrections && !existsSync(file)) throw new Error(`no corrections file ${file}`)
-  if (!corrections.length) return { lines: [...lines, ...formatSummary(s)], unrated: s.perRater.some((r) => r.unrated.length > 0) }
+  const exitCode = needsAttention(s) ? 1 : 0 // the as-rated (blind) result decides
+  if (!corrections.length) return { lines: [...lines, ...formatSummary(s)], exitCode }
   const unknown = corrections.filter((c) => !s.shots.includes(c.shot))
   if (unknown.length) throw new Error(`${basename(file)}: shots ${unknown.map((c) => c.shot).join(', ')} are not in the score sheets`)
   const c = summarise(applyCorrections(raters, corrections), { shotIndices: packet.shotIndices, skipShots })
   lines.push('== as rated ==', ...formatSummary(s), '', `== corrected (${basename(file)}, ${corrections.length} correction${corrections.length > 1 ? 's' : ''}) ==`)
-  for (const k of corrections) lines.push(`  shot ${k.shot} ${criterionLabel(k.criterion)} → ${k.verdict ? 'pass' : 'fail'}: ${k.reason}${s.skipped.includes(k.shot) ? ' (same-as-previous shot: not rated, no effect)' : ''}`)
-  lines.push('', ...formatSummary(c))
-  return { lines, unrated: s.perRater.some((r) => r.unrated.length > 0) }
+  for (const k of corrections) lines.push(`  shot ${k.shot} ${criterionLabel(k.criterion)} → fail: ${k.reason}${s.skipped.includes(k.shot) ? ' (same-as-previous shot: not rated, no effect)' : ''}`)
+  lines.push('', ...formatSummary(c, { corrected: true }))
+  return { lines, exitCode }
 }

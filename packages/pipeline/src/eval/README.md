@@ -61,17 +61,19 @@ pnpm gate-c score ~/gate-c/g10
   Frames are sampled as in every earlier packet (5 per shot at 8/30/50/70/92 % of the shot, stopping 120 ms before the next cut).
   Speech ends are measured with 06-voice's own silencedetect (−45 dB, d = 0.05). `--title` names the clip in `shots.md`; keep model
   and run names out of it. Hand each rater **only** their `rater<k>/` folder; `packet.json` (outside them) records the source,
-  the shot list and `skipShots`: the same-as-previous shots (nothing voiced, nothing placed by fit, and describe marked them
-  same-as-previous or left the text empty). `shots.md` labels them "Same as previous shot — not rated" and `scores.md` pre-fills
+  the shot list and `skipShots`: the same-as-previous shots (describe marked them same-as-previous, and nothing is voiced or
+  placed by fit). An empty description not marked same-as-previous is rated, labelled "Not voiced: empty description". `shots.md` labels them "Same as previous shot — not rated" and `scores.md` pre-fills
   their row with "skip"; they leave the denominator (decision 0003: usable / (shots − same-as-previous)).
 - `score <outDir>` prints each rater's usable count, the majority-usable count against the 70 % gate, the all-raters-usable count,
   how many shots all raters agree on, and every disagreement with the raters' notes. It checks every sheet against `packet.json`'s
   shots and names missing or unknown rows. A row marked usable with a failed criterion is inconsistent: it counts as unrated and is
-  warned about. Unrated rows count as not usable and make the command exit 1. A "skip" or "skip (empty)" row is not unrated: on a
-  `skipShots` shot (or one every rater skipped) the shot leaves the denominator; on any other shot that rater's vote counts
-  neither way and is listed. `--skip 16` adds same-as-previous shots for a `packet.json` written before `skipShots` existed. When
-  `<outDir>/corrections.md` exists (or `--corrections <file>`), `score` prints the as-rated result, the corrections, and the
-  corrected result (docs/evaluation.md, "Known limits"); it never writes the raters' `scores.md`.
+  warned about. Unrated rows count as not usable and make the command exit 1. Usable "skip" or "skip (empty)" (exactly, in the
+  Usable column) on a `skipShots` shot leaves it out of the denominator; on any other shot it counts as not usable, is warned
+  about and makes the command exit 1. A `skipShots` shot that most raters rated anyway is counted as rated, with a warning.
+  `--skip 16` adds same-as-previous shots for a `packet.json` written before `skipShots` existed, and is refused when it has
+  them. When `<outDir>/corrections.md` exists (or `--corrections <file>`), `score` also prints the fail-only corrections and the
+  corrected result, labelled "CORRECTED (not the blind result)" (docs/evaluation.md, "Known limits"); the exit code follows the
+  as-rated result, and the raters' `scores.md` files are never written.
 
 ## Clips
 
