@@ -34,7 +34,7 @@ describe('reads never insert', () => {
   it('GET /me/prefs for an unknown device answers the defaults without a row', async () => {
     const res = await viewer().get('/me/prefs').set('x-device-id', 'fireos-new')
     expect(res.status).toBe(200)
-    expect(res.body.data).toEqual({ deviceId: 'fireos-new', adDefault: true, extendedMode: true, voice: 'Joanna', captionKind: 'sdh', captionScale: 100, captionStyle: 'box', firstRunDone: false })
+    expect(res.body.data).toEqual({ deviceId: 'fireos-new', adDefault: true, extendedMode: true, voice: 'Joanna', captionKind: 'sdh', captionScale: 100, captionStyle: 'system', firstRunDone: false })
     expect(db.profile.upsert).not.toHaveBeenCalled()
   })
   it('GET /me/prefs for a known device answers its row', async () => {
@@ -56,5 +56,14 @@ describe('PUT /me/progress', () => {
     expect(res.body.error.code).toBe('NOT_FOUND')
     expect(db.profile.upsert).not.toHaveBeenCalled()
     expect(db.progress.upsert).not.toHaveBeenCalled()
+  })
+})
+
+describe('defaultPrefs matches the schema defaults (DESC-035)', () => {
+  it('captionStyle default is the same in schema.prisma and the no-row answer', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { defaultPrefs } = await import('../src/routes/me')
+    const schema = readFileSync(new URL('../prisma/schema.prisma', import.meta.url), 'utf8')
+    expect(/captionStyle\s+String\s+@default\("(\w+)"\)/.exec(schema)![1]).toBe(defaultPrefs('x').captionStyle)
   })
 })
