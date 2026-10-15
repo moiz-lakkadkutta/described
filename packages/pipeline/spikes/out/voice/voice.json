@@ -1,0 +1,61 @@
+{
+ "lines": [
+  "She looks down at a ruined town.",
+  "Then she runs across a stone fortress at sunset as red-winged creatures fly overhead.",
+  "Now she stands on a rocky ledge.",
+  "The young woman smiles.",
+  "She looks up as dragons fly past at sunset.",
+  "The dragon soars through pink clouds toward the ruined town where she stands."
+ ],
+ "report": [
+  {
+   "variant": "joanna-neural-100",
+   "words": 54,
+   "speechS": 15.89,
+   "fileS": 17.73,
+   "wordsPerSecSpeech": 3.4,
+   "wordsPerSecFile": 3.05
+  },
+  {
+   "variant": "joanna-neural-90",
+   "words": 54,
+   "speechS": 17.62,
+   "fileS": 19.46,
+   "wordsPerSecSpeech": 3.06,
+   "wordsPerSecFile": 2.77
+  },
+  {
+   "variant": "ruth-generative-100",
+   "words": 54,
+   "speechS": 18.1,
+   "fileS": 19.35,
+   "wordsPerSecSpeech": 2.98,
+   "wordsPerSecFile": 2.79
+  },
+  {
+   "variant": "danielle-generative-100",
+   "words": 54,
+   "speechS": 18.41,
+   "fileS": 21.44,
+   "wordsPerSecSpeech": 2.93,
+   "wordsPerSecFile": 2.52
+  },
+  {
+   "variant": "matthew-generative-100",
+   "words": 54,
+   "speechS": 16.1,
+   "fileS": 17.36,
+   "wordsPerSecSpeech": 3.35,
+   "wordsPerSecFile": 3.11
+  },
+  {
+   "variant": "gregory-longform-100",
+   "words": 54,
+   "speechS": 18.06,
+   "fileS": 21.03,
+   "wordsPerSecSpeech": 2.99,
+   "wordsPerSecFile": 2.57
+  }
+ ],
+ "chars": 1752
+}
