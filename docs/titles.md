@@ -95,6 +95,17 @@ text tracks, `extendedCount` 2 and a sample cue.
 | caminandes-35-95 | 13 (0) | none (no speech) / none | **invented details**: "a tan llama with sunglasses" (d2 — the llama has dark brow markings, no sunglasses), "an orange fox tumbles from a bridge" (d10 — it is the llama falling off the fence tower); the same animal is "tan llama", "brown llama", "orange fox" across cues (no stable descriptor); the electric flash becomes "Sun flares, then dims." |
 | tears-of-steel-40-100 | 15 (3) | 4 / 5 (the `--from text` re-run added sound cues; the first run had degraded) | all three text cards read ("40 YEARS LATER", "SIMULATION READY…", the title as an extended cue); **faults**: d8 "Darkness. in metallic silver, centered." is the fragment left after the title clause was split off (06-voice split, DESC-017); the newspaper headline cue ("Hand holds crumpled newspaper headline: ROBOTICIST CREATES KILLER ROBOTS") was **dropped** by voice (741 ms over) because it is not phrased as "Words appear:" and so was not split into a text pause; "Darkness." prefixes on d10 and d12 contradict the rest of the line ("Darkness. A mechanical airship … hovers"); d10 "a figure kneels beside a prone body, candles flicker" is unverified against the frame (a dark hideout interior) |
 
+Caminandes glossary check (2026-10-15): the re-run from describe voiced 41–52 s as "The tan-and-white creature with a long neck
+lies down on the high plain." and "The tan-and-white llama with a long neck is visible.", and a reviewer of those frames reported an
+orange fox by the fence. Frames from the published HLS (2 fps over the whole segment) show **no fox and no other animal**: at 42–49 s
+Koro lies face down by the tall electric fence, at 49–51 s he lifts himself up, at 51–52 s a close-up shows his orange fur under the
+wire. The "orange fox" note above stands. The glossary was the fault: Koro's look said "a tan-and-white llama", but his body is
+orange-ginger with a cream-white face, so the describer fell back on "creature" and the orange fur was taken for a fox. The look is
+now "an orange llama with ginger fur, a long neck, a cream-white face, big round eyes and dark brown brows" (colours as separate
+words: `contentWords` keeps "tan-and-white" as one token, so no colour in a description could match it). Also checked: 52.5–53 s
+is a blue-white flash over Koro's face; 53.5–56 s is the sun beside the Earth in space (a small grey moon shows at 56.5 s, so d11
+"moon appears beside it" holds); 57–60 s is the fence at night, crackling with blue electricity around Koro.
+
 ## Re-runs after #37 and #39 (2026-10-14)
 
 The 0008 fixes (text clause with its modifier, unlabelled on-screen text, "Darkness." prefix) and #39 (Rich captions only from
