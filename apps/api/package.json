@@ -11,7 +11,7 @@
     "prisma": "prisma",
     "seed:titles": "tsx prisma/seed-titles.ts",
     "lint": "eslint src",
-    "build:lambda": "node scripts/build-lambda.mjs",
+    "build:lambda": "prisma generate && node scripts/build-lambda.mjs",
     "export:catalogue": "tsx prisma/export-catalogue.ts"
   },
   "prisma": {
