@@ -4,7 +4,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { z } from 'zod'
 import { meter } from '../cost'
-import { NEUTRAL_TEXT, neutralSpans, textSpans, withoutSpans, type TextSpan } from '../textClause'
+import { collapseNeutral, NEUTRAL_TEXT, neutralSpans, TEXT_LABEL, textSpans, withoutSpans, type TextSpan } from '../textClause'
 import { COPULA, GENERAL, LINKING, PLURAL_GENERAL, VERIFY_PROMPT_VERSION, VISIBLE, verifySystemPrompt, verifyUserText } from '../verifyPrompt'
 import { parseDescription, replyText, type Converse, type RawReply } from './04-describe'
 
@@ -89,24 +89,49 @@ const textUnits = (t: string): (TextSpan & { neutral: boolean })[] => {
   return [...quoted.map((q) => ({ ...q, neutral: false })), ...neutral.map((n) => ({ ...n, neutral: true }))].sort((a, b) => a.start - b.start)
 }
 const unitText = (t: string, u: TextSpan) => t.slice(u.start, u.end).trim()
+/** The words of an unlabelled clause before its text — its carrier action ("A man reads a note" of `A man reads a note: "MEET ME".`); '' for a labelled clause. */
+function carrierOf(t: string, u: TextSpan): string {
+  const clause = t.slice(u.start, u.end), at = u.body ? clause.indexOf(u.body) : -1
+  if (at < 0) return ''
+  return clause.slice(0, at).replace(new RegExp(TEXT_LABEL.source, 'giu'), ' ').replace(/[\s:,;"“„«»]+$/u, '').trim()
+}
 /**
  * Guard 2 (DESC-031): the reply's on-screen text against the draft's, unit by unit and in order. A quoted clause may stay verbatim
- * or become the language's neutral sentence (NEUTRAL_TEXT) — never a corrected quote; a neutral sentence stays as it is. Any other
- * change (a word of the quote changed, a clause dropped, added, moved, the other language's sentence) is undefined. Returns the
- * draft clauses the reply replaced.
+ * or become the language's neutral sentence (NEUTRAL_TEXT) — never a corrected quote; a neutral sentence stays as it is; adjacent
+ * clauses with no carrier between them may become one neutral sentence (parseDescription collapses repeats, review L2). Any other
+ * change (a word of the quote changed, a clause dropped, added, the other language's sentence) is undefined. Returns the draft
+ * clauses the reply replaced, and `wordsDraft`: the draft with each replaced clause written as its carrier (the words before its
+ * text, review M2) and the neutral sentence — what the word guards compare the reply against, so "A man reads a note. Words appear."
+ * keeps the action of `A man reads a note: "MEET ME".` while every other word still has to come from the draft.
  */
-export function textUnitsChecked(draft: string, reply: string, language: 'en' | 'de'): { replaced: string[] } | undefined {
+export function textUnitsChecked(draft: string, reply: string, language: 'en' | 'de'): { replaced: string[]; wordsDraft: string } | undefined {
   const d = textUnits(draft), r = textUnits(reply)
-  if (d.length !== r.length) return undefined
+  const neutral = NEUTRAL_TEXT[language]
+  const same = (i: number, k: number) => !!d[i] && !!r[k] && r[k]!.neutral === d[i]!.neutral && unitText(reply, r[k]!) === unitText(draft, d[i]!)
   const replaced: string[] = []
-  for (let k = 0; k < d.length; k++) {
-    const was = unitText(draft, d[k]!), now = unitText(reply, r[k]!)
-    if (r[k]!.neutral === d[k]!.neutral && now === was) continue
-    if (!d[k]!.neutral && r[k]!.neutral && now === NEUTRAL_TEXT[language]) { replaced.push(was); continue }
-    return undefined
+  const groups: [number, number][] = [] // [first, last] draft units replaced by one neutral sentence
+  let i = 0
+  for (let k = 0; k < r.length; k++, i++) {
+    if (same(i, k)) continue
+    if (!d[i] || d[i]!.neutral || !r[k]!.neutral || unitText(reply, r[k]!) !== neutral) return undefined
+    const first = i
+    while (d[i + 1] && !draft.slice(d[i]!.end, d[i + 1]!.start).trim() && !carrierOf(draft, d[i + 1]!) && !same(i + 1, k + 1) && !(r[k + 1]?.neutral && !d[i + 1]!.neutral)) i++
+    for (let m = first; m <= i; m++) if (!d[m]!.neutral) replaced.push(unitText(draft, d[m]!))
+    groups.push([first, i])
   }
-  return { replaced }
+  if (i !== d.length) return undefined
+  let wordsDraft = draft
+  for (const [first, last] of [...groups].reverse()) {
+    const before = wordsDraft.slice(0, d[first]!.start).trimEnd(), after = wordsDraft.slice(d[last]!.end).trimStart()
+    const carrier = carrierOf(draft, d[first]!)
+    const opens = !before || /[.!?…;]["”“»«]?$/u.test(before)
+    const piece = carrier ? `${carrier}. ${neutral}` : `${opens ? '' : '. '}${neutral}`
+    wordsDraft = `${before}${before && (carrier || opens) ? ' ' : ''}${piece}${after ? ` ${after}` : ''}`
+  }
+  return { replaced, wordsDraft }
 }
+/** Where each on-screen text unit sits among the description's words: the number of verify tokens before it (review L1). */
+const unitPositions = (t: string) => textUnits(t).map((u) => tokens(t.slice(0, u.start)).length)
 const words = (t: string) => t.trim().split(/\s+/).filter(Boolean).length
 /** The reply's word cap: the draft's length + MAX_ADDED_WORDS within the shot's word budget, never below the draft's own length. */
 export const wordCap = (draft: string, maxWords: number) => Math.max(words(draft), Math.min(words(draft) + MAX_ADDED_WORDS, maxWords))
@@ -166,13 +191,15 @@ export function checkVerified(draft: string, v: Verified, o: CheckOptions): { te
   const lost = o.names.filter((n) => has(draft, n) && !has(text, n))
   if (lost.length) return keep(`name dropped: ${lost.join(', ')}`)
   const d = tokens(draft), r = tokens(text)
+  /** The draft's words as the reply may use them: a replaced clause's carrier included (textUnitsChecked). Kept words count from `d`. */
+  const dw = tokens(textCheck.wordsDraft)
   const count = (ts: Tok[], w: string) => ts.filter((t) => t.w === w).length
   const lostAll = [...new Set(d.map((t) => t.w).filter(isKept))].filter((w) => count(r, w) < count(d, w))
   const negLost = lostAll.filter(isNegation), protLost = lostAll.filter((w) => !isNegation(w))
   if (negLost.length) return keep(`negation dropped: ${negLost.join(', ')}`)
   if (protLost.length) return keep(`protected word dropped: ${protLost.join(', ')}`)
 
-  const inDraft = new Set(d.map((t) => t.w))
+  const inDraft = new Set(dw.map((t) => t.w))
   const linking = new Set<string>(LINKING[lang])
   const general = new Set<string>(GENERAL[lang]), plural = new Set<string>(PLURAL_GENERAL[lang])
   const visible = VISIBLE[lang], copula = new Set<string>(COPULA[lang])
@@ -189,26 +216,30 @@ export function checkVerified(draft: string, v: Verified, o: CheckOptions): { te
   const added = [...new Set(r.filter((t, i) => !inDraft.has(t.w) && !freeAt(r, i) && t.w !== visible && !general.has(t.w) && !plural.has(t.w)).map((t) => t.w))]
   if (added.length) return keep(`new words: ${added.join(', ')}`)
 
-  const draftFree = (k: number) => freeAt(d, k) || isKept(d[k]!.w)
+  const draftFree = (k: number) => freeAt(dw, k) || isKept(dw[k]!.w)
   const align = new Array<number | undefined>(r.length)
   let j = 0
   for (let i = 0; i < r.length; i++) {
     const w = r[i]!.w
-    let k = d.findIndex((t, m) => m >= j && t.w === w)
+    let k = dw.findIndex((t, m) => m >= j && t.w === w)
     if (k < 0 && freeAt(r, i)) continue
     if (k < 0 && w === visible) {
-      const why = addedVisible(r, i, d, align, copula, (m) => freeAt(d, m))
+      const why = addedVisible(r, i, dw, align, copula, (m) => freeAt(dw, m))
       if (why) return keep(`"${visible}" added ${why}`)
       continue
     }
-    if (k < 0 && (general.has(w) || plural.has(w))) k = d.findIndex((t, m) => m >= j && !draftFree(m) && (!plural.has(w) || isPlural(t.w, lang)))
+    if (k < 0 && (general.has(w) || plural.has(w))) k = dw.findIndex((t, m) => m >= j && !draftFree(m) && (!plural.has(w) || isPlural(t.w, lang)))
     if (k < 0) return keep('words out of order')
     align[i] = k
     j = k + 1
   }
+  // L1: each text unit keeps its place among the description's words — every matched word before it came from before it in the draft
+  // (linking words are left out: "a" matches the draft's first "a", wherever it was)
+  const pd = unitPositions(textCheck.wordsDraft), pr = unitPositions(text)
+  if (pd.length !== pr.length || pr.some((p, u) => align.some((k, i) => k !== undefined && !freeAt(r, i) && (i < p) !== (k < pd[u]!)))) return keep('on-screen text changed')
   const cap = wordCap(draft, o.maxWords)
   if (words(text) > cap) return keep(`more than ${cap} words`)
-  return { text, applied: true, ...(textCheck.replaced.length ? { textRemoved: textCheck.replaced } : {}) }
+  return { text: collapseNeutral(text), applied: true, ...(textCheck.replaced.length ? { textRemoved: textCheck.replaced } : {}) }
 }
 
 /**

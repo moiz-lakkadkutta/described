@@ -1,4 +1,5 @@
 import { contentWords, STOP, stem } from './contentWords'
+import { cutsNeutral } from './textClause'
 
 /**
  * Does a shortening still read as sentences (DESC-028, decision 0011)? fit's shortener (Nova Lite, then shortenDeterministic) may only
@@ -18,6 +19,8 @@ import { contentWords, STOP, stem } from './contentWords'
  * German ('de'): checks 1 and 2 only — the verb heuristic is English (German -s words such as links, rechts, etwas, alles are not verbs).
  */
 export function readsAsSentences(original: string, shortened: string, language: 'en' | 'de' = 'en'): string | undefined {
+  const cut = cutsNeutral(original, shortened) // DESC-031: "Text erscheint." is kept whole or dropped, never "Text."
+  if (cut) return cut
   if (!inOrder(original, shortened)) return 'out of order'
   const orig = words(original)
   const aligned = align(orig, words(shortened))

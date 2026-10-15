@@ -23,10 +23,10 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
  */
 /**
  * The on-screen text rule (DESC-031, docs/decisions/0013-legible-text.md): a quote only when every word is clearly legible; text that
- * is partly hidden, cut off or blurred is described by its kind, never quoted in part or guessed. Its example is generic on purpose:
- * no sentence from an evaluation clip.
+ * is partly hidden, cut off or blurred is described by its kind, never quoted in part or guessed. No example sentence (PR #56 review
+ * M1): a sentence in the prompt is a sentence the model copies; only kinds of text and carriers are listed.
  */
-export const ON_SCREEN_TEXT_RULE = 'On-screen text (titles, captions, signs, headlines, screens): quote it only when every word is clearly legible in the frames; then quote it verbatim after "Words appear:" — always this label, never "headline:" or "a sign reads". If any part of the text is hidden, cut off or blurred, do not quote any of it: say what kind of text appears instead (e.g. "Handwritten words appear on a sign."). If no text is visible, do not mention text at all. Never invent or guess text.'
+export const ON_SCREEN_TEXT_RULE = 'On-screen text (titles, captions, signs, headlines, screens): quote it only when every word is clearly legible in the frames; then quote it verbatim after "Words appear:" — always this label, never "headline:" or "a sign reads". If any part of the text is hidden, cut off or blurred, do not quote any of it: say in your own words only what kind of text it is and what it is on (for example handwriting, print, a sign, a screen, a newspaper). If no text is visible, do not mention text at all. Never invent or guess text.'
 
 export function describeSystemPrompt({ maxWords, knownNames, language, people = '' }: { maxWords: number; knownNames: string[]; language: 'en' | 'de'; people?: string }) {
   const known = knownNames.join(', ') || 'none'

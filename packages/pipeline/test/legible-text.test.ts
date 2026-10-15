@@ -1,10 +1,11 @@
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { NEUTRAL_TEXT, neutralSpans, sentences, textSpans, withoutSpans } from '../src/textClause'
+import { collapseNeutral, NEUTRAL_TEXT, neutralSpans, sentences, textSpans, withoutSpans } from '../src/textClause'
+import { readsAsSentences } from '../src/sentenceGuard'
 import { checkVerified, newVerifyReport, verifyReply } from '../src/steps/04b-verify'
 import { parseDescription, type Converse, type RawReply } from '../src/steps/04-describe'
-import { fit, introducesNew, textClauses } from '../src/steps/05-fit'
+import { fit, introducesNew, safeShorten, textClauses } from '../src/steps/05-fit'
 import { withoutSaidText } from '../src/steps/06-voice'
 import { applyEdits } from '../src/steps/05b-edit'
 import type { FitCue } from '../src/steps/05-fit'
@@ -29,15 +30,16 @@ const shot = (index: number, language: 'en' | 'de' = 'en') => ({ index, language
 describe('describe prompt: quote on-screen text only when every word is legible', () => {
   const en = describeSystemPrompt({ maxWords: 12, knownNames: [], language: 'en' })
   it('asks for a quote only when every word is clearly legible, and for the kind of text otherwise', () => {
-    for (const s of ['only when every word is clearly legible', 'quote it verbatim after "Words appear:"', 'hidden, cut off or blurred', 'do not quote any of it', 'say what kind of text appears instead', 'Never invent or guess text.'])
+    for (const s of ['only when every word is clearly legible', 'quote it verbatim after "Words appear:"', 'hidden, cut off or blurred', 'do not quote any of it', 'say in your own words only what kind of text it is and what it is on', 'Never invent or guess text.'])
       expect(en).toContain(s)
     expect(en).toContain('always this label, never "headline:" or "a sign reads"') // decision 0008 unchanged
   })
   it('carries no quotable example sentence from the evaluation clip', () => {
     for (const w of ['CELIA', 'COLA', 'LOVE', 'HAND', 'pink', 'Pink', 'robot']) expect(en).not.toMatch(new RegExp(`\\b${w}\\b`))
-    const example = /\(e\.g\. "([^"]+)"\)/.exec(ON_SCREEN_TEXT_RULE)![1]!
-    expect(textSpans(example)).toEqual([]) // the example is not itself a quote, nor the neutral sentence
-    expect(neutralSpans(example)).toEqual([])
+    // review M1: no example sentence the model could copy; the only quoted strings are the label and the two forms it replaces (0008)
+    const quoted = [...ON_SCREEN_TEXT_RULE.matchAll(/"([^"]*)"/g)].map((m) => m[1]!)
+    expect(quoted).toEqual(['Words appear:', 'headline:', 'a sign reads'])
+    for (const q of quoted) expect(q, q).not.toMatch(/[.!?]$/)
     expect(en).toContain(`- ${ON_SCREEN_TEXT_RULE}`)
   })
 })
@@ -115,7 +117,6 @@ describe('checkVerified: a text clause is kept verbatim or replaced by the neutr
       [TEXT_ONLY, 'Words appear'], // not the fixed sentence
       [TEXT_ONLY, 'Words appear on a screen.'],
       [MIXED, 'A woman waves. A bus leaves.'], // dropped, not replaced
-      [MIXED, 'A woman waves. Words appear. Words appear. A bus leaves.'], // one clause, two sentences
       ['A man runs.', 'A man runs. Words appear.'], // added
       ['A man runs. Words appear.', 'A man runs. Words appear: "STOP".'], // a neutral sentence never becomes a quote
       ['Words appear: "A". Words appear: "B".', 'Words appear: "B". Words appear.'], // order
@@ -127,6 +128,51 @@ describe('checkVerified: a text clause is kept verbatim or replaced by the neutr
     expect(checkVerified(TEXT_ONLY, { text: 'Words appear. A robot arm covers them.', removed: [] }, opts)).toMatchObject({ applied: false, reason: 'new words: robot, arm, covers, them' })
     expect(checkVerified('Words appear: "TEARS" in metallic silver.', { text: 'Words appear. In metallic silver.', removed: [] }, opts)).toMatchObject({ applied: false, reason: 'new words: in, metallic, silver' })
     expect(checkVerified('A man waits. Words appear: "QUIET".', { text: 'A quiet man waits. Words appear.', removed: [] }, opts)).toMatchObject({ applied: false, reason: 'new words: quiet' })
+  })
+})
+
+describe('checkVerified: review round 1 (PR #56)', () => {
+  const NOTE = 'A man reads a note: "MEET ME". He leaves.'
+  it('M2: an unlabelled clause may keep its carrier action when its quote becomes the neutral sentence', () => {
+    expect(checkVerified(NOTE, { text: 'A man reads a note. Words appear. He leaves.', removed: [] }, opts)).toEqual({ text: 'A man reads a note. Words appear. He leaves.', applied: true, textRemoved: ['A man reads a note: "MEET ME".'] })
+    expect(checkVerified(NOTE, { text: 'Words appear. He leaves.', removed: [] }, opts)).toMatchObject({ applied: true }) // dropping the carrier is a deletion
+    expect(checkVerified(NOTE, { text: 'A man reads a note. Words appear.', removed: [] }, opts)).toMatchObject({ applied: true })
+    expect(checkVerified('A soldier grabs the rifle as a sign reads "EXIT".', { text: 'A soldier grabs the rifle as a sign reads. Words appear.', removed: [] }, opts)).toMatchObject({ applied: true })
+    expect(checkVerified('Hand holds crumpled newspaper headline: ROBOTICIST CREATES KILLER ROBOTS', { text: 'Hand holds crumpled newspaper. Words appear.', removed: [] }, opts)).toMatchObject({ applied: true })
+  })
+  it('M2: new words beside a kept carrier are still rejected; only the words before the quote are the carrier', () => {
+    expect(checkVerified(NOTE, { text: 'A man reads a red note. Words appear. He leaves.', removed: [] }, opts)).toMatchObject({ applied: false, reason: 'new words: red' })
+    expect(checkVerified(NOTE, { text: 'A man reads a note. Words appear. He leaves quickly.', removed: [] }, opts)).toMatchObject({ applied: false, reason: 'new words: quickly' })
+    expect(checkVerified(NOTE, { text: 'A man reads a note. Words appear: "MEET ME". He leaves.', removed: [] }, opts)).toMatchObject({ applied: false, reason: 'on-screen text changed' })
+    expect(checkVerified(NOTE, { text: 'A man reads a note: "MEET MEN". He leaves.', removed: [] }, opts)).toMatchObject({ applied: false, reason: 'on-screen text changed' })
+    // a kept quote's carrier is not free: the words before a kept clause are its own, not description words
+    expect(checkVerified('A dog barks. A sign reads "EXIT".', { text: 'A sign barks. A sign reads "EXIT".', removed: [] }, opts)).toMatchObject({ applied: false, reason: 'new words: sign' })
+  })
+  it('L1: the neutral sentence stays where the clause was among the description sentences', () => {
+    const MIXED = 'A woman waves. Words appear: "GATE 4". A bus leaves.'
+    for (const text of ['Words appear. A woman waves. A bus leaves.', 'A woman waves. A bus leaves. Words appear.'])
+      expect(checkVerified(MIXED, { text, removed: [] }, opts), text).toEqual({ text: MIXED, applied: false, reason: 'on-screen text changed' })
+    expect(checkVerified(MIXED, { text: 'A woman waves. A bus leaves. Words appear: "GATE 4".', removed: [] }, opts)).toMatchObject({ applied: false, reason: 'on-screen text changed' }) // a kept quote may not move either
+    expect(checkVerified(NOTE, { text: 'Words appear. A man reads a note. He leaves.', removed: [] }, opts)).toMatchObject({ applied: false, reason: 'on-screen text changed' })
+    expect(checkVerified(MIXED, { text: 'A woman waves. Words appear.', removed: [] }, opts)).toMatchObject({ applied: true }) // deletions around it are fine
+  })
+  it('L2: adjacent neutral sentences collapse into one', () => {
+    expect(checkVerified('Words appear: "A". Words appear: "B".', { text: 'Words appear. Words appear.', removed: [] }, opts)).toEqual({ text: 'Words appear.', applied: true, textRemoved: ['Words appear: "A".', 'Words appear: "B".'] })
+    expect(checkVerified('Words appear: "A". Words appear: "B". A man runs.', { text: 'Words appear. Words appear. A man runs.', removed: [] }, opts)).toMatchObject({ text: 'Words appear. A man runs.', applied: true })
+    expect(checkVerified('Text erscheint: "A". Text erscheint: "B".', { text: 'Text erscheint. Text erscheint.', removed: [] }, de)).toMatchObject({ text: 'Text erscheint.', applied: true })
+    expect(checkVerified('A woman waves. Words appear: "GATE 4". A bus leaves.', { text: 'A woman waves. Words appear. Words appear. A bus leaves.', removed: [] }, opts)).toMatchObject({ text: 'A woman waves. Words appear. A bus leaves.', applied: true })
+    expect(checkVerified('Words appear: "A". Words appear: "B".', { text: 'Words appear. Words appear: "B".', removed: [] }, opts)).toMatchObject({ applied: true, textRemoved: ['Words appear: "A".'] })
+    expect(checkVerified('Words appear: "A". A man runs. Words appear: "B".', { text: 'Words appear. A man runs. Words appear.', removed: [] }, opts)).toMatchObject({ applied: true, textRemoved: ['Words appear: "A".', 'Words appear: "B".'] })
+    expect(collapseNeutral('Words appear. A man runs. Words appear.')).toBe('Words appear. A man runs. Words appear.') // not adjacent
+    expect(parseDescription('Words appear. Words appear.', '').description).toBe('Words appear.')
+  })
+  it('L3: a shortening may drop the neutral sentence whole but never cut it ("Text." from "Text erscheint.")', async () => {
+    expect(readsAsSentences('Ein Mann winkt langsam. Text erscheint.', 'Ein Mann winkt. Text.', 'de')).toMatch(/Text erscheint/)
+    expect(readsAsSentences('Text erscheint.', 'Text.', 'de')).toMatch(/Text erscheint/)
+    expect(readsAsSentences('A man waves slowly. Words appear.', 'A man waves. Words.', 'en')).toBeDefined()
+    expect(readsAsSentences('Ein Mann winkt langsam. Text erscheint.', 'Ein Mann winkt. Text erscheint.', 'de')).toBeUndefined()
+    expect(readsAsSentences('Ein Mann winkt langsam. Text erscheint.', 'Ein Mann winkt.', 'de')).toBeUndefined()
+    expect(await safeShorten('Ein alter Mann winkt langsam. Text erscheint.', 5, () => 'Ein Mann winkt. Text.', 'de')).not.toMatch(/Text\.$/)
   })
 })
 
