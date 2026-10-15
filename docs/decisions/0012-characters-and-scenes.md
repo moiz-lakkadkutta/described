@@ -211,3 +211,11 @@ deterministic and also apply from fit), on `sintel-90-210` and the held-out `tos
 - **Packets** rate fit's grounded description for a shot that is not voiced (docs/evaluation.md); **`gate-c score`** also prints, for
   information only, voiced-usable / voiced, the shots not voiced and the plot events lost. g10 as rated: voiced-usable 10 / 22 =
   45.5 %, 7 shots not voiced, 3 plot events lost (shots 3, 11, 28).
+
+### Review round 2 (2026-10-15)
+
+- 06-voice: a pause moved earlier only considers EARLIER shots' clips (free time, blocker); if that point is inside a later shot's clip
+  it stays where it was, and only an earlier shot's cue is shortened for an event pause — a later shot's cue never is.
+- fit's fallback (`actionSentence`) takes the FIRST sentence with an action that fits, not the shortest, so a side detail ("Smoke rises.")
+  never wins over the main action.
+- packet.json records `voicedShots`; `score` reads "not voiced" from it, falling back to the raters' "On time: n/a" for older packets.

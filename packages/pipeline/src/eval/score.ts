@@ -70,7 +70,7 @@ export function parseEventsLost(md: string): number[] {
   return out
 }
 /** What packet.json says: every shot (each rater needs a row for each) and the same-as-previous shots that are not rated. */
-export interface Packet { shotIndices?: readonly number[]; skipShots?: readonly number[] }
+export interface Packet { shotIndices?: readonly number[]; skipShots?: readonly number[]; /** shots with a voiced cue (packets since 2026-10-15); older packets: read from the raters' "On time: n/a" */ voicedShots?: readonly number[] }
 /** packet.json's shot indices (a plain list, as before skipShots), or the packet itself. */
 export type Expected = readonly number[] | Packet | undefined
 export interface Summary {
@@ -99,8 +99,8 @@ export interface Summary {
   disagreements: { shot: number; votes: { rater: string; usable: boolean | null; skip?: true; note: string }[]; majority: boolean }[]
   /**
    * Informational only (decision 0012 amendment, 2026-10-15, review): the gate rewards a shot that is not voiced as much as a voiced one,
-   * so `score` also prints how the voiced shots did. voiced: rated shots a majority did not mark "On time: n/a" (the rubric's mark for a
-   * shot that is not voiced); eventsLost: shots a majority listed under "Plot events lost". The pass rule is unchanged.
+   * so `score` also prints how the voiced shots did. voiced: packet.json voicedShots (rated ones); for an older packet without it, rated
+   * shots a majority did not mark "On time: n/a" (the rubric's mark for a shot that is not voiced); eventsLost: shots a majority listed under "Plot events lost". The pass rule is unchanged.
    */
   voiced: number[]
   eventsLost: number[]
@@ -144,7 +144,7 @@ export function summarise(raters: RaterScores[], expected?: Expected): Summary {
       ratedSkipShot: (packet.skipShots ?? []).filter((x) => ratedIt(r, x)).sort((a, b) => a - b),
     })),
     majority: [], ties: [], allUsable: [], agreed: [], disagreements: [],
-    voiced: rated.filter((x) => raters.filter((r) => byShot(r, x).notVoiced).length * 2 <= n),
+    voiced: packet.voicedShots ? rated.filter((x) => packet.voicedShots!.includes(x)) : rated.filter((x) => raters.filter((r) => byShot(r, x).notVoiced).length * 2 <= n),
     eventsLost: [...new Set(raters.flatMap((r) => r.eventsLost ?? []))].filter((x) => rated.includes(x) && raters.filter((r) => (r.eventsLost ?? []).includes(x)).length * 2 > n).sort((a, b) => a - b),
   }
   for (const shot of rated) {
@@ -199,7 +199,7 @@ export function formatSummary(s: Summary, o: { corrected?: boolean } = {}): stri
 /** packet.json's shotIndices and skipShots (each undefined when the file or the field is missing). */
 export async function readPacket(outDir: string): Promise<Packet> {
   const p = await readFile(join(outDir, 'packet.json'), 'utf8').then((t) => JSON.parse(t) as Packet, () => undefined)
-  return { shotIndices: p?.shotIndices, skipShots: p?.skipShots }
+  return { shotIndices: p?.shotIndices, skipShots: p?.skipShots, ...(p?.voicedShots ? { voicedShots: p.voicedShots } : {}) }
 }
 export const readExpected = async (outDir: string): Promise<readonly number[] | undefined> => (await readPacket(outDir)).shotIndices
 /** Reads {outDir}/rater<k>/scores.md for every rater folder, in rater order. */
@@ -272,7 +272,7 @@ export async function scoreDir(outDir: string, o: { skip?: readonly number[]; co
   const packet = await readPacket(outDir)
   if (o.skip?.length && packet.skipShots) throw new Error(`packet.json already has skipShots (${packet.skipShots.join(', ') || 'none'}); --skip is only for packets written before skipShots existed`)
   const skipShots = [...new Set([...(packet.skipShots ?? []), ...(o.skip ?? [])])].sort((a, b) => a - b)
-  const s = summarise(raters, { shotIndices: packet.shotIndices, skipShots })
+  const s = summarise(raters, { shotIndices: packet.shotIndices, skipShots, voicedShots: packet.voicedShots })
   const lines: string[] = []
   if (o.skip?.length) lines.push(`--skip ${o.skip.join(',')}: not rated as same as previous (packet.json has no skipShots)`, '')
   const file = o.corrections ?? join(outDir, 'corrections.md')
@@ -282,7 +282,7 @@ export async function scoreDir(outDir: string, o: { skip?: readonly number[]; co
   if (!corrections.length) return { lines: [...lines, ...formatSummary(s)], exitCode }
   const unknown = corrections.filter((c) => !s.shots.includes(c.shot))
   if (unknown.length) throw new Error(`${basename(file)}: shots ${unknown.map((c) => c.shot).join(', ')} are not in the score sheets`)
-  const c = summarise(applyCorrections(raters, corrections), { shotIndices: packet.shotIndices, skipShots })
+  const c = summarise(applyCorrections(raters, corrections), { shotIndices: packet.shotIndices, skipShots, voicedShots: packet.voicedShots })
   lines.push('== as rated ==', ...formatSummary(s), '', `== corrected (${basename(file)}, ${corrections.length} correction${corrections.length > 1 ? 's' : ''}) ==`)
   for (const k of corrections) lines.push(`  shot ${k.shot} ${criterionLabel(k.criterion)} → fail: ${k.reason}${s.skipped.includes(k.shot) ? ' (same-as-previous shot: not rated, no effect)' : ''}`)
   lines.push('', ...formatSummary(c, { corrected: true }))

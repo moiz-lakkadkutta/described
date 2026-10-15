@@ -209,7 +209,8 @@ export async function treeHash(dir: string): Promise<string> {
 
 /**
  * Builds {outDir}/rater1 … raterN, byte-identical (one staged copy, copied N times; checked by treeHash), plus {outDir}/packet.json
- * (which work dir, when, the hash, and skipShots — the same-as-previous shots `score` leaves out). Refuses an even N (a majority needs an odd number of raters) and an outDir that has files,
+ * (which work dir, when, the hash, skipShots — the same-as-previous shots `score` leaves out — and voicedShots, the shots with a voiced
+ * cue in cues.json, for `score`'s informational voiced lines). Refuses an even N (a majority needs an odd number of raters) and an outDir that has files,
  * so filled score sheets are never overwritten.
  */
 export async function buildPackets(o: { work: string; outDir: string; raters: number; offsetMs?: number; title?: string; credit?: string }, deps: PacketDeps = realDeps) {
@@ -248,6 +249,6 @@ export async function buildPackets(o: { work: string; outDir: string; raters: nu
   }
   await rm(stage, { recursive: true })
   if (new Set(hashes).size !== 1) throw new Error('rater packets differ; this is a bug')
-  await writeFile(join(o.outDir, 'packet.json'), JSON.stringify({ work: o.work, raters: o.raters, shots: d.shots.length, shotIndices: d.shots.map((s) => s.index), skipShots: skip, offsetMs, title, credit, sha256: hashes[0], at: new Date().toISOString() }, null, 2))
+  await writeFile(join(o.outDir, 'packet.json'), JSON.stringify({ work: o.work, raters: o.raters, shots: d.shots.length, shotIndices: d.shots.map((s) => s.index), skipShots: skip, voicedShots: [...new Set(d.cues.map((c) => c.shotIndex))].filter((i) => d.shots.some((s) => s.index === i)).sort((a, b) => a - b), offsetMs, title, credit, sha256: hashes[0], at: new Date().toISOString() }, null, 2))
   return { shots: d.shots.length, sha256: hashes[0]! }
 }

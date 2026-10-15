@@ -412,7 +412,7 @@ describe('gate-c packets: end to end with a fake ffmpeg', () => {
     expect((await readdir(join(out, 'rater1', 'frames'))).length).toBe(10)
     for (const f of ['RUBRIC.md', 'shots.md', 'scores.md']) expect(await readFile(join(out, 'rater1', f), 'utf8')).not.toMatch(/secret-run-slug|packet\.json/)
     expect(await readFile(join(out, 'rater1', 'shots.md'), 'utf8')).toContain('speech end: 1600 ms')
-    expect(JSON.parse(await readFile(join(out, 'packet.json'), 'utf8'))).toMatchObject({ shotIndices: [0, 1], raters: 3, sha256: hashes[0] })
+    expect(JSON.parse(await readFile(join(out, 'packet.json'), 'utf8'))).toMatchObject({ shotIndices: [0, 1], raters: 3, sha256: hashes[0], voicedShots: [0] })
     expect(calls.length).toBe(2 * 6) // 5 frames + 1 sheet per shot
   })
 })
@@ -561,7 +561,7 @@ describe('gate-c packets: same-as-previous shots are not rated', () => {
     const out = join(root, 'packets')
     await buildPackets({ work, outDir: out, raters: 1 }, { ffmpeg: async (a) => { await writeFile(a.at(-1)!, 'img') }, speechMs: async () => 1000, log: () => {} })
     expect(JSON.parse(await readFile(join(out, 'packet.json'), 'utf8'))).toMatchObject({ shotIndices: [0, 1], skipShots: [1] })
-    expect(await readPacket(out)).toEqual({ shotIndices: [0, 1], skipShots: [1] })
+    expect(await readPacket(out)).toEqual({ shotIndices: [0, 1], skipShots: [1], voicedShots: [0] })
   })
 })
 
@@ -681,6 +681,10 @@ describe('gate-c score: corrections.md', () => {
     const plain = (await scoreDir(root)).lines.join('\n')
     expect(plain).toMatch(/majority-usable .*: 1 \/ 3 = 33\.3 % — gate ≥ 70 %: FAIL/) // the gate as before
     expect(plain).toContain('informational (not the gate): voiced-usable / voiced: 0 / 1 = 0.0 %; not voiced: 2 shots (25, 28); plot events lost (listed by a majority): 1 (shot 28)')
+    // packet.json's voicedShots decides, not the raters' "On time: n/a" (old packets without it fall back to n/a, as above)
+    await writeFile(join(root, 'packet.json'), JSON.stringify({ shotIndices: [2, 25, 28], voicedShots: [2, 25] }))
+    expect((await scoreDir(root)).lines.join('\n')).toContain('voiced-usable / voiced: 1 / 2 = 50.0 %; not voiced: 1 shot (28)')
+    await writeFile(join(root, 'packet.json'), JSON.stringify({ shotIndices: [2, 25, 28] }))
     await writeFile(join(root, 'corrections.md'), '| 25 | faithful | fail | wrong colour |\n')
     const both = (await scoreDir(root)).lines.join('\n')
     expect(both.match(/informational \(not the gate\)/g)).toHaveLength(2) // as rated and corrected

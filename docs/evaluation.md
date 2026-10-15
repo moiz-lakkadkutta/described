@@ -45,7 +45,7 @@ A run passes when **at least 70 % of the shots are majority-usable**: rated usab
 4. **Rate independently.** Each rater sees only their own folder and does not talk to the others.
 5. **Score.** `pnpm gate-c score <out>`: per-rater usable counts, majority-usable (against 70 %), all-raters-usable, agreement,
    and each disagreement with the raters' notes. Also, **informational only** (the pass rule is unchanged): voiced-usable / voiced
-   (shots a majority did not mark "On time: n/a"), the shots not voiced, and the plot events lost (shots a majority listed under
+   (packet.json `voicedShots`, the shots with a voiced cue; for an older packet, shots a majority did not mark "On time: n/a"), the shots not voiced, and the plot events lost (shots a majority listed under
    "Plot events lost") — the gate counts an unvoiced shot like a voiced one, so a run that voices less can score higher. Printed for
    the corrected result too when there are corrections.
 6. **Report each clip separately, never pooled.**
