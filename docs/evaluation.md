@@ -84,3 +84,54 @@ for both clips, and the disagreements.
   is refused, so a correction can lower the score but never raise it. It applies to every rater. `pnpm gate-c score <out>` then
   prints the as-rated result, the corrections, and the corrected result, whose gate line starts "CORRECTED (not the blind
   result)". Report both; the as-rated figure is the blind one, and it alone sets the exit code.
+
+## Gate C results
+
+Combined re-check for DESC-029 (decisions [0009](decisions/0009-gate-c-fits.md), [0012](decisions/0012-characters-and-scenes.md))
+with DESC-027 / 031 / 032 ([0010](decisions/0010-verify-pass.md), [0013](decisions/0013-legible-text.md),
+[0014](decisions/0014-unlabelled-speech.md)). 3 blind raters, majority-usable, bar 70 %. Each clip is reported on its own.
+Voiced-usable, not voiced and plot events lost are informational; they do not change the pass rule.
+
+| Run (date, code) | Clip | Rated | Raters | Majority-usable | Voiced-usable | Not voiced | Plot events lost | Cost | Result |
+|---|---|---|---|---|---|---|---|---|---|
+| `sintel-90-210-g10` (2026-10-15, main after #54; describe → voice, glossary) | primary (tuned) | 29 | 16 / 15 / 11 | **14 / 29 = 48.3 %** (bar 21) | 10 / 22 | 7 | 3 (shots 3, 11, 28) | $0.098 | FAIL |
+| `tos-390-510-g10` (2026-10-15, same code; no glossary) | held out | 30 (shot 16 skipped, 0003) | 21 / 20 / 20 | **20 / 30 = 66.7 %** (bar 21) | 17 / 26 | 4 | 2 (shots 26, 30) | $0.100 | FAIL |
+| `sintel-90-210-g11` (2026-10-15, after #55 / #56 / #57 / #59; from describe, voice-activity regap on) | primary (tuned) | 29 | 20 / 18 / 21 | **19 / 29 = 65.5 %** (bar 21) | 14 / 20 | 9 | 5 (shots 7, 8, 11, 27, 28) | $0.098 | FAIL |
+| `tos-390-510-g11` (2026-10-15, same code; no glossary) | held out | 30 (shot 16 skipped) | 19 / 20 / 20 | **20 / 30 = 66.7 %** (bar 21) | 16 / 24 | 6 | 2 (shots 26, 27) | $0.101 | FAIL |
+
+**g10 and g11 are not strictly comparable.** The g10 packets rated an unvoiced shot on its raw described.json text (g10 shot 28
+"… inside the tent"); from g11 on, the text to rate is fit's grounded description (step 3 above; 0012 amendment of 2026-10-15).
+
+**`sintel-90-210-g10`** — main causes (all fixed in #59, 0012 amendment of 2026-10-15):
+
+- place-only fragments: "In the tent." voiced for shots 4, 5, 7, 8 and a "The tent." pause on shot 10; "Dim." lead (shot 2);
+- "Darkness." over a lit shot (14, a sunlit walled town);
+- late extended cues (19: 1575 ms, 24: 1025 ms after the shot ends; limit 1 s);
+- a place from another scene (28, "inside the tent" for a stone den);
+- an apostrophe tokeniser bug in the guards ("drops a fact: s", which rejected an edit);
+- also faithful fails on shots 3, 16 and 21, and a telegraphic "Man speaks softly." (12) and a verbless "The woman with red
+  hair." (27).
+
+**`tos-390-510-g10`** — mostly describer faithfulness: 7 shots (5, 7, 10, 14, 20, 21, 26: wrong verb, object, colour or age).
+Also a misquoted on-screen text (4, → 0013), a "Towering." lead (11) and one late extended cue (13, 1397 ms). **18 / 30** if the
+dialogue Transcribe missed is counted: shot 25's cue talks over "Come on!" at 103 s and shot 28's over the yell at 112 s (see
+Known limits; both shots were majority-usable as rated, and 0014 now splits those gaps).
+
+**`sintel-90-210-g11`** — the place-only, darkness, late-pause and cross-scene failures are gone; no on-time fail. Left:
+
+- clean (6): telegraphic grammar with dropped articles ("Man holds staff.", "Small tan dragon bleeds on rooftop."),
+  lower-case starts with no full stop (10, 19, 27) and "Man speaks, tent." (12);
+- faithful (4): an invented detail (3, 7 "steaming"), a "sleeve" that is a sack or lid (16), the fruit's colour (17);
+- fewer shots voiced (20 of 29, was 22): 9 not voiced, and the raters listed 5 plot events lost — the ladle pour and bowl hand-over
+  (7, 8), the face in the bowl (11), the dragon roaring (27) and the woman cradling the dragon (28).
+
+**`tos-390-510-g11`** — no on-time fail; the late cue is fixed and the "Towering." lead gone. Left:
+
+- faithful (5): the describer's errors on 14, 20, 21, 26 as in g10, and shot 4's text still quoted as legible ("CULP") although a
+  word is hidden;
+- clean (5): verbless setting-only fragments ("Dim, smoky chamber with glowing lines.", "Ornate clock tower with golden dials,
+  debris flying.", "Dark, rope-laced industrial shaft.") on 9, 13, 22, a verbless shot 2, and doubled text on 29 ("In the
+  Cluttered tech lab … in a cluttered tech lab");
+- 2 plot events lost: the man on the rope firing as a robot smashes the organ pillars (26), the robot's crash (27).
+
+Neither clip passes. The five-title re-run from describe (DESC-029) is on hold until Gate C passes on both clips.
