@@ -39,16 +39,34 @@ export function polishCue(text: string, language: 'en' | 'de'): string {
   const lock = lockedAt.slice(s, e)
 
   // Sentence starts: the text's start, or after . ! ? (and an optional closing quote) and a space — only where the letter is free.
+  const openEnd = unclosedQuote(text)
   const locale = language === 'de' ? 'de-DE' : 'en-US'
-  t = t.replace(/(?<=^|[.!?…]["”“»«]?\s+)(\p{Ll})/gu, (c: string, _g: string, i: number) => (lock[i] ? c : upperSame(c, locale)))
+  // Not after an ellipsis ("waits... then runs") or an abbreviation ("e.g. a hammer"): the sentence goes on.
+  t = t.replace(/(?<=^|(?<!\.)[.!?]["”“»«]?\s+)(\p{Ll})/gu, (c: string, _g: string, i: number) =>
+    (lock[i] || ABBREVIATION.test(t.slice(0, i)) ? c : upperSame(c, locale)))
 
   // The ending: a trailing , ; : dash or ellipsis outside a quote is dropped, then a full stop is added unless the cue ends with
   // . ! ? — or with a quote that itself ends with . ! ? or … (a quote's own marks are never changed).
   const trail = /[\s,;:\-–—…]*(?:\.\.\.)?[\s,;:\-–—…]*$/u.exec(t)!
   if (!lock.slice(trail.index).some(Boolean)) t = t.slice(0, trail.index)
   if (!t) return ''
-  if (lock[t.length - 1]) return /[.!?…]["”“»«]?$/u.test(t) ? t : `${t}.`
+  if (lock[t.length - 1]) return openEnd || /[.!?…]["”“»«]?$/u.test(t) ? t : `${t}.` // an unclosed quote runs to the end: nothing goes inside it
   return /[.!?]$/.test(t) ? t : `${t}.`
+}
+
+/** An abbreviation's period right before the letter: no sentence starts after it. */
+const ABBREVIATION = /(?:^|[\s(])(?:e\.g|i\.e|etc|vs|z\.\s?B|d\.\s?h|usw|bzw|ca)\.\s+$/iu
+/** True when the text ends inside a quote that never closes. */
+function unclosedQuote(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    const close = CLOSE[text[i]!]
+    if (!close) continue
+    let j = i + 1
+    while (j < text.length && !close.includes(text[j]!)) j++
+    if (j >= text.length) return true
+    i = j
+  }
+  return false
 }
 
 /** The upper case of a single letter when it is a single letter too ("ß" stays as it is: "SS" would add a letter). */

@@ -33,12 +33,21 @@ draft unchanged when every detail is visible, so it never added the articles it 
    "visible" — may go past the shot's word cap by those words, up to `MAX_ADDED_WORDS` (3) over the draft, so a draft already at
    its budget can still become a sentence. Every other guard is unchanged: no new content word, no has / have, names, negations
    and protected words kept, order kept, on-screen text kept or replaced whole. Any other reply keeps the cap.
+   **Added is / are never fills a deleted word** (PR #61 review): "Man holds staff." → "Man is staff." / "A man is a staff." would
+   be a false claim. Positional, no part-of-speech tagging: for an is / are (ist / sind) the draft does not have at that spot, take
+   the nearest aligned reply words before and after it; a draft word between them that is neither a linking word nor kept means
+   the copula stands in a deleted word's place, and the reply is rejected (`"is" added in place of a deleted word`) — unless the
+   copula's next word other than an article is a place word (a closed list: with, in, on, under, near, beside …; mit, in, auf …)
+   or "visible". The exception keeps decision 0010's approved deletions: "The woman … blinks slowly in dim light." → "The woman …
+   is in dim light.", "Red-haired girl reads book." → "A red-haired girl is with a creature.". A sentence that ends in an added
+   copula ("A woman is.") is always rejected.
 4. **polishCue(text, language)** (packages/pipeline/src/polishCue.ts, pure): collapses spaces (none before , . ; : ! ?),
    capitalises the first letter of each sentence in the language's locale, and makes the cue end with . ! or ? (a trailing , ; :
    dash or ellipsis becomes a full stop; after a closing quote the full stop goes outside it, unless the quote itself ends with
-   . ! ? or …). Quoted text and the text of every on-screen text clause are never touched. It never changes a word. Called in
-   two places only: 06-voice, on the text sent to Polly (the stored cue text and the clip sidecar keep the unpolished text, so a
-   clip's reuse check is unchanged), and 08-text, on the text written to descriptions.vtt.
+   . ! ? or …). Quoted text and the text of every on-screen text clause are never touched. It never changes a word. It does not
+   capitalise after an ellipsis or an abbreviation ("e.g. a hammer") and adds nothing inside an unclosed quote. Called in two
+   places: 06-voice, on the text sent to Polly — the clip sidecar's `ssml` key is the polished text, so a clip voiced before this
+   decision is voiced again once (the stored cue text stays unpolished) — and 08-text, on the text written to descriptions.vtt.
 
 ## Not changed
 
@@ -49,5 +58,5 @@ polished; the app reads descriptions.vtt and the audio, which are.
 ## Consequences
 
 - The next Gate C re-runs describe (cache version 3) and verify (prompt version 5) on both clips; about 60 Qwen3-VL calls each.
-- A clip voiced before this decision whose cue text is unchanged is reused as it is (the sidecar compares the unpolished text);
-  a new Gate C copy starts with no clips, so this matters only for re-runs of an old work dir.
+- A clip voiced before this decision is voiced again on the next run (its sidecar key is the unpolished SSML): a Polly cost
+  only, once.

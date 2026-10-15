@@ -6,7 +6,7 @@ import { DESCRIBE_CACHE_VERSION } from '../src/steps/04-describe'
 import { checkVerified } from '../src/steps/04b-verify'
 import { verifySystemPrompt, VERIFY_PROMPT_VERSION } from '../src/verifyPrompt'
 import { polishCue } from '../src/polishCue'
-import { voice, type VoiceDeps } from '../src/steps/06-voice'
+import { cueSidecarFile, cueSsml, voice, type CueSidecar, type VoiceDeps } from '../src/steps/06-voice'
 import { sdh } from '../src/steps/08-text'
 import type { FitCue } from '../src/steps/05-fit'
 
@@ -58,12 +58,12 @@ describe('verify prompt: grammar words and doubtful text (DESC-033)', () => {
 })
 
 describe('verify guard: a reply that only adds a, an, the, is, are is accepted (DESC-033)', () => {
-  const ok = (draft: string, reply: string, maxWords = 25) => {
-    const r = checkVerified(draft, { text: reply, removed: [] }, { ...opts, maxWords })
+  const ok = (draft: string, reply: string, maxWords = 25, language: 'en' | 'de' = 'en') => {
+    const r = checkVerified(draft, { text: reply, removed: [] }, { ...opts, maxWords, language })
     expect(r, `${draft} → ${reply}: ${r.reason}`).toMatchObject({ applied: true, text: reply })
   }
-  const kept = (draft: string, reply: string, reason: string | RegExp, maxWords = 25) => {
-    const r = checkVerified(draft, { text: reply, removed: [] }, { ...opts, maxWords })
+  const kept = (draft: string, reply: string, reason: string | RegExp, maxWords = 25, language: 'en' | 'de' = 'en') => {
+    const r = checkVerified(draft, { text: reply, removed: [] }, { ...opts, maxWords, language })
     expect(r.applied, `${draft} → ${reply}`).toBe(false)
     expect(r.reason).toMatch(reason)
   }
@@ -72,13 +72,32 @@ describe('verify guard: a reply that only adds a, an, the, is, are is accepted (
     ok(G11.dragon, 'A small tan dragon bleeds on a rooftop.')
     ok(G11.lower, 'A young woman with short red hair, in a grey tank top, in brown trousers climbs a rooftop.')
     ok(G11.face, "A man's face is pressed against a mechanical device.")
-    ok(G11.chamber, 'The dim, smoky chamber is with glowing lines.')
     ok(G11.chamber, 'There is a dim, smoky chamber with glowing lines.')
     ok('Boy faces giant robot.', 'A boy faces a giant robot.')
   })
   it('accepts grammar words over the word cap when the draft is at its budget', () => {
     ok(G11.staff, 'A man holds a staff.', 3)
     ok('Soldier aims rifle at robot.', 'A soldier aims a rifle at the robot.', 5)
+  })
+  // PR #61 review (HIGH): an added is / are must not fill a deleted verb or preposition — "Man holds staff." → "Man is staff." is a false claim
+  it('rejects an added is / are that stands where a draft word was deleted, or ends a sentence', () => {
+    const filled = /"(?:is|are|ist|sind)" added in place of a deleted word/
+    kept(G11.staff, 'Man is staff.', filled)
+    kept(G11.staff, 'A man is a staff.', filled)
+    kept('A dragon bleeds on rooftop.', 'A dragon is rooftop.', filled)
+    kept('The man watches the guard.', 'The man is the guard.', filled)
+    kept('Woman runs.', 'A woman is.', filled)
+    kept('Man holds staff near door.', 'Man is staff. Is door.', filled)
+    kept('Mann hält Stab.', 'Ein Mann ist Stab.', filled, 25, 'de')
+    kept('Zwei Männer halten Stäbe.', 'Zwei Männer sind Stäbe.', filled, 25, 'de')
+    // still fine: the copula sits where nothing was deleted, or before an added "visible" (its own guard)
+    ok(G11.face, "A man's face is pressed against a mechanical device.")
+    ok(G11.chamber, 'There is a dim, smoky chamber with glowing lines.')
+    ok('Mann hält Stab.', 'Ein Mann hält einen Stab.', 25, 'de')
+    ok('A girl searches for her dragon.', 'A girl is visible.')
+    // a place word after the copula states where, as the draft did (decision 0010's approved deletions, verify.test g9 cases)
+    ok('A dragon bleeds on rooftop.', 'A dragon is on a rooftop.')
+    ok('Red-haired girl reads book.', 'A red-haired girl is with a creature.')
   })
   it('keeps every other guard', () => {
     kept(G11.staff, 'A man has a staff.', /new words: has/)
@@ -108,6 +127,13 @@ describe('polishCue (DESC-033)', () => {
     expect(polishCue('Words appear.', 'en')).toBe('Words appear.')
     expect(polishCue('', 'en')).toBe('')
     expect(polishCue('   ', 'en')).toBe('')
+  })
+  it('no capital after "e.g." or a mid-sentence ellipsis; no full stop inside an unclosed quote', () => {
+    expect(polishCue('He points at tools, e.g. a hammer', 'en')).toBe('He points at tools, e.g. a hammer.')
+    expect(polishCue('She waits... then runs', 'en')).toBe('She waits... then runs.')
+    expect(polishCue('She waits… then runs', 'en')).toBe('She waits… then runs.')
+    expect(polishCue('Words appear: "HELLO WOR', 'en')).toBe('Words appear: "HELLO WOR')
+    expect(polishCue('Text erscheint: „ENDE', 'de')).toBe('Text erscheint: „ENDE')
   })
   it('is idempotent', () => {
     for (const t of Object.values(G11)) expect(polishCue(polishCue(t, 'en'), 'en')).toBe(polishCue(t, 'en'))
@@ -142,6 +168,20 @@ describe('polishCue is applied where cues are heard and shown (DESC-033)', () =>
     const deps: VoiceDeps = { synthesize, measureMs: async () => 2000 }
     await voice(ctx(), deps)
     expect(synthesize).toHaveBeenCalledWith(polishCue(G11.lower, 'en'), 'Joanna', 'en')
+  })
+  it('06-voice: a clip voiced before polishCue (its key the unpolished text) is voiced again', async () => {
+    await writeFile(`${work}/cues.json`, JSON.stringify([cue(1000, G11.lower)]))
+    await writeFile(`${work}/cue_0.mp3`, G11.lower)
+    await writeFile(`${work}/${cueSidecarFile(0)}`, JSON.stringify({ text: G11.lower, voice: 'Joanna', language: 'en', ssml: cueSsml(G11.lower), durationMs: 2000 } satisfies CueSidecar))
+    const synthesize = vi.fn(async (text: string) => new TextEncoder().encode(text))
+    await voice(ctx(), { synthesize, measureMs: async () => 2000 })
+    expect(synthesize).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(await readFile(`${work}/${cueSidecarFile(0)}`, 'utf8'))).toMatchObject({ text: G11.lower, ssml: cueSsml(polishCue(G11.lower, 'en')) })
+    // and the next run reuses it
+    const again = vi.fn(async (text: string) => new TextEncoder().encode(text))
+    await writeFile(`${work}/cues.json`, JSON.stringify([cue(1000, G11.lower)]))
+    await voice(ctx(), { synthesize: again, measureMs: async () => 2000 })
+    expect(again).not.toHaveBeenCalled()
   })
   it('08-text: descriptions.vtt carries the polished text', async () => {
     await writeFile(`${work}/words.json`, JSON.stringify([]))

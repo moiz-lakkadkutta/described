@@ -152,12 +152,12 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
     const durationMs = await measureMs(file)
     const { speechMs, measured } = await speechOf(file, durationMs)
     // an estimated speech end is not stored: a later run measures it again
-    await writeFile(`${ctx.work}/${cueSidecarFile(i)}`, JSON.stringify({ text, voice: ctx.voice, language, ssml: cueSsml(text), durationMs, ...(measured ? { speechMs } : {}) } satisfies CueSidecar))
+    await writeFile(`${ctx.work}/${cueSidecarFile(i)}`, JSON.stringify({ text, voice: ctx.voice, language, ssml: cueSsml(polishCue(text, language)), durationMs, ...(measured ? { speechMs } : {}) } satisfies CueSidecar))
     return { durationMs, speechMs }
   }
   /** The stored clip of slot i when its sidecar matches (its speech measured now when the sidecar predates decision 0009). */
   const reuse = async (i: number, text: string): Promise<Clip | undefined> => {
-    const r = await reusable(ctx.work, i, { text, voice: ctx.voice, language, ssml: cueSsml(text) })
+    const r = await reusable(ctx.work, i, { text, voice: ctx.voice, language, ssml: cueSsml(polishCue(text, language)) }) // the clip key is what Polly heard: a clip voiced before DESC-033 is re-voiced
     return r && { durationMs: r.durationMs, speechMs: r.speechMs ?? (await speechOf(`${ctx.work}/${cueAudioFile(i)}`, r.durationMs)).speechMs }
   }
   const files = [cueAudioFile, cueSidecarFile]
