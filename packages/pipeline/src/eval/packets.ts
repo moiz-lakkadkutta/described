@@ -56,6 +56,22 @@ export function limitOf(c: FitCue, cues: readonly FitCue[]): number | undefined 
 }
 export const nextWordMs = (words: readonly Word[], t: number) => { const w = words.find((x) => x.start * 1000 >= t); return w && Math.round(w.start * 1000) }
 
+/** The label of a shot that is not rated (decision 0003: score = usable / (shots − same-as-previous)). */
+export const SKIP_LABEL = 'Same as previous shot — not rated'
+/**
+ * Pure (tested): the same-as-previous shots, which are not rated and leave the denominator (decision 0003). A shot is one when
+ * nothing would be voiced for it — no cue in cues.json, none placed by fit — and describe marked it same-as-previous or left its text
+ * empty (a continuation with nothing new). A voiced shot is always rated, whatever describe marked.
+ */
+export function skipShots(d: Pick<PacketData, 'shots' | 'described' | 'cues' | 'fitCues'>): number[] {
+  const has = (cs: readonly FitCue[], i: number) => cs.some((c) => c.shotIndex === i && c.text.trim())
+  return d.shots.map((s) => s.index).filter((i) => {
+    if (has(d.cues, i) || has(d.fitCues, i)) return false
+    const desc = d.described.find((x) => x.index === i)
+    return !!desc && (desc.sameAsPrev || !desc.description.trim())
+  })
+}
+
 /**
  * Pure (tested): shots.md. speechMs maps a placed cue's index in cues.json to its clip's speech length (undefined: not measured,
  * the clip end is shown as the speech end, as before).
@@ -63,6 +79,7 @@ export const nextWordMs = (words: readonly Word[], t: number) => { const w = wor
 export function shotsMd(d: PacketData, speechMs: ReadonlyMap<number, number | undefined>, o: { title: string; offsetMs: number; credit?: string }): string {
   const t = (ms: number) => tc(ms, o.offsetMs)
   const lines = dialogueLines(d.words)
+  const skip = new Set(skipShots(d))
   const md = [`# ${o.title} — ${d.shots.length} shots`, '',
     `Read RUBRIC.md first. Times in ms are from the start of the segment (0 = film ${t(0)}).`, '', ...(o.credit ? [`Credit: ${o.credit}`, ''] : [])]
   for (const s of d.shots) {
@@ -91,7 +108,8 @@ export function shotsMd(d: PacketData, speechMs: ReadonlyMap<number, number | un
         + ` · speech end: ${sp === undefined ? c.endMs : c.startMs + sp} ms · next dialogue word: ${nw === undefined ? 'none' : `${nw} ms`}`
         + ` · next placed cue: ${np ? `${np.startMs} ms` : 'none'}`)
     }
-    if (!voiced.length) {
+    if (skip.has(i)) md.push(`- **${SKIP_LABEL}.** Nothing new to voice; leave its pre-filled "skip" row in scores.md as it is.`)
+    else if (!voiced.length) {
       const fc = d.fitCues.find((c) => c.shotIndex === i)
       const would = fc?.text ?? desc?.description ?? ''
       const why = fc ? 'placed by fit but dropped by the voice step (the spoken clip ran past its slot)' : 'no room in the dialogue gaps'
@@ -103,11 +121,11 @@ export function shotsMd(d: PacketData, speechMs: ReadonlyMap<number, number | un
 }
 
 /** Pure (tested): the empty score sheet every rater fills. */
-export function scoresMd(shots: readonly Shot[]): string {
+export function scoresMd(shots: readonly Shot[], skip: readonly number[] = []): string {
   return '# Scores\n\nCriteria: pass / fail (n/a where RUBRIC.md says so). Usable: yes / no.\n\n'
     + '| Shot | Faithful | On time | Style | Clean | Fits | Usable | Note (required for any fail) |\n|---|---|---|---|---|---|---|---|\n'
-    + shots.map((s) => `| ${s.index} | | | | | | | |\n`).join('')
-    + `\nUsable: __ / ${shots.length}\n\nPlot events lost (not voiced and plot-relevant): \n`
+    + shots.map((s) => (skip.includes(s.index) ? `| ${s.index} | n/a | n/a | n/a | n/a | n/a | skip | ${SKIP_LABEL} |\n` : `| ${s.index} | | | | | | | |\n`)).join('')
+    + `\nUsable: __ / ${shots.length - shots.filter((s) => skip.includes(s.index)).length}${skip.length ? ` (shot${skip.length > 1 ? 's' : ''} ${skip.join(', ')}: same as previous, not rated)` : ''}\n\nPlot events lost (not voiced and plot-relevant): \n`
 }
 
 export const rubricMd = (template: string, raters: number, shots: number) => template.replaceAll('{{RATERS}}', String(raters)).replaceAll('{{SHOTS}}', String(shots))
@@ -155,7 +173,7 @@ export async function treeHash(dir: string): Promise<string> {
 
 /**
  * Builds {outDir}/rater1 … raterN, byte-identical (one staged copy, copied N times; checked by treeHash), plus {outDir}/packet.json
- * (which work dir, when, the hash). Refuses an even N (a majority needs an odd number of raters) and an outDir that has files,
+ * (which work dir, when, the hash, and skipShots — the same-as-previous shots `score` leaves out). Refuses an even N (a majority needs an odd number of raters) and an outDir that has files,
  * so filled score sheets are never overwritten.
  */
 export async function buildPackets(o: { work: string; outDir: string; raters: number; offsetMs?: number; title?: string; credit?: string }, deps: PacketDeps = realDeps) {
@@ -183,8 +201,9 @@ export async function buildPackets(o: { work: string; outDir: string; raters: nu
   const speech = new Map<number, number | undefined>()
   for (const [k, c] of d.cues.entries()) if (!c.extended) speech.set(k, await deps.speechMs(join(o.work, cueAudioFile(k))).catch(() => undefined))
   await writeFile(join(stage, 'shots.md'), shotsMd(d, speech, { title, offsetMs, credit }))
-  await writeFile(join(stage, 'RUBRIC.md'), rubricMd(await readFile(RUBRIC_TEMPLATE, 'utf8'), o.raters, d.shots.length))
-  await writeFile(join(stage, 'scores.md'), scoresMd(d.shots))
+  const skip = skipShots(d)
+  await writeFile(join(stage, 'RUBRIC.md'), rubricMd(await readFile(RUBRIC_TEMPLATE, 'utf8'), o.raters, d.shots.length - skip.length))
+  await writeFile(join(stage, 'scores.md'), scoresMd(d.shots, skip))
   const hashes: string[] = []
   for (let r = 1; r <= o.raters; r++) {
     const dir = join(o.outDir, `rater${r}`)
@@ -193,6 +212,6 @@ export async function buildPackets(o: { work: string; outDir: string; raters: nu
   }
   await rm(stage, { recursive: true })
   if (new Set(hashes).size !== 1) throw new Error('rater packets differ; this is a bug')
-  await writeFile(join(o.outDir, 'packet.json'), JSON.stringify({ work: o.work, raters: o.raters, shots: d.shots.length, shotIndices: d.shots.map((s) => s.index), offsetMs, title, credit, sha256: hashes[0], at: new Date().toISOString() }, null, 2))
+  await writeFile(join(o.outDir, 'packet.json'), JSON.stringify({ work: o.work, raters: o.raters, shots: d.shots.length, shotIndices: d.shots.map((s) => s.index), skipShots: skip, offsetMs, title, credit, sha256: hashes[0], at: new Date().toISOString() }, null, 2))
   return { shots: d.shots.length, sha256: hashes[0]! }
 }

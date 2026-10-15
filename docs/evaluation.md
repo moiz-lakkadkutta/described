@@ -10,7 +10,9 @@ A run passes when **at least 70 % of the shots are majority-usable**: rated usab
 
 - A shot is usable when all five rubric criteria pass: faithful, on time, style, clean, fits
   ([rubric template](../packages/pipeline/src/eval/RUBRIC.template.md)). "Fits" is decision 0009's rule, quoted verbatim.
-- The denominator is every shot of the clip.
+- The denominator is every shot of the clip except the same-as-previous shots (decision 0003: usable / (shots −
+  same-as-previous)). `gate-c packets` finds them (nothing voiced, and describe marked the shot same-as-previous or left its text
+  empty), labels them "Same as previous shot — not rated" and records them in `packet.json` as `skipShots`.
 - Three raters, so there is no tie. A row marked usable with a failed criterion is sent back to its rater (`score` counts it
   unrated).
 - Runs up to DESC-024 used two raters and counted a shot only when both said usable; those
@@ -44,3 +46,24 @@ A run passes when **at least 70 % of the shots are majority-usable**: rated usab
 
 Record each result in the decision or ticket it informs: commit, eval slugs, cost (`work/<eval>/gate-c.json`), the score table
 for both clips, and the disagreements.
+
+## Known limits
+
+- **Dialogue Transcribe missed is not in the packet.** The packet shows dialogue and the dialogue-free gaps from Transcribe's
+  words. A shout or a short line that Transcribe did not return is in neither, so a placed cue can talk over it and the raters
+  cannot see it: "on time" and "fits" pass on the numbers. In `tos-390-510` (Tears of Steel 6:30–8:30), "Come on!" at 103 s lies
+  under shot 25's cue (101853–105501 ms), and the yell at 112 s under shot 28's (110178–113274 ms); `words.json` has nothing
+  between 41.2 s and 114.0 s, so both sit in one 72 s "gap". Listening to the mix is the only check.
+- **Recording a correction.** The scorer does not edit a rater's `scores.md`. A correction goes in `corrections.md` next to
+  `packet.json`, one row per shot and criterion, with a reason:
+
+  ```md
+  | Shot | Criterion | Verdict | Reason |
+  |---|---|---|---|
+  | 25 | on time | fail | talks over "Come on!" at 103 s (missed by Transcribe) |
+  | 28 | on time | fail | talks over the yell at 112 s (missed by Transcribe) |
+  ```
+
+  Criterion is faithful, on time, style, clean or fits; verdict is pass or fail (blank = fail). It applies to every rater.
+  `pnpm gate-c score <out>` then prints both the as-rated and the corrected result, and the corrections between them. Report
+  both; the as-rated figure is the blind one.

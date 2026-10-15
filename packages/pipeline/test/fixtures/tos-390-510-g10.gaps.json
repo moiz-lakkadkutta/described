@@ -1,0 +1,34 @@
+[
+  {
+    "startMs": 2549,
+    "endMs": 6890
+  },
+  {
+    "startMs": 7700,
+    "endMs": 17029
+  },
+  {
+    "startMs": 18550,
+    "endMs": 20080
+  },
+  {
+    "startMs": 21320,
+    "endMs": 29019
+  },
+  {
+    "startMs": 30300,
+    "endMs": 32078
+  },
+  {
+    "startMs": 33158,
+    "endMs": 38209
+  },
+  {
+    "startMs": 41580,
+    "endMs": 113850
+  },
+  {
+    "startMs": 118689,
+    "endMs": 120000
+  }
+]

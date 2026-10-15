@@ -170,13 +170,17 @@ function guard(m: Meter, before: () => number, cap: number, onOver: (usd: number
   m.bedrock = (id, usage) => { bedrock(id, usage); check() }
 }
 
-const git = (args: string[]) => { try { return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }) } catch { return undefined } }
+export type Git = (args: string[]) => string | undefined
+const git: Git = (args) => { try { return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }) } catch { return undefined } }
 
-/** Everything that decides what the steps do besides the inputs: commit (and whether the tree had uncommitted changes), models, switches, versions. */
-export function runSettings(steps: readonly Step[], language: string, voice: string, env: Record<string, string | undefined> = process.env) {
-  const status = git(['status', '--porcelain'])
+/**
+ * Everything that decides what the steps do besides the inputs: commit (and whether a tracked file had uncommitted changes —
+ * untracked files such as work dirs or scratch notes do not change the code that ran), models, switches, versions.
+ */
+export function runSettings(steps: readonly Step[], language: string, voice: string, env: Record<string, string | undefined> = process.env, gitRun: Git = git) {
+  const status = gitRun(['status', '--porcelain', '--untracked-files=no'])
   return {
-    commit: git(['rev-parse', 'HEAD'])?.trim(), dirty: status === undefined ? undefined : status.trim().length > 0,
+    commit: gitRun(['rev-parse', 'HEAD'])?.trim(), dirty: status === undefined ? undefined : status.trim().length > 0,
     language, voice,
     models: effectiveModels(steps.filter((s): s is EvalStep => (EVAL_STEPS as readonly string[]).includes(s))),
     env: Object.fromEntries(['DESCRIBE_MODEL_ID', 'VERIFY_MODEL_ID', 'EDIT_MODEL_ID', 'NOVA_LITE_MODEL_ID', 'DESCRIBE_EDIT', 'DESCRIBE_VERIFY', 'DESCRIBE_CONCURRENCY', 'BEDROCK_REGION', 'AWS_REGION'].map((k) => [k, env[k] ?? null])),
@@ -208,10 +212,19 @@ export const evalCtx = (workRoot: string, slug: string, language: 'en' | 'de', v
 
 /** Glossaries of evaluation segments that are not catalogue titles (sintel-90-210, the Gate C segment). */
 export const EVAL_GLOSSARY_FILE = new URL('../../../../docs/eval/gate-c-glossary.json', import.meta.url)
+const glossaryFiles = (): (string | URL)[] => [process.env.GLOSSARY_FILE ?? DEFAULT_GLOSSARY_FILE, EVAL_GLOSSARY_FILE]
 /** The source slug's glossary: its titles.json entry, else its entry in EVAL_GLOSSARY_FILE (a warning when neither has one). */
-export function evalGlossary(sourceSlug: string, files: readonly (string | URL)[] = [process.env.GLOSSARY_FILE ?? DEFAULT_GLOSSARY_FILE, EVAL_GLOSSARY_FILE]): Glossary {
+export function evalGlossary(sourceSlug: string, files: readonly (string | URL)[] = glossaryFiles()): Glossary {
   for (const f of files) { const g = loadGlossary(sourceSlug, f, { warn: false }); if (!isEmpty(g)) return g }
   return loadGlossary(sourceSlug, files[0]!)
+}
+/** For the dry run: which file has the source slug's glossary, or none. Never warns. */
+export function glossaryStatus(sourceSlug: string, files: readonly (string | URL)[] = glossaryFiles()): string {
+  for (const f of files) {
+    const g = loadGlossary(sourceSlug, f, { warn: false })
+    if (!isEmpty(g)) return `found for ${sourceSlug} in ${String(f).replace(/^file:\/\//, '').replace(/^.*?\/((apps|docs)\/)/, '$1')} (${g.characters.length} characters, ${g.settings.length} settings)`
+  }
+  return `none for ${sourceSlug} (no name will be voiced)`
 }
 
 /**
@@ -222,7 +235,10 @@ export async function runGateC(o: { workRoot: string; sourceSlug: string; evalSl
   const plan = await planEval(o)
   assertPriced(o.steps)
   for (const l of describePlan(plan, o.sourceSlug, o.evalSlug)) deps.log(l)
-  deps.log(`models: ${effectiveModels(o.steps).map((m) => `${m.role} ${m.id}`).join('; ')}; ${o.language}, voice ${o.voice}`)
+  deps.log(`models: ${effectiveModels(o.steps).map((m) => `${m.role} ${m.id}`).join('; ')}`)
+  deps.log(`verify: ${verifyEnabled() ? 'on' : 'off (DESCRIBE_VERIFY=0)'}${o.steps.includes('describe') ? '' : ' (describe is not run)'}`)
+  deps.log(`glossary: ${glossaryStatus(o.sourceSlug)}`)
+  deps.log(`language: ${o.language}, voice: ${o.voice}`)
   if (o.dryRun) { deps.log('dry run: nothing copied, no AWS call, $0.00'); return { steps: [], totalUsd: 0 } }
   const settings = runSettings(o.steps, o.language, o.voice)
   const prepared = await readFile(join(plan.sourceDir, 'gate-c.json'), 'utf8').then((t) => JSON.parse(t) as { credit?: string; input?: string; start?: string; end?: string }, () => undefined)

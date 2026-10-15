@@ -1,4 +1,4 @@
-# Gate C rubric — audio description, {{SHOTS}} shots
+# Gate C rubric — audio description, {{SHOTS}} shots to rate
 
 You are one of {{RATERS}} independent raters. Do not look for, or talk to, the other raters, and do not look at any other rater's
 folder. Rate every shot against its frames (`sheets/shot_NN.jpg`, five frames in time order; zoom into `frames/shot_NN_k.jpg` for
@@ -43,10 +43,11 @@ in a dialogue-free gap while the film plays) or **extended** (the film pauses wh
 - **Not voiced**: rate the text it would have voiced on faithful, style and clean; on time and fits are n/a (count as pass).
   If the shot carries a plot event the viewer now misses, list it at the end of `scores.md` — it does not make the shot unusable.
 - **Same as previous / continuation**: a later part of one camera shot may say only what is new. Rate it against its own
-  frames like any other shot.
+  frames like any other shot. A shot with nothing new to voice is marked "Same as previous shot — not rated" in `shots.md`; its
+  row in `scores.md` is pre-filled "skip". Leave it: it is not rated and is not counted (decision 0003).
 - Rate the **voiced** text. The model description is context only (it shows what was shortened).
 
 ## Score
 
-Usable = shots where all five criteria pass. Fill the Usable column (yes / no) for every shot and report `usable / {{SHOTS}}` and
-the list of usable shot numbers at the end of `scores.md`.
+Usable = shots where all five criteria pass. Fill the Usable column (yes / no) for every shot not marked skip and report
+`usable / {{SHOTS}}` and the list of usable shot numbers at the end of `scores.md`.
