@@ -10,16 +10,19 @@ const localApi = require('../plugins/withLocalApi.js') as { cleartextHost: (u?: 
  * `ready` → plays → `ended` with didJustFinish; a failed load (404) sends `isLoaded: true` (onIsLoadingChanged(false))
  * and then `idle` — never `error`. `emit` sends a status to every listener, with the full status like currentStatus().
  */
-type Mock = { uri: string; removed: boolean; played: number; state: string; listeners: ((s: object) => void)[]; readonly currentStatus: object; emit(s: object): void }
+type Mock = { uri: string; removed: boolean; paused: boolean; played: number; state: string; readonly audible: boolean; listeners: ((s: object) => void)[]; readonly currentStatus: object; emit(s: object): void }
 const players: Mock[] = []
 vi.mock('expo-audio', () => ({
   createAudioPlayer: ({ uri }: { uri: string }) => {
     const p: Mock = {
-      uri, removed: false, played: 0, state: 'buffering', listeners: [],
+      uri, removed: false, paused: false, played: 0, state: 'buffering', listeners: [],
+      // What the viewer hears: play() was called, the clip loaded, and nothing paused or released the ExoPlayer.
+      get audible() { return p.played > 0 && !p.paused && !p.removed && p.state === 'ready' },
       get currentStatus() { return { playbackState: p.state, isLoaded: p.state === 'ready', didJustFinish: p.state === 'ended', playing: false } },
       emit(s: object) { const st = s as { playbackState?: string }; if (st.playbackState) p.state = st.playbackState; for (const l of [...p.listeners]) l({ ...p.currentStatus, ...s }) },
     }
-    Object.assign(p, { addListener(_: string, l: (s: object) => void) { p.listeners.push(l) }, play() { p.played++ }, remove() { p.removed = true } })
+    // Android: remove() only drops the module's map entry (AudioModule.kt) — the ExoPlayer plays on; release() frees it.
+    Object.assign(p, { addListener(_: string, l: (s: object) => void) { p.listeners.push(l) }, play() { p.played++; p.paused = false }, pause() { p.paused = true }, remove() {}, release() { p.removed = true } })
     players.push(p); return p
   },
 }))
@@ -108,6 +111,42 @@ describe('speak always settles', () => {
     const second = vi.fn(); void speak('https://cdn/b.mp3').then(second)
     await Promise.resolve(); expect(first).toHaveBeenCalled(); expect(players[0]!.removed).toBe(true)
     stopSpeaking(); await Promise.resolve(); expect(second).toHaveBeenCalled()
+  })
+})
+
+describe('a new clip interrupts the old one (pressing fast must never overlap two voices)', () => {
+  beforeEach(() => { vi.useFakeTimers(); players.length = 0 })
+  afterEach(() => vi.useRealTimers())
+  it('a clip replaced while still buffering never starts when its load finishes late', async () => {
+    const { speak, stopSpeaking } = await import('../src/audio')
+    void speak('https://cdn/prompts/a.mp3'); void speak('https://cdn/prompts/b.mp3'); void speak('https://cdn/prompts/c.mp3')
+    // Loads finish out of order: the newest first, then the two older ones.
+    ok(players[2]!); ok(players[0]!); ok(players[1]!)
+    expect(players.filter((p) => p.audible).map((p) => p.uri)).toEqual(['https://cdn/prompts/c.mp3'])
+    expect(players[0]!.paused && players[0]!.removed).toBe(true); expect(players[1]!.paused && players[1]!.removed).toBe(true)
+    stopSpeaking(); expect(players.some((p) => p.audible)).toBe(false)
+  })
+  it('a playing clip is silenced at once by the next one', async () => {
+    const { speak } = await import('../src/audio')
+    const first = vi.fn(); void speak('https://cdn/a.mp3').then(first)
+    ok(players[0]!); expect(players[0]!.audible).toBe(true)
+    void speak('https://cdn/b.mp3'); ok(players[1]!)
+    expect(players[0]!.audible).toBe(false); expect(players[1]!.audible).toBe(true)
+    await Promise.resolve(); expect(first).toHaveBeenCalled()
+  })
+  it("a superseded clip's late status events do not end the new clip", async () => {
+    const { speak } = await import('../src/audio')
+    void speak('https://cdn/a.mp3')
+    const second = vi.fn(); void speak('https://cdn/b.mp3').then(second)
+    ok(players[1]!)
+    finish(players[0]!); fail404(players[0]!) // the old player's last events arrive after it was replaced
+    await Promise.resolve(); await Promise.resolve()
+    expect(second).not.toHaveBeenCalled(); expect(players[1]!.audible).toBe(true)
+  })
+  it('stopSpeaking silences a prefetched clip too', async () => {
+    const { prefetch, stopSpeaking } = await import('../src/audio')
+    prefetch('https://cdn/next.mp3'); stopSpeaking()
+    expect(players[0]!.paused && players[0]!.removed).toBe(true)
   })
 })
 

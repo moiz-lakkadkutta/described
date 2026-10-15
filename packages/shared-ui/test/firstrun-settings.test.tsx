@@ -3,6 +3,7 @@ import TestRenderer, { act, type ReactTestInstance } from 'react-test-renderer'
 import { promptText, type Prefs } from '@described/contracts'
 import { Root } from '../src/index'
 import { ANNOUNCE_DEBOUNCE_MS, _setScreenReader } from '../src/a11y'
+import { PROMPT_DEBOUNCE_MS } from '../src/speech'
 import { interceptKey } from '../src/focus/keys'
 import { About } from '../src/screens/About'
 import { FirstRun } from '../src/screens/FirstRun'
@@ -70,6 +71,8 @@ async function mount(props: Partial<React.ComponentProps<typeof Root>> = {}) {
 }
 afterEach(() => { mounted.splice(0).forEach((r) => act(() => r.unmount())); vi.unstubAllGlobals(); _setScreenReader(false) })
 const P = strings.firstRun.panels
+/** App-voice prompts start after PROMPT_DEBOUNCE_MS (speech.ts: a burst plays only the last). */
+const settlePrompt = () => act(async () => { await new Promise((r) => setTimeout(r, PROMPT_DEBOUNCE_MS + 20)) })
 
 describe('first run', () => {
   it('shows for a new profile; each panel plays in the app voice', async () => {
@@ -77,10 +80,25 @@ describe('first run', () => {
     const r = await mount({ speak })
     expect(text(r)).toContain(P[0]!.title)
     expect(labels(r)).toEqual(['Next tip'])
+    await settlePrompt()
     expect(speak).toHaveBeenLastCalledWith('http://api/prompts/Joanna/firstRun1.mp3')
     press(r, 'Next tip')
     expect(text(r)).toContain(promptText.firstRun2)
+    await settlePrompt()
     expect(speak).toHaveBeenLastCalledWith('http://api/prompts/Joanna/firstRun2.mp3')
+  })
+
+  it('pressing through panels fast plays only the panel you stop on, and stops the clip in flight', async () => {
+    api({ firstRunDone: false }); const speak = vi.fn(() => new Promise<void>(() => {})); const stopSpeaking = vi.fn()
+    const r = await mount({ speak, stopSpeaking })
+    await settlePrompt()
+    expect(speak.mock.calls).toEqual([['http://api/prompts/Joanna/firstRun1.mp3']])
+    const stops = stopSpeaking.mock.calls.length
+    press(r, 'Next tip')
+    expect(stopSpeaking.mock.calls.length).toBeGreaterThan(stops) // panel 1's clip is cut at once
+    act(() => { back.press() }); press(r, 'Next tip') // panel 1, then panel 2 again, all inside the debounce
+    await settlePrompt()
+    expect(speak.mock.calls.map((c) => (c as unknown[])[0])).toEqual(['http://api/prompts/Joanna/firstRun1.mp3', 'http://api/prompts/Joanna/firstRun2.mp3'])
   })
 
   it('VoiceView: each panel is one utterance — prompt, then the button label and hint', async () => {
@@ -370,8 +388,9 @@ describe('settings in Root: saved and spoken', () => {
     api(); const speak = vi.fn(async () => {}); const r = await mount({ speak })
     press(r, 'Go to Settings')
     focus(r, S.voice); key('right')
-    press(r, strings.a11y.hearVoice('Daniel'))
-    expect(speak).toHaveBeenCalledWith('http://api/prompts/Daniel/voicePreview.mp3')
+    press(r, strings.a11y.hearVoice('Daniel')); press(r, strings.a11y.hearVoice('Daniel'))
+    await settlePrompt()
+    expect(speak.mock.calls).toEqual([['http://api/prompts/Daniel/voicePreview.mp3']]) // two fast presses: one clip
   })
 
   it('Description on by default: off makes Play (without description) the primary action on Home', async () => {

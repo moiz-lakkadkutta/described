@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AccessibilityInfo, BackHandler, View } from 'react-native'
 import { SpatialNavigationRoot, useLockSpatialNavigation } from 'react-tv-space-navigation'
 import { useDpad } from '@moizp/vega-media-kit/focus'
@@ -18,6 +18,7 @@ import { Settings } from './screens/Settings'
 import { Reading, Title } from './screens/Title'
 import { strings } from './strings'
 import { createQueue } from './queue'
+import { createPromptVoice } from './speech'
 import { tokens } from './theme/tokens'
 import { px } from './theme/scale'
 export { tokens } from './theme/tokens'
@@ -156,12 +157,17 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
     if (route.name === 'title' || route.name === 'reading' || route.name === 'player') return
     titleFrom.current = route.name === 'described' || route.name === 'list' ? route.name : 'home'
   }, [route])
-  useEffect(() => () => { stopSpeaking(); sampleOn.current = false; setSample('idle') }, [key, stopSpeaking])
+  // App-voice prompts: newest wins, a burst of presses plays only the last (speech.ts).
+  const prompts = useMemo(() => createPromptVoice(speak, stopSpeaking), [speak, stopSpeaking])
+  useEffect(() => () => { prompts.cancel(); stopSpeaking(); sampleOn.current = false; setSample('idle') }, [key, stopSpeaking, prompts])
+  /** Which sample press is current: a stopped clip's promise settling late must not reset a newer one. */
+  const sampleRun = useRef(0)
   const toggleSample = () => {
     if (sampleOn.current) return stopSample()
     if (!current?.sampleCue) return
+    const run = ++sampleRun.current
     sampleOn.current = true; setSample('playing')
-    speak(current.sampleCue.audioUrl).catch(() => {}).finally(() => { sampleOn.current = false; setSample('idle') })
+    speak(current.sampleCue.audioUrl).catch(() => {}).finally(() => { if (run === sampleRun.current) { sampleOn.current = false; setSample('idle') } })
   }
 
   // Back: reading → title → home; player → title; settings → home. On Home, Back leaves the app (platform default).
@@ -267,8 +273,8 @@ export function Root({ apiBaseUrl, scale, deviceId = 'dev-device', fontsLoaded =
   const promptUrl = useCallback((voice: Prefs['voice'], key: PromptKey) => `${apiBaseUrl}/prompts/${voice}/${key}.mp3`, [apiBaseUrl])
   const voice = useRef(prefs.voice)
   voice.current = prefs.voice
-  const speakPrompt = useCallback((key: PromptKey) => { if (!screenReaderOn()) speak(promptUrl(voice.current, key)).catch(() => {}) }, [speak, promptUrl])
-  const hearVoice = (v: Prefs['voice']) => { speak(promptUrl(v, 'voicePreview')).catch(() => {}) }
+  const speakPrompt = useCallback((key: PromptKey) => { if (!screenReaderOn()) void prompts.say(promptUrl(voice.current, key)) }, [prompts, promptUrl])
+  const hearVoice = (v: Prefs['voice']) => { void prompts.say(promptUrl(v, 'voicePreview')) }
   const finishFirstRun = (p: Partial<Prefs>) => { savePrefs({ ...p, firstRunDone: true }); setRoute(route.name === 'firstRun' && route.from === 'settings' ? { name: 'settings' } : { name: 'home' }) }
   useEffect(() => { if (route.name === 'about') api<AboutData>('/about').then(setAbout).catch(() => setAbout('offline')) }, [route.name, api])
   // My list: the change shows at once; PUT/DELETE /me/list/:slug go through `requests`, in order after any save before
