@@ -44,7 +44,7 @@ pnpm gate-c score ~/gate-c/g10
 - `run <sourceSlug> <evalSlug>` copies `probe.json shots.json gaps.json gaps.vad.json words.json transcript.json transcript.src mezz.mp4` (plus
   `described.json` / `cues.fit.json` when `--steps` starts at scenes, fit or edit, and `scenes.json` when present for fit or edit)
   into `work/<evalSlug>/` — never `cache/`, `frames/` or any cue clip, and the source dir is only read. The steps run with the
-  SOURCE slug's glossary (titles.json, else `docs/eval/gate-c-glossary.json`; DESC-029). Before the first step the copy's `gaps.json` /
+  SOURCE slug's glossary (titles.json, else `apps/api/prisma/glossaries.json`, else `docs/eval/gate-c-glossary.json`; DESC-029, decision 0016). Before the first step the copy's `gaps.json` /
   `gaps.vad.json` are rebuilt from `words.json` with the voice-activity split (`regap`, decision 0014; no Transcribe); `--keep-gaps`
   keeps the copied ones, and `gate-c.json` records `gapsSource`. `--steps` takes consecutive steps from
   `describe,scenes,fit,edit,voice`, never starting

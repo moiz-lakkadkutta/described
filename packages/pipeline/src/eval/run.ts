@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { editModelId, LITE } from '../prompts'
 import { BEDROCK_PRICES, meter as currentMeter, metered as runMetered, type Meter } from '../cost'
 import { ctxFor, SLUG_RE, STEPS, type Ctx, type Step } from '../steps'
-import { DEFAULT_GLOSSARY_FILE, isEmpty, loadGlossary, type Glossary } from '../glossary'
+import { glossaryFiles as catalogueGlossaryFiles, isEmpty, loadGlossary, type Glossary } from '../glossary'
 import { scenesModelId } from '../scenePrompt'
 import { CONTINUATION_CACHE_VERSION, DEFAULT_DESCRIBE_MODEL_ID, DESCRIBE_CACHE_VERSION, describeConcurrency } from '../steps/04-describe'
 import { verifyEnabled, verifyModelId } from '../steps/04b-verify'
@@ -216,11 +216,11 @@ export const evalCtx = (workRoot: string, slug: string, language: 'en' | 'de', v
 
 /** Glossaries of evaluation segments that are not catalogue titles (sintel-90-210, the Gate C segment). */
 export const EVAL_GLOSSARY_FILE = new URL('../../../../docs/eval/gate-c-glossary.json', import.meta.url)
-const glossaryFiles = (): (string | URL)[] => [process.env.GLOSSARY_FILE ?? DEFAULT_GLOSSARY_FILE, EVAL_GLOSSARY_FILE]
-/** The source slug's glossary: its titles.json entry, else its entry in EVAL_GLOSSARY_FILE (a warning when neither has one). */
+const glossaryFiles = (): (string | URL)[] => [...catalogueGlossaryFiles(), EVAL_GLOSSARY_FILE]
+/** The source slug's glossary: its titles.json (or glossaries.json) entry, else its entry in EVAL_GLOSSARY_FILE (a warning when neither has one). */
 export function evalGlossary(sourceSlug: string, files: readonly (string | URL)[] = glossaryFiles()): Glossary {
   for (const f of files) { const g = loadGlossary(sourceSlug, f, { warn: false }); if (!isEmpty(g)) return g }
-  return loadGlossary(sourceSlug, files[0]!)
+  return loadGlossary(sourceSlug, files) // the warning names every file searched (titles.json, glossaries.json, the eval file)
 }
 /** For the dry run: which file has the source slug's glossary, or none. Never warns. */
 export function glossaryStatus(sourceSlug: string, files: readonly (string | URL)[] = glossaryFiles()): string {

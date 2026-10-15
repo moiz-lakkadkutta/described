@@ -9,35 +9,51 @@ export { Glossary, nameRevealed, type Character, type Setting } from '@described
 /**
  * A title's people and places (DESC-029, docs/decisions/0012-characters-and-scenes.md), as the pipeline uses them: the describe
  * prompt block (peopleAndPlaces), the scene step's setting words, fit's setting statements and the edit pass's grounding guard
- * (nameEvidence). Written by an editor in apps/api/prisma/titles.json. A video with no entry (`pnpm describe` on your own file) has an
+ * (nameEvidence). Written by an editor in apps/api/prisma/titles.json (glossaries.json for a title the seeder must not create). A video with no entry (`pnpm describe` on your own file) has an
  * empty glossary: no name is ever voiced and no look is suggested, but scene build-up (04c-scenes, fit, the edit pass) works the same.
  */
 export const EMPTY_GLOSSARY: Glossary = { characters: [], settings: [] }
 
-/** titles.json beside the API's seed; GLOSSARY_FILE overrides (a JSON array of { slug, characters?, settings? }). */
+/** titles.json beside the API's seed. */
 export const DEFAULT_GLOSSARY_FILE = new URL('../../../apps/api/prisma/titles.json', import.meta.url)
+/**
+ * Glossaries of titles that are not seeded (apps/api/prisma/glossaries.json, same entry shape): a title that `pnpm describe --slug`
+ * creates as its own Title row (full-length `sintel`, DESC-025), which titles.json must not list — the seeder would create the row,
+ * and the CLI refuses an existing slug. Never read by `pnpm titles:seed`.
+ */
+export const GLOSSARIES_FILE = new URL('../../../apps/api/prisma/glossaries.json', import.meta.url)
+/** Where loadGlossary looks: GLOSSARY_FILE alone when set (a JSON array of { slug, characters?, settings? }), else titles.json then glossaries.json. */
+export const glossaryFiles = (): (string | URL)[] => (process.env.GLOSSARY_FILE ? [process.env.GLOSSARY_FILE] : [DEFAULT_GLOSSARY_FILE, GLOSSARIES_FILE])
 
 const Entry = z.object({ slug: z.string() }).merge(Glossary)
 const warned = new Set<string>()
-/**
- * The glossary for `slug` from `file` (titles.json): the entry with that slug, else the entry whose slug the requested one extends —
- * an evaluation copy named `<source>-g<n>` (`sintel-90-210-g10`, pnpm gate-c) reads `sintel-90-210`'s, never a sibling title such as
- * `tears-of-steel-40-100-de` — else EMPTY_GLOSSARY, with a loud warning
- * once per slug (no name will be voiced). A malformed entry throws.
- */
-export function loadGlossary(slug: string, file: string | URL = process.env.GLOSSARY_FILE ?? DEFAULT_GLOSSARY_FILE, opts: { warn?: boolean } = {}): Glossary {
+const readEntries = (file: string | URL): { slug: string }[] => {
   let raw: unknown
   try { raw = JSON.parse(readFileSync(file, 'utf8')) } catch { raw = undefined }
-  const entries = Array.isArray(raw) ? raw.filter((t): t is { slug: string } => !!t && typeof t === 'object' && typeof (t as { slug?: unknown }).slug === 'string') : []
-  const hit = entries.find((t) => t.slug === slug) ?? entries.find((t) => new RegExp(`^${t.slug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-g\\d+$`).test(slug))
+  return Array.isArray(raw) ? raw.filter((t): t is { slug: string } => !!t && typeof t === 'object' && typeof (t as { slug?: unknown }).slug === 'string') : []
+}
+/**
+ * The glossary for `slug` from `file` (titles.json, then glossaries.json; or the files given, in order — the first file with a hit
+ * wins): the entry with that slug, else the entry whose slug the requested one extends — an evaluation copy named `<source>-g<n>`
+ * (`sintel-90-210-g10`, pnpm gate-c) reads `sintel-90-210`'s, never a sibling title such as `tears-of-steel-40-100-de` — else
+ * EMPTY_GLOSSARY, with a loud warning once per slug (no name will be voiced). A malformed entry throws.
+ */
+export function loadGlossary(slug: string, file: string | URL | readonly (string | URL)[] = glossaryFiles(), opts: { warn?: boolean } = {}): Glossary {
+  const files = Array.isArray(file) ? file : [file as string | URL]
+  let hit: { slug: string } | undefined
+  for (const f of files) {
+    const entries = readEntries(f)
+    hit = entries.find((t) => t.slug === slug) ?? entries.find((t) => new RegExp(`^${t.slug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-g\\d+$`).test(slug))
+    if (hit) break
+  }
   if (!hit) {
-    if (opts.warn !== false && !warned.has(slug)) { warned.add(slug); console.warn(`glossary: WARNING no people-and-places entry for "${slug}" in ${String(file)}: no name will be voiced and no look suggested (scenes still work). Set GLOSSARY_FILE or add the title to titles.json.`) }
+    if (opts.warn !== false && !warned.has(slug)) { warned.add(slug); console.warn(`glossary: WARNING no people-and-places entry for "${slug}" in ${files.map(String).join(', ')}: no name will be voiced and no look suggested (scenes still work). Set GLOSSARY_FILE or add the title to titles.json or glossaries.json.`) }
     return EMPTY_GLOSSARY
   }
   const { characters, settings } = Entry.parse(hit)
   return { characters, settings }
 }
-/** The context's glossary: ctx.glossary (tests, the worker) or the slug's entry in titles.json. */
+/** The context's glossary: ctx.glossary (tests, the worker) or the slug's entry in titles.json or glossaries.json. */
 export const glossaryFor = (ctx: { slug: string; glossary?: Glossary }) => ctx.glossary ?? loadGlossary(ctx.slug)
 export const isEmpty = (g: Glossary) => !g.characters.length && !g.settings.length
 

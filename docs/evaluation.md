@@ -166,6 +166,13 @@ shots):
 - faithful: the hand at his cheek, not the eyepiece (5), robots that charge rather than clash, with no crumbling pillars (20),
   not all four figures in white (21), and on 24 (one rater) a drop into a dark shaft rather than a climb.
 
-**Gate C is not passed.** A run passes at ≥ 70 % majority-usable (The bar); each clip is reported on its own (step 6); the
+**Under the rule, Gate C is not passed.** A run passes at ≥ 70 % majority-usable (The bar); each clip is reported on its own (step 6); the
 primary clip is tuned, and "a change that helps only the tuned clip is not an improvement"; the five-title re-run from describe
 (DESC-029) is on hold until Gate C passes on **both** clips. g12 passes on the tuned clip only, so the re-run stays on hold.
+
+**Exception for glossary titles ([decision 0016](decisions/0016-ship-on-glossary-titles.md), human, 2026-10-15).** The rule
+above is unchanged. As a human exception, Gate C counts as passed for **curated titles with a glossary**, on the tuned clip
+(`sintel-90-210-g12`, 21 / 29 = 72.4 %, raters 19 / 20 / 22, 12 shots not voiced). **Titles without a glossary are not yet at
+the bar** (held-out `tos-390-510-g12`, 18 / 31 = 58.1 %, bar 22 / 31). Both scores are reported together. Consequences: the
+five catalogue titles are re-run from describe (cap $0.50); quality work stops after this; a title without a glossary is
+published only with that caveat disclosed.

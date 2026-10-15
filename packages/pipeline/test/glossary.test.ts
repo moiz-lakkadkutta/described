@@ -17,6 +17,19 @@ describe('glossary (DESC-029)', () => {
     expect(warn.mock.calls.map((c) => String(c[0]))).toEqual([expect.stringMatching(/WARNING no people-and-places entry for "my-own-video"/), expect.stringMatching(/WARNING .*"elephants-dream-0-60"/)])
     warn.mockRestore()
   })
+  it('reads a title the seeder must not create from apps/api/prisma/glossaries.json, after titles.json (full-length sintel, decision 0016)', () => {
+    const g = loadGlossary('sintel')
+    expect(g.characters.map((c) => c.name)).toContain('Sintel')
+    expect(g.characters.find((c) => c.name === 'Sintel')!.revealedAtS).toBe(457.8) // "These are dragon lands, Sintel." film 7:37.8
+    expect(g.characters.find((c) => c.name === 'Scales')!.revealedAtS).toBe(228.3) // "Good night, Scales." film 3:48.25
+    expect(loadGlossary('sintel-g1')).toEqual(g) // an evaluation copy of it
+    expect(loadGlossary('sintel-90-150-r2').characters.map((c) => c.name)).toEqual(['Sintel', 'Shaman']) // titles.json, not the full film's
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const prev = process.env.GLOSSARY_FILE
+    process.env.GLOSSARY_FILE = '/no/such/file.json'
+    try { expect(loadGlossary('sintel')).toEqual(EMPTY_GLOSSARY) } finally { if (prev === undefined) delete process.env.GLOSSARY_FILE; else process.env.GLOSSARY_FILE = prev } // GLOSSARY_FILE alone
+    warn.mockRestore()
+  })
   it('an evaluation copy of a slug reads its source\'s glossary (sintel-90-210-g10 → sintel-90-210; tears-of-steel-40-100-g1 → tears-of-steel-40-100)', () => {
     const file = new URL('../../../docs/eval/gate-c-glossary.json', import.meta.url)
     for (const slug of ['sintel-90-210', 'sintel-90-210-g10', 'sintel-90-210-g2']) {

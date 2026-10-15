@@ -115,12 +115,18 @@ describer — and delivers description through the TV's own audio-track selector
   of the same 29 shots after later pipeline changes scored lower: 69.0 % (run g8, [0009](decisions/0009-gate-c-fits.md))
   and 14 / 29 (run g9, [0010](decisions/0010-verify-pass.md)), mostly visual details the frames do not show. We added a
   visual verify pass (DESC-027) and a shortener that keeps sentences (DESC-028); the next re-check, after the scene
-  build-up (DESC-029), also fell short, and a fix for that regression is in progress.
+  build-up (DESC-029), also fell short, and two text-quality rounds followed (DESC-029 fixes, DESC-033).
   The combined re-checks of 2026-10-15 (g10, g11, g12) are in [evaluation.md](evaluation.md#gate-c-results); the latest (g12)
-  scored 72.4 % on Sintel, at the gate but with fewer shots voiced, and 58.1 % on the held-out Tears of Steel clip, below it.
-  Gate C needs both clips, so it has not passed.
-  TODO(human): Replace with the final Gate C re-check score before submitting.
-- **The raters were models.** Gate C was scored by two Claude raters against frame contact sheets. A usability session
+  scored 21 / 29 = 72.4 % on Sintel, at the gate but with 12 of 29 shots not voiced, and 18 / 31 = 58.1 % on the held-out
+  Tears of Steel clip, below it. Under the rule Gate C needs both clips, so by its own text it has not passed. As a human
+  exception ([decision 0016](decisions/0016-ship-on-glossary-titles.md)), it counts as passed for curated titles with a
+  people-and-places glossary (the Sintel result); titles without a glossary are not yet at the bar (the held-out result), and
+  one is published only with that caveat. The catalogue titles all have a glossary.
+- **The raters were models.** No person rated Gate C. The model-selection rounds (A2, [0003](decisions/0003-gate-c.md)) were
+  rated by two Claude raters, Fable then Opus, as recorded there. The re-checks g8 and g9 were rated by two, and g10, g11 and
+  g12 by three, independent Claude Opus 5.5 sub-agents (`claude-opus-5-5`) per clip, blind: each worked from contact sheets
+  and frames in its own folder with RUBRIC.md and never saw the prompts, the model names or the other raters. Up to g9 a
+  shot counted only when both raters said usable; from g10 on, when a majority did ([evaluation.md](evaluation.md#the-bar)). A usability session
   with a screen-reader user has also taken place. TODO(human): where are the session notes, so they can be linked here?
 - **Fire OS only.** Vega OS is experimental: no Vega SDK was installed and the media kit's Vega adapter is not finished
   ([decision 0004](decisions/0004-vega-deferred.md)).
@@ -208,7 +214,7 @@ Dev tooling listed in [docs/aws.md](aws.md): Claude Code.
 ## Sources
 
 Project (in this repo):
-- [0001 week-0 gates](decisions/0001-week0-gates.md) · [0003 Gate C](decisions/0003-gate-c.md) · [0004 Vega deferred](decisions/0004-vega-deferred.md) · [0005 direct Bedrock](decisions/0005-describe-direct-bedrock.md) · [0009 Gate C fits](decisions/0009-gate-c-fits.md) · [0010 verify pass](decisions/0010-verify-pass.md) · [RUN-2026-10 device run](device-checks/RUN-2026-10.md) · [TASKS.md](../TASKS.md) · [docs/aws.md](aws.md) · [fire-os-bindings](platform/fire-os-bindings.md) · [DESC-007 device check](device-checks/DESC-007.md) · [README](../README.md)
+- [0001 week-0 gates](decisions/0001-week0-gates.md) · [0003 Gate C](decisions/0003-gate-c.md) · [0004 Vega deferred](decisions/0004-vega-deferred.md) · [0005 direct Bedrock](decisions/0005-describe-direct-bedrock.md) · [0009 Gate C fits](decisions/0009-gate-c-fits.md) · [0010 verify pass](decisions/0010-verify-pass.md) · [0016 ship on glossary titles](decisions/0016-ship-on-glossary-titles.md) · [RUN-2026-10 device run](device-checks/RUN-2026-10.md) · [TASKS.md](../TASKS.md) · [docs/aws.md](aws.md) · [fire-os-bindings](platform/fire-os-bindings.md) · [DESC-007 device check](device-checks/DESC-007.md) · [README](../README.md)
 
 Internal notes (not public, not for the Devpost form): "runbook §n" and "PLAN §n" refer to the team's private planning
 documents linked from [docs/PLAN.md](PLAN.md); they are not sources.
