@@ -78,7 +78,7 @@ describe('on-screen text the model does not label "Words appear:"', () => {
   it('the describe prompt asks for the "Words appear:" form for signs, headlines and captions too', () => {
     const t = describeSystemPrompt({ maxWords: 8, knownNames: [], language: 'en' })
     expect(t).toMatch(/signs?, headlines?/)
-    expect(t).toContain('Never invent text.')
+    expect(t).toContain('Never invent or guess text.')
   })
 })
 

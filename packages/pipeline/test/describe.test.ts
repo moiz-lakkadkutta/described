@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { alreadySaid, buildDescribeRequest, cachedDescribe, clampKeyframeTimes, dedupe, describeCacheKey, describeConcurrency, describeInParts, KEYFRAME_END_GUARD_MS, keyframeArgs, keyframeTimes, knownNames, mapLimit, parseDescription, parseVideoDurationMs, replyText, type Converse, type RawReply } from '../src/steps/04-describe'
 import { wordsFromTranscribe, type Word } from '../src/steps/03-speech'
 import { metered } from '../src/cost'
-import { describeSystemPrompt } from '../src/prompts'
+import { describeSystemPrompt, ON_SCREEN_TEXT_RULE } from '../src/prompts'
 import { allowedNames, loadGlossary, peopleAndPlaces } from '../src/glossary'
 import { shotsFromCuts, type Shot } from '../src/steps/02-shots'
 
@@ -41,7 +41,7 @@ describe('describeSystemPrompt', () => {
   it('drops the SAME rule and asks for on-screen text only when it is legible', () => {
     const t = describeSystemPrompt({ maxWords: 8, knownNames: [], language: 'en' })
     expect(t).not.toContain('SAME')
-    expect(t).toContain('Never invent text.')
+    expect(t).toContain('Never invent or guess text.')
     expect(t).toContain('"Darkness."')
     expect(t).toContain('Output: one line, at most 8 words, no preamble, no quotes.')
     expect(t).toContain('Reply in English.')
@@ -53,7 +53,11 @@ describe('describeSystemPrompt', () => {
     const plain = describeSystemPrompt({ maxWords: 8, knownNames: [], language: 'en' })
     expect(describeSystemPrompt({ maxWords: 8, knownNames: [], language: 'en', people: '' })).toBe(plain)
     // pinned to main's prompt at e02cf2b (the 0009 prompt Gate C is re-checked against): no glossary, no change
-    expect(describeSystemPrompt({ maxWords: 8, knownNames: ['Sintel'], language: 'en' })).toBe(readFileSync(new URL('./fixtures/describe-prompt-main-e02cf2b.txt', import.meta.url), 'utf8'))
+    // … except DESC-031's on-screen text rule (decision 0013), which replaced that prompt's text line
+    const OLD_TEXT_RULE = '- On-screen text (titles, captions, signs, headlines, screens): only if letters are clearly legible in the frames, quote them verbatim after "Words appear:" — always this label, never "headline:" or "a sign reads". If no legible text is visible, do not mention text at all. Never invent text.'
+    const pinned = readFileSync(new URL('./fixtures/describe-prompt-main-e02cf2b.txt', import.meta.url), 'utf8')
+    expect(pinned).toContain(OLD_TEXT_RULE)
+    expect(describeSystemPrompt({ maxWords: 8, knownNames: ['Sintel'], language: 'en' })).toBe(pinned.replace(OLD_TEXT_RULE, `- ${ON_SCREEN_TEXT_RULE}`))
     expect(plain).toContain('use one stable visible descriptor (e.g. "the woman in the red coat")')
     const t = describeSystemPrompt({ maxWords: 8, knownNames: allowedNames(ed, 40_000), language: 'en', people: peopleAndPlaces(ed, 40_000) })
     expect(t).toContain('refer to a listed person by their look from the list')

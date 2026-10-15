@@ -42,6 +42,35 @@ const ABBR = new Set(['mr', 'mrs', 'ms', 'dr', 'st', 'jr', 'sr', 'prof', 'mt', '
 /** After a single-letter initial ("J. Smith") a capitalised word continues the text — unless it is an article opening the next sentence ("I. A forest."). */
 const ARTICLES = new Set(['a', 'an', 'the', 'der', 'die', 'das', 'ein', 'eine'])
 
+/**
+ * The fixed neutral sentence that stands for on-screen text that is there but not fully legible (DESC-031, decision 0013): verify may
+ * replace a quoted clause with it, never with a corrected quote. It is not a text clause (no ":" and no quote), so textSpans does not
+ * read it and fit, edit and voice treat it as a plain sentence of the description.
+ */
+export const NEUTRAL_TEXT = { en: 'Words appear.', de: 'Text erscheint.' } as const
+/** A neutral sentence (either language) standing as a whole sentence: at the start of the text or after a sentence end. */
+const NEUTRAL = /(?<=^|[.!?…;]["”“»«]?\s+)(?:Words appear|Text erscheint)\.(?=\s|$)/gu
+/** The neutral sentences of `text`, as spans in order (body ''): what verify's guards read in place of a quoted clause. */
+export const neutralSpans = (text: string): TextSpan[] => [...text.matchAll(NEUTRAL)].map((m) => ({ start: m.index, end: m.index + m[0].length, body: '' }))
+/** Adjacent repeats of a neutral sentence said once ("Words appear. Words appear." → "Words appear."; PR #56 review L2). */
+export const collapseNeutral = (text: string) => text.replace(/(?<=^|[.!?…;]["”“»«]?\s+)(Words appear\.|Text erscheint\.)(?:\s+\1)+(?=\s|$)/gu, '$1')
+/**
+ * A shortening that cuts a neutral sentence the original has ("Text erscheint." → "Text."): a sentence of `shortened` made only of
+ * some, not all, of its words (PR #56 review L3). Dropping the sentence whole is fine. The reason, or undefined.
+ */
+export function cutsNeutral(original: string, shortened: string): string | undefined {
+  const bare = (t: string) => t.toLowerCase().replace(/[^\p{L}\s]/gu, ' ').split(/\s+/).filter(Boolean)
+  for (const n of Object.values(NEUTRAL_TEXT)) {
+    if (!neutralSpans(original).some((x) => original.slice(x.start, x.end) === n)) continue
+    const nw = bare(n)
+    for (const sentence of shortened.split(/(?<=[.!?…])\s+/u)) {
+      const w = bare(sentence)
+      if (w.length && w.length < nw.length && w.every((x) => nw.includes(x))) return `cuts "${n}"`
+    }
+  }
+  return undefined
+}
+
 /** One clause: [start, end) in the description, and the on-screen text itself (without label, quotes or the closing period). */
 export interface TextSpan { start: number; end: number; body: string }
 

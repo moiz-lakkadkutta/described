@@ -1,6 +1,6 @@
 # 0008 — On-screen text without the label, trailing modifiers, and "Darkness."
 
-Status: accepted 2026-10-14 — pipeline change plus a describe prompt change; **Gate C must be re-checked** with the new prompt
+Status: accepted 2026-10-14; on-screen text rule amended by 0013 (2026-10-15: quote only when every word is legible) — pipeline change plus a describe prompt change; **Gate C must be re-checked** with the new prompt
 Ticket: DESC-010 follow-ups (docs/titles.md, "Follow-ups from this batch") · Follows: 0003 (Gate C), DESC-017 (text pauses)
 
 ## Problem

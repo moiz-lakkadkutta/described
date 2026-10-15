@@ -4,14 +4,15 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { z } from 'zod'
 import { meter } from '../cost'
-import { textSpans, withoutSpans } from '../textClause'
+import { collapseNeutral, NEUTRAL_TEXT, neutralSpans, TEXT_LABEL, textSpans, withoutSpans, type TextSpan } from '../textClause'
 import { COPULA, GENERAL, LINKING, PLURAL_GENERAL, VERIFY_PROMPT_VERSION, VISIBLE, verifySystemPrompt, verifyUserText } from '../verifyPrompt'
 import { parseDescription, replyText, type Converse, type RawReply } from './04-describe'
 
 /**
  * Visual verify pass (DESC-027, docs/decisions/0010-verify-pass.md). After a shot is described, one more Qwen3-VL Converse call
  * with the same key frames and the draft: delete every detail the frames do not show (verifyPrompt.ts). Deterministic guards
- * (checkVerified) keep the draft whenever the reply adds a word, changes on-screen text, is empty or grows. Part of the describe
+ * (checkVerified) keep the draft whenever the reply adds a word, changes on-screen text (other than replacing a quote that is not fully
+ * legible with the neutral "Words appear.", DESC-031), is empty or grows. Part of the describe
  * step (describeShots calls verifyReply per shot), so the frames are already in hand and a re-run is served from cache/verify/.
  * Converse: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html
  * ImageBlock: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ImageBlock.html
@@ -77,7 +78,60 @@ export function parseVerifyReply(reply: string): Verified | undefined {
   try { const r = VerifyJson.safeParse(JSON.parse(reply.slice(a, b + 1))); return r.success ? r.data : undefined } catch { return undefined }
 }
 
-const clauses = (t: string) => textSpans(t).map((s) => t.slice(s.start, s.end).trim())
+/**
+ * The on-screen text of a description, in order: each quoted text clause as written (label and text), and each neutral sentence
+ * ("Words appear." / "Text erscheint.", NEUTRAL_TEXT) as itself — what guard 2 compares. A neutral sentence inside a text clause
+ * (`Words appear: "Words appear."`) is part of the clause.
+ */
+const textUnits = (t: string): (TextSpan & { neutral: boolean })[] => {
+  const quoted = textSpans(t)
+  const neutral = neutralSpans(t).filter((n) => !quoted.some((q) => n.start < q.end && n.end > q.start))
+  return [...quoted.map((q) => ({ ...q, neutral: false })), ...neutral.map((n) => ({ ...n, neutral: true }))].sort((a, b) => a.start - b.start)
+}
+const unitText = (t: string, u: TextSpan) => t.slice(u.start, u.end).trim()
+/** The words of an unlabelled clause before its text — its carrier action ("A man reads a note" of `A man reads a note: "MEET ME".`); '' for a labelled clause. */
+function carrierOf(t: string, u: TextSpan): string {
+  const clause = t.slice(u.start, u.end), at = u.body ? clause.indexOf(u.body) : -1
+  if (at < 0) return ''
+  return clause.slice(0, at).replace(new RegExp(TEXT_LABEL.source, 'giu'), ' ').replace(/[\s:,;"“„«»]+$/u, '').trim()
+}
+/**
+ * Guard 2 (DESC-031): the reply's on-screen text against the draft's, unit by unit and in order. A quoted clause may stay verbatim
+ * or become the language's neutral sentence (NEUTRAL_TEXT) — never a corrected quote; a neutral sentence stays as it is; adjacent
+ * clauses with no carrier between them may become one neutral sentence (parseDescription collapses repeats, review L2). Any other
+ * change (a word of the quote changed, a clause dropped, added, the other language's sentence) is undefined. Returns the draft
+ * clauses the reply replaced, and `wordsDraft`: the draft with each replaced clause written as its carrier (the words before its
+ * text, review M2) and the neutral sentence — what the word guards compare the reply against, so "A man reads a note. Words appear."
+ * keeps the action of `A man reads a note: "MEET ME".` while every other word still has to come from the draft.
+ */
+export function textUnitsChecked(draft: string, reply: string, language: 'en' | 'de'): { replaced: string[]; wordsDraft: string } | undefined {
+  const d = textUnits(draft), r = textUnits(reply)
+  const neutral = NEUTRAL_TEXT[language]
+  const same = (i: number, k: number) => !!d[i] && !!r[k] && r[k]!.neutral === d[i]!.neutral && unitText(reply, r[k]!) === unitText(draft, d[i]!)
+  const replaced: string[] = []
+  const groups: [number, number][] = [] // [first, last] draft units replaced by one neutral sentence
+  let i = 0
+  for (let k = 0; k < r.length; k++, i++) {
+    if (same(i, k)) continue
+    if (!d[i] || d[i]!.neutral || !r[k]!.neutral || unitText(reply, r[k]!) !== neutral) return undefined
+    const first = i
+    while (d[i + 1] && !draft.slice(d[i]!.end, d[i + 1]!.start).trim() && !carrierOf(draft, d[i + 1]!) && !same(i + 1, k + 1) && !(r[k + 1]?.neutral && !d[i + 1]!.neutral)) i++
+    for (let m = first; m <= i; m++) if (!d[m]!.neutral) replaced.push(unitText(draft, d[m]!))
+    groups.push([first, i])
+  }
+  if (i !== d.length) return undefined
+  let wordsDraft = draft
+  for (const [first, last] of [...groups].reverse()) {
+    const before = wordsDraft.slice(0, d[first]!.start).trimEnd(), after = wordsDraft.slice(d[last]!.end).trimStart()
+    const carrier = carrierOf(draft, d[first]!)
+    const opens = !before || /[.!?…;]["”“»«]?$/u.test(before)
+    const piece = carrier ? `${carrier}. ${neutral}` : `${opens ? '' : '. '}${neutral}`
+    wordsDraft = `${before}${before && (carrier || opens) ? ' ' : ''}${piece}${after ? ` ${after}` : ''}`
+  }
+  return { replaced, wordsDraft }
+}
+/** Where each on-screen text unit sits among the description's words: the number of verify tokens before it (review L1). */
+const unitPositions = (t: string) => textUnits(t).map((u) => tokens(t.slice(0, u.start)).length)
 const words = (t: string) => t.trim().split(/\s+/).filter(Boolean).length
 /** The reply's word cap: the draft's length + MAX_ADDED_WORDS within the shot's word budget, never below the draft's own length. */
 export const wordCap = (draft: string, maxWords: number) => Math.max(words(draft), Math.min(words(draft) + MAX_ADDED_WORDS, maxWords))
@@ -85,11 +139,11 @@ export const wordCap = (draft: string, maxWords: number) => Math.max(words(draft
 /** One word of a description: its exact lower-cased form and its sentence (split at . ! ? ;). */
 interface Tok { w: string; s: number }
 /**
- * Verify's own normalisation (round-2 review): the description without its on-screen text clauses, lower-cased, cut into words
+ * Verify's own normalisation (round-2 review): the description without its on-screen text clauses and neutral sentences, lower-cased, cut into words
  * (letters and digits, with inner ' or -: "doesn't", "red-haired"). No stop list and no stemming: "pours" ≠ "pouring", "fires" ≠ "fire".
  */
 export function tokens(t: string): Tok[] {
-  return withoutSpans(t, textSpans(t)).toLowerCase().replace(/’/g, "'").split(/[.!?;…]+/u)
+  return withoutSpans(t, textUnits(t)).toLowerCase().replace(/’/g, "'").split(/[.!?;…]+/u)
     .flatMap((sentence, s) => (sentence.match(/[\p{L}\p{N}]+(?:['-][\p{L}\p{N}]+)*/gu) ?? []).map((w) => ({ w, s })))
 }
 const NEGATIONS = new Set(['not', 'no', 'never', 'nobody', 'nothing', 'none', 'nowhere', 'neither', 'nor', 'cannot', 'without', 'nicht', 'nie', 'niemals', 'niemand', 'nichts', 'nirgends', 'ohne', 'weder'])
@@ -112,7 +166,9 @@ export interface CheckOptions { maxWords: number; names: readonly string[]; lang
  * The guards, in order; any failure keeps the draft (applied false, reason). Words are verify's own exact forms (tokens), without
  * the on-screen text clauses, so a word of the text ("Words appear: DRAGON.") never licenses the same word in the description.
  * 1. empty — nothing left after parseDescription's cleaning (quotes, a SAME reply);
- * 2. on-screen text changed — the text clauses (../textClause) differ from the draft's, in order;
+ * 2. on-screen text changed — the text clauses (../textClause) differ from the draft's, in order, other than a quoted clause replaced
+ *    whole by the language's neutral sentence (NEUTRAL_TEXT: "Words appear." / "Text erscheint."; DESC-031, textUnitsChecked) —
+ *    never a corrected quote;
  * 3. name dropped — a known name (knownNames) the draft said is missing;
  * 4. negation / protected word dropped — the reply has fewer of a negation word (not, n't, no, never, without, nicht, kein…, ohne …)
  *    or a PROTECTED word (almost, tries, appears, seems, looks, statue, toy, reflection, picture … ; fast, versucht, Spiegelbild …) than the draft;
@@ -124,23 +180,26 @@ export interface CheckOptions { maxWords: number; names: readonly string[]; lang
  *    before it): "A girl searches for her dragon." may become "A girl is visible.", never "Her dragon is visible.";
  * 7. more than wordCap(draft, maxWords) words.
  */
-export function checkVerified(draft: string, v: Verified, o: CheckOptions): { text: string; applied: boolean; reason?: string } {
+export function checkVerified(draft: string, v: Verified, o: CheckOptions): { text: string; applied: boolean; reason?: string; textRemoved?: string[] } {
   const lang = o.language ?? 'en'
   const { description: text, sameAsPrev } = parseDescription(v.text, '')
   const keep = (reason: string) => ({ text: draft, applied: false, reason })
   if (sameAsPrev || !/[\p{L}\p{N}]/u.test(text)) return keep('empty')
-  if (JSON.stringify(clauses(text)) !== JSON.stringify(clauses(draft))) return keep('on-screen text changed')
+  const textCheck = textUnitsChecked(draft, text, lang)
+  if (!textCheck) return keep('on-screen text changed')
   const has = (t: string, name: string) => new RegExp(`(?<![\\p{L}])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}])`, 'u').test(t)
   const lost = o.names.filter((n) => has(draft, n) && !has(text, n))
   if (lost.length) return keep(`name dropped: ${lost.join(', ')}`)
   const d = tokens(draft), r = tokens(text)
+  /** The draft's words as the reply may use them: a replaced clause's carrier included (textUnitsChecked). Kept words count from `d`. */
+  const dw = tokens(textCheck.wordsDraft)
   const count = (ts: Tok[], w: string) => ts.filter((t) => t.w === w).length
   const lostAll = [...new Set(d.map((t) => t.w).filter(isKept))].filter((w) => count(r, w) < count(d, w))
   const negLost = lostAll.filter(isNegation), protLost = lostAll.filter((w) => !isNegation(w))
   if (negLost.length) return keep(`negation dropped: ${negLost.join(', ')}`)
   if (protLost.length) return keep(`protected word dropped: ${protLost.join(', ')}`)
 
-  const inDraft = new Set(d.map((t) => t.w))
+  const inDraft = new Set(dw.map((t) => t.w))
   const linking = new Set<string>(LINKING[lang])
   const general = new Set<string>(GENERAL[lang]), plural = new Set<string>(PLURAL_GENERAL[lang])
   const visible = VISIBLE[lang], copula = new Set<string>(COPULA[lang])
@@ -157,26 +216,30 @@ export function checkVerified(draft: string, v: Verified, o: CheckOptions): { te
   const added = [...new Set(r.filter((t, i) => !inDraft.has(t.w) && !freeAt(r, i) && t.w !== visible && !general.has(t.w) && !plural.has(t.w)).map((t) => t.w))]
   if (added.length) return keep(`new words: ${added.join(', ')}`)
 
-  const draftFree = (k: number) => freeAt(d, k) || isKept(d[k]!.w)
+  const draftFree = (k: number) => freeAt(dw, k) || isKept(dw[k]!.w)
   const align = new Array<number | undefined>(r.length)
   let j = 0
   for (let i = 0; i < r.length; i++) {
     const w = r[i]!.w
-    let k = d.findIndex((t, m) => m >= j && t.w === w)
+    let k = dw.findIndex((t, m) => m >= j && t.w === w)
     if (k < 0 && freeAt(r, i)) continue
     if (k < 0 && w === visible) {
-      const why = addedVisible(r, i, d, align, copula, (m) => freeAt(d, m))
+      const why = addedVisible(r, i, dw, align, copula, (m) => freeAt(dw, m))
       if (why) return keep(`"${visible}" added ${why}`)
       continue
     }
-    if (k < 0 && (general.has(w) || plural.has(w))) k = d.findIndex((t, m) => m >= j && !draftFree(m) && (!plural.has(w) || isPlural(t.w, lang)))
+    if (k < 0 && (general.has(w) || plural.has(w))) k = dw.findIndex((t, m) => m >= j && !draftFree(m) && (!plural.has(w) || isPlural(t.w, lang)))
     if (k < 0) return keep('words out of order')
     align[i] = k
     j = k + 1
   }
+  // L1: each text unit keeps its place among the description's words — every matched word before it came from before it in the draft
+  // (linking words are left out: "a" matches the draft's first "a", wherever it was)
+  const pd = unitPositions(textCheck.wordsDraft), pr = unitPositions(text)
+  if (pd.length !== pr.length || pr.some((p, u) => align.some((k, i) => k !== undefined && !freeAt(r, i) && (i < p) !== (k < pd[u]!)))) return keep('on-screen text changed')
   const cap = wordCap(draft, o.maxWords)
   if (words(text) > cap) return keep(`more than ${cap} words`)
-  return { text, applied: true }
+  return { text: collapseNeutral(text), applied: true, ...(textCheck.replaced.length ? { textRemoved: textCheck.replaced } : {}) }
 }
 
 /**
@@ -195,7 +258,8 @@ function addedVisible(r: Tok[], i: number, d: Tok[], align: (number | undefined)
   return undefined
 }
 
-export interface VerifyShot { index: number; draft: string; text: string; removed: string[]; applied: boolean; changed: boolean; cached: boolean; reason?: string; reply?: string }
+/** textRemoved: the draft's quoted on-screen text clauses the applied reply replaced with the neutral sentence (DESC-031). */
+export interface VerifyShot { index: number; draft: string; text: string; removed: string[]; applied: boolean; changed: boolean; cached: boolean; reason?: string; reply?: string; textRemoved?: string[] }
 /** {work}/verify.json: what the pass did to each shot it checked, for the evaluation. usage = this run's fresh calls only. */
 export interface VerifyReport { enabled: boolean; model: string; promptVersion: number; usage: { inputTokens: number; outputTokens: number }; shots: VerifyShot[] }
 export const newVerifyReport = (model: string): VerifyReport => ({ enabled: verifyEnabled(), model, promptVersion: VERIFY_PROMPT_VERSION, usage: { inputTokens: 0, outputTokens: 0 }, shots: [] })
@@ -208,21 +272,23 @@ export async function writeVerifyReport(work: string, report: VerifyReport) {
 export interface VerifyShotInput { index: number; language: 'en' | 'de'; maxWords: number; names: readonly string[] }
 /**
  * One shot: the describe reply `raw` checked against its `frames`. Returns raw unchanged when the pass is off, or when the draft
- * (parseDescription of raw) is SAME, empty or only on-screen text; otherwise raw with the checked text (or the draft, if a guard
+ * (parseDescription of raw) is SAME, empty or only neutral sentences ("Words appear."); a draft of on-screen text only is checked
+ * too (DESC-031: is the quote fully legible and exactly right?); otherwise raw with the checked text (or the draft, if a guard
  * rejected the reply) and the verify call's usage added, so the shot's tokens cover both calls. Each checked shot goes into `report`.
  */
 export async function verifyReply(work: string, frames: Uint8Array[], raw: RawReply, send: Converse, report: VerifyReport, shot: VerifyShotInput): Promise<RawReply> {
   if (!verifyEnabled()) { report.enabled = false; return raw }
   const { description: draft, sameAsPrev } = parseDescription(raw.text, '')
-  if (sameAsPrev || !draft || !withoutSpans(draft, textSpans(draft))) return raw
+  if (sameAsPrev || !draft || (!textSpans(draft).length && !tokens(draft).length)) return raw
   const r = await cachedVerify(work, report.model, verifySystemPrompt(shot.language, wordCap(draft, shot.maxWords)), frames, draft, send)
   report.usage.inputTokens += r.usage.inputTokens
   report.usage.outputTokens += r.usage.outputTokens
   const v = parseVerifyReply(r.text)
-  const checked = v ? checkVerified(draft, v, shot) : { text: draft, applied: false, reason: 'unreadable reply' }
+  const checked: ReturnType<typeof checkVerified> = v ? checkVerified(draft, v, shot) : { text: draft, applied: false, reason: 'unreadable reply' }
   report.shots.push({
     index: shot.index, draft, text: checked.text, removed: v?.removed ?? [], applied: checked.applied, changed: checked.text !== draft, cached: !!r.cached,
     ...(checked.reason ? { reason: checked.reason, reply: v?.text ?? r.text } : {}),
+    ...(checked.textRemoved ? { textRemoved: checked.textRemoved } : {}),
   })
   return { ...raw, text: checked.text, usage: { inputTokens: raw.usage.inputTokens + r.usage.inputTokens, outputTokens: raw.usage.outputTokens + r.usage.outputTokens } }
 }

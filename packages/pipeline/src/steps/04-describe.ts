@@ -8,7 +8,7 @@ import type { Shot } from './02-shots'
 import type { Gap, Word } from './03-speech'
 import { describeSystemPrompt, wordBudget } from '../prompts'
 import { meter } from '../cost'
-import { sentences, stripDarkness, TEXT_LABEL, textSpans } from '../textClause'
+import { collapseNeutral, sentences, stripDarkness, TEXT_LABEL, textSpans } from '../textClause'
 import { allowedNames, glossaryFor, peopleAndPlaces } from '../glossary'
 import { newVerifyReport, verifyModelId, verifyReply, writeVerifyReport, type VerifyReport, type VerifyShotInput } from './04b-verify'
 
@@ -119,7 +119,8 @@ export function alreadySaid(shots: Shot[], texts: string[], i: number): string |
 export interface RawReply { text: string; usage: { inputTokens: number; outputTokens: number }; stopReason?: string; cached?: boolean }
 
 /** Bump when buildDescribeRequest's fixed parts (user text, inferenceConfig) or replyText change, so old replies stop matching. */
-export const DESCRIBE_CACHE_VERSION = 1
+/** 2: DESC-031 (on-screen text quoted only when fully legible). The prompt is hashed too; the bump makes the break explicit. */
+export const DESCRIBE_CACHE_VERSION = 2
 /** Bump when the continuation text (buildDescribeRequest with `said`) changes; hashed only for later parts, so whole shots keep their replies. */
 export const CONTINUATION_CACHE_VERSION = 1
 /**
@@ -363,7 +364,7 @@ export function parseDescription(raw: string, prev: string): { description: stri
     console.warn('describe: dropped on-screen text longer than 8 words:', text.slice(span.start, span.end))
     text = text.slice(0, span.start) + text.slice(span.end).replace(/^\s+/, '')
   }
-  text = stripDarkness(text.replace(new RegExp(`\\s*${TEXT_LABEL.source}\\s*$`, 'iu'), '').trim()) // "Darkness." is the whole description or absent (../textClause)
+  text = collapseNeutral(stripDarkness(text.replace(new RegExp(`\\s*${TEXT_LABEL.source}\\s*$`, 'iu'), '').trim())) // "Darkness." is the whole description or absent (../textClause)
   const a = normalize(text), b = normalize(prev)
   return { description: text, sameAsPrev: !!a && !!b && (a === b || jaccard(a, b) >= 0.8) }
 }
