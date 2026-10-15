@@ -9,6 +9,7 @@ import { pickInitialFocus } from '../focus/memory'
 import { announceFocus, setFocusContext } from '../a11y'
 import { gridModel } from '../models'
 import { rowPad, rowPadY } from '../layout'
+import { strings } from '../strings'
 import { tokens } from '../theme/tokens'
 import { px } from '../theme/scale'
 
@@ -44,9 +45,9 @@ export function Grid({ memoryKey, heading, items, empty, emptyFocusLabel, onOpen
       ) : null}
       {/* offsetFromStart = rowPadY: a focused row lands with room above it for the outline and growth (the scroll view clips). */}
       <SpatialNavigationScrollView useNativeScroll offsetFromStart={px(rowPadY)}>
-        <SpatialNavigationNode orientation="vertical" alignInGrid onActive={() => setFocusContext(heading)}>
+        <SpatialNavigationNode orientation="vertical" alignInGrid onActive={() => setFocusContext(heading, strings.a11y.gridHint)}>
           {/* Room above the first row and below the last for the focus outline and growth (the scroll view clips), like Row's rowPadY. */}
-          <View style={{ paddingHorizontal: px(rowPad), paddingTop: px(rowPadY), paddingBottom: px(rowPadY) }}>
+          <View style={{ paddingHorizontal: px(rowPad), paddingTop: px(rowPadY), paddingBottom: px(rowPadY) }} accessibilityRole="list">
             {m.rows.map((row, i) => (
               <SpatialNavigationNode key={`${memoryKey}:${i}:${items ? 'live' : 'skeleton'}`} orientation="horizontal">
                 <View>

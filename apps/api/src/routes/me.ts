@@ -32,7 +32,7 @@ async function profile(deviceId: string) {
   }
 }
 /** What a new Profile row would hold (schema.prisma defaults), answered for a device with no row yet. */
-export const defaultPrefs = (deviceId: string) => ({ deviceId, adDefault: true, extendedMode: true, voice: 'Joanna', captionKind: 'sdh', captionScale: 100, captionStyle: 'box', firstRunDone: false })
+export const defaultPrefs = (deviceId: string) => ({ deviceId, adDefault: true, extendedMode: true, voice: 'Joanna', captionKind: 'sdh', captionScale: 100, captionStyle: 'system', firstRunDone: false })
 
 me.get('/prefs', async (req, res, next) => {
   try { const id = deviceOf(req); ok(res, (await db.profile.findUnique({ where: { deviceId: id } })) ?? defaultPrefs(id)) } catch (e) { next(e) }

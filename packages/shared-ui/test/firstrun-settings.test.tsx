@@ -197,7 +197,7 @@ describe('settings', () => {
     ['voice', ['Daniel', 'Matthew', 'Vicki', 'Joanna']],
     ['extended', ['Off', 'On']],
     ['capSize', ['125%', '150%', '200%', '100%']],
-    ['capStyle', ['Shadow', 'Box']],
+    ['capStyle', ['Shadow', 'Match Fire TV', 'Box']],
   ])('%s: ► steps forward and wraps, ◄ steps back, each change announced', (id, seq) => {
     const r = create(<Harness />)
     const start = value(r, id)
@@ -210,6 +210,14 @@ describe('settings', () => {
     expect(value(r, id)).toBe(start)
     key('left')
     expect(value(r, id)).toBe(seq.at(-2))
+  })
+
+  it('Caption style: Match Fire TV says where the Fire TV setting lives (DESC-035)', () => {
+    const rows = settingsRows({ prefs: { ...basePrefs, captionStyle: 'system' }, onHearVoice: vi.fn(), onResetFirstRun: vi.fn(), onAbout: vi.fn() })
+    const cap = rows.find((x) => x.id === 'capStyle')!
+    expect(cap.value).toBe('Match Fire TV')
+    expect(cap.hint).toBe(strings.a11y.capStyleHint)
+    expect(cap.hint).toMatch(/Accessibility, Captions/)
   })
 
   it('focus says the row name and its value, then the hint', async () => {

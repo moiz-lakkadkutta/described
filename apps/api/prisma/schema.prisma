@@ -132,7 +132,7 @@ model Profile {
   voice String @default("Joanna")
   captionKind String @default("sdh")
   captionScale Int @default(100)
-  captionStyle String @default("box") // box | shadow
+  captionStyle String @default("system") // system | box | shadow (DESC-035)
   firstRunDone Boolean @default(false)
   progress Progress[]
   listItems ListItem[]

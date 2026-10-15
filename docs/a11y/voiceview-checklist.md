@@ -43,7 +43,7 @@ Launch the app. Each panel: the text is announced when it appears; Select advanc
 
 - [ ] Initial focus. Spoken: "Sintel. <synopsis>. Play Sintel with audio description" (the hero's name and synopsis come first, once).
 - [ ] ► "Play Sintel without description" · ► "Add Sintel to My list". Select → "Sintel added to My list"; Select again → "Sintel removed from My list".
-- [ ] ▼ into a row. Spoken: "Newly described. Open Sintel. 2010. <N> minutes. Audio description" (row name only when you enter the row).
+- [ ] ▼ into a row. Spoken: "Newly described. Open Sintel. 2010. <N> minutes. Audio description. Left and right move along the row" (row name and the hint only when you enter the row).
       ► "Open Tears of Steel. 2012. <N> minutes. Audio description" (no row name). Continue watching cards add "<N> minutes watched".
 - [ ] Hold ► for 2 s: only the card where you stop is spoken.
 - [ ] ◄ from the first card → rail. Spoken: "Go to Home" (▲▼: "Go to Described", "Go to My list", "Go to Settings").
@@ -70,7 +70,7 @@ Rail → "Go to Settings" → Select. Values change with ◄► (Select also ste
 - [ ] ▼ "Hear the voice Joanna. Plays one sentence in this voice". Select: the clip plays (silent until the prompt clips exist — note it).
 - [ ] "Extended mode: Off" (from the first-run choice) ► "Extended mode: On".
 - [ ] "Caption size: 100%" ► 125% ► 150% ► 200% ► 100%. ◄ goes the other way.
-- [ ] "Caption style: Box" ► "Caption style: Shadow".
+- [ ] "Caption style: Match Fire TV. Match Fire TV follows the caption style in Fire TV Settings, Accessibility, Captions. Press left or right to change" ► "Caption style: Box" ► "Caption style: Shadow" ► "Caption style: Match Fire TV" (DESC-035).
 - [ ] Holding ► changes a value once, not repeatedly.
 - [ ] ◄ on a value row changes the value; ◄ on "Hear the voice", "Show the introduction again" or "About and licenses" opens the rail.
 - [ ] "Show the introduction again. Opens the three introduction screens now" (covered in §1).

@@ -20,3 +20,10 @@ export const BackHandler = {
 export const back = { press: () => backListeners.some((l) => l()) }
 export type ViewStyle = Record<string, unknown>
 export type TextProps = Record<string, unknown>
+/** AppState: `appState.set('active')` sends a change to every listener. */
+const appStateListeners = new Set<(s: string) => void>()
+export const appState = { set: (s: string) => { AppState.currentState = s; for (const l of [...appStateListeners]) l(s) }, listeners: appStateListeners }
+export const AppState = {
+  currentState: 'active' as string,
+  addEventListener: (_: 'change', l: (s: string) => void) => { appStateListeners.add(l); return { remove: () => { appStateListeners.delete(l) } } },
+}

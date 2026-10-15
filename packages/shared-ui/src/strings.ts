@@ -55,6 +55,9 @@ export const strings = {
     notSavedRefused: 'That setting couldn\u2019t be saved, so it\u2019s back to what it was.',
     setting: (name: string, value: string) => `${name}: ${value}`,
     settingHint: 'Press left or right to change',
+    rowHint: 'Left and right move along the row',
+    gridHint: 'Left and right move along a row, up and down between rows',
+    capStyleHint: 'Match Fire TV follows the caption style in Fire TV Settings, Accessibility, Captions. Press left or right to change',
     voiceHint: 'For the app\u2019s own prompts and samples. Films keep the voice they were described with. Press left or right to change',
     hearVoice: (voice: string) => `Hear the voice ${voice}`,
     hearVoiceHint: 'Plays one sentence in this voice',
@@ -82,7 +85,7 @@ export const strings = {
   settings: {
     heading: 'Settings', adDefault: 'Description on by default', voice: 'Voice', hearIt: 'Hear it', extended: 'Extended mode', capSize: 'Caption size',
     capStyle: 'Caption style', reset: 'Show the introduction again', about: 'About & licenses', on: 'On', off: 'Off',
-    style: { box: 'Box', shadow: 'Shadow' } as Record<CaptionStyle, string>, scale: (n: number) => `${n}%`,
+    style: { system: 'Match Fire TV', box: 'Box', shadow: 'Shadow' } as Record<CaptionStyle, string>, scale: (n: number) => `${n}%`,
   },
   about: {
     heading: 'About & licenses', films: 'Films', software: 'Font and code', loading: 'Loading the film credits…', close: 'Close',

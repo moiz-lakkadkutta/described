@@ -11,6 +11,7 @@ import {
   SEEK_COMMIT_MS, SEEK_REPEAT_MS, SEEK_STEP_S,
 } from '../playback'
 import { ExtendedScheduler, extendedCues, type ExtendedCue } from '../extended'
+import { captionTheme, useSystemCaptions } from '../platform/captioning'
 import { strings } from '../strings'
 import { tokens } from '../theme/tokens'
 import { scrimBands } from '../theme/scrim'
@@ -74,14 +75,12 @@ export interface PlayerProps {
 
 /**
 /**
- * Captions as Settings chose them: size (100–200 %) and style. Box (default, PLAN §8) is the token box; Shadow is a
- * lighter box (cueShadowBox), since bare text is unreadable on bright video. TODO(kit): switch Shadow to a text shadow
- * once CueTheme has one.
+ * Captions as Settings chose them (platform/captioning.ts `captionTheme`): Match Fire TV follows the viewer's system
+ * caption style while system captions are on (DESC-035), else the Box; Box is the token box; Shadow is a lighter box
+ * (cueShadowBox), since bare text is unreadable on bright video. TODO(kit): switch Shadow to a text shadow once
+ * CueTheme has one. Size is 100–200 % (of the system size under Match Fire TV).
  */
-export const cueTheme = (prefs: Pick<Prefs, 'captionScale' | 'captionStyle'>) => ({
-  fontFamily: tokens.type.caption.family, primaryColor: tokens.color.text, userScale: prefs.captionScale / 100,
-  boxColor: prefs.captionStyle === 'shadow' ? tokens.color.cueShadowBox : tokens.color.cueBox,
-})
+export const cueTheme = captionTheme
 /**
  * Player: full-bleed video through the kit. AD is an audio rendition chosen by role; captions and description text
  * are text tracks chosen by kind and HLS characteristics; the kit's CueOverlay draws them. Chrome (title, bar,
@@ -95,6 +94,7 @@ export const cueTheme = (prefs: Pick<Prefs, 'captionScale' | 'captionStyle'>) =>
  */
 export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgress, onPrefs, speak, stopSpeaking = noop, prefetch = noop, cueAudioUrl, descriptionsUrl, onNowPlaying }: PlayerProps) {
   const ref = useRef<KitPlayerRef>(null)
+  const systemCaptions = useSystemCaptions()
   const [state, setState] = useState<PlayerState>('idle')
   const [error, setError] = useState(false)
   const [attempt, setAttempt] = useState(0)
@@ -393,7 +393,7 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
         style={{ flex: 1 }}
       />
       <CueOverlay active={visibleCues} primaryTrackId={selection.shown} scale={scale} safeInset={{ x: Math.round(tokens.layout.safeX * scale), y: Math.round(insetY * scale) }}
-        theme={cueTheme(prefs)} />
+        theme={cueTheme(prefs, systemCaptions)} />
 
       <View testID="chrome" pointerEvents="none" accessibilityElementsHidden={!chromeShown} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: chromeShown ? 1 : 0 }}>
         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: px(200) }}>{[...bands].reverse().map((c) => <View key={c} style={{ flex: 1, backgroundColor: c }} />)}</View>

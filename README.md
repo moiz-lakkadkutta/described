@@ -72,6 +72,19 @@ Remove it with `cd infra && AWS_PROFILE=described-dev npx cdk destroy described-
   transport ("Alexa, pause / resume / fast forward / rewind / restart"; the voice re-check of fast forward, rewind and restart
   is pending, TASKS.md DESC-008) through an Android MediaSession module; a draft Fire TV
   catalog feed at `GET /catalog/fire-tv.xml` (catalog integration is partner-only, [fire-os-bindings](docs/platform/fire-os-bindings.md)).
+- **Fire TV integrations** ([fire-os-bindings](docs/platform/fire-os-bindings.md)):
+  1. Launch intents / deep links (`described://…`) — verified on the stick (device run 2026-10-10).
+  2. Android MediaSession — remote media keys verified (2026-10-10); Alexa voice transport re-check pending.
+  3. **Fire TV caption settings** — captions follow Settings › Accessibility › Captions (colours, size, font) through
+     Android's `CaptioningManager` (`apps/expo/modules/described-captioning`); Settings › Caption style "Match Fire TV"
+     is the default, Box or Shadow chosen in the app wins, and colours are clamped to 4.5:1 contrast. **Pending** device
+     check ([DESC-035](docs/device-checks/DESC-035.md) §1).
+  4. **VoiceView** — every focusable has an `aria-label` stating its purpose and a role; focus, hints, row and grid
+     usage hints, title facts and state changes are spoken (focus moves in JS, so the app announces it); focus order is
+     spatial with focus memory. **Pending** device check ([DESC-035](docs/device-checks/DESC-035.md) §2).
+
+  Fire TV Recommendations was retired by Amazon in May 2025, and Content Personalization is partner-only, so neither is
+  built ([friction](docs/friction/2026-10-15-fire-tv-recommendations-retired-may-2025-docs-404-only-on-wayback.md)).
 
 ## How it works
 

@@ -7,10 +7,10 @@ import type { Prefs } from '@described/contracts'
 import { configureRemote } from '../src/focus/remote'
 import { BUFFERING_ANNOUNCE_MS, PENDING_SEEK_MS, Player, type PlayerProps } from '../src/screens/Player'
 import { SEEK_COMMIT_MS } from '../src/playback'
-import { createNowPlayingSink } from '../src/platform'
+import { configurePlatform, createNowPlayingSink, type SystemCaptions } from '../src/platform'
 import { strings } from '../src/strings'
 import { tokens } from '../src/theme/tokens'
-import { a11yCalls, back } from './stubs/react-native'
+import { a11yCalls, appState, back } from './stubs/react-native'
 import { kit } from './stubs/kit'
 import { remote } from './stubs/space-navigation'
 import { title } from './fixtures'
@@ -715,5 +715,44 @@ describe('caption style (Settings → Caption style)', () => {
     expect(overlay()).toMatchObject({ boxColor: tokens.color.cueShadowBox, userScale: 1 })
     expect(tokens.color.cueShadowBox).not.toBe(tokens.color.cueBox)
     expect(Number(/,\s*([\d.]+)\)$/.exec(tokens.color.cueShadowBox)![1])).toBeGreaterThan(0.3)
+  })
+  describe('Match Fire TV (DESC-035)', () => {
+    const fireTv = (o: Partial<SystemCaptions> = {}): SystemCaptions => ({
+      enabled: true, fontScale: 1.5, locale: 'en-US', ...o,
+      style: { foregroundColor: 0xffffff00 | 0, backgroundColor: 0xff000000 | 0, windowColor: null, edgeType: 'none', edgeColor: null, typeface: 'serif' },
+    })
+    let send: ((s: SystemCaptions) => void) | undefined
+    let unsubscribed = 0
+    const bind = (now: SystemCaptions | null) => configurePlatform({ captioning: { current: () => now, subscribe: (cb) => { send = cb; return () => { unsubscribed++ } } } })
+    beforeEach(() => { send = undefined; unsubscribed = 0 })
+    afterEach(() => configurePlatform({}))
+    it('follows the Fire TV caption style while Fire TV captions are on', () => {
+      bind(fireTv())
+      mount({ prefs: { ...prefs, captionStyle: 'system' } })
+      expect(overlay()).toMatchObject({ fontFamily: 'serif', primaryColor: 'rgba(255,255,0,1)', boxColor: 'rgba(0,0,0,1)', userScale: 1.5 })
+    })
+    it('changes in Fire TV Settings reach a playing title; unmount unsubscribes', () => {
+      bind(fireTv({ enabled: false }))
+      mount({ prefs: { ...prefs, captionStyle: 'system' } })
+      expect(overlay()).toMatchObject({ boxColor: tokens.color.cueBox, userScale: 1 })
+      act(() => send!(fireTv()))
+      expect(overlay()).toMatchObject({ primaryColor: 'rgba(255,255,0,1)', userScale: 1.5 })
+      act(() => { r.unmount(); r = TestRenderer.create(<></>) })
+      expect(unsubscribed).toBe(1)
+    })
+    it('re-reads Fire TV settings when the app comes back to the foreground (changed while away, no listener event)', () => {
+      let now = fireTv({ enabled: false })
+      configurePlatform({ captioning: { current: () => now, subscribe: () => () => {} } })
+      mount({ prefs: { ...prefs, captionStyle: 'system' } })
+      expect(overlay()).toMatchObject({ boxColor: tokens.color.cueBox })
+      now = fireTv()
+      act(() => { appState.set('background'); appState.set('active') })
+      expect(overlay()).toMatchObject({ primaryColor: 'rgba(255,255,0,1)', userScale: 1.5 })
+    })
+    it('Box chosen in Settings wins', () => {
+      bind(fireTv())
+      mount({ prefs: { ...prefs, captionStyle: 'box' } })
+      expect(overlay()).toMatchObject({ boxColor: tokens.color.cueBox, primaryColor: tokens.color.text, userScale: 1 })
+    })
   })
 })

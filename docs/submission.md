@@ -60,7 +60,9 @@ On the TV, a React Native app (Expo, Fire OS) plays it through
 [`@moizp/vega-media-kit`](https://github.com/moiz-lakkadkutta/vega-media-kit), our open-source player and cue-overlay
 library (the Player screen plays through its `KitPlayer` and `CueOverlay`). Fire TV integrations: Android deep links
 (`described://title/{slug}`, `described://play/{slug}?t=…`), an Android MediaSession module for remote media keys and
-Alexa transport, and a draft Fire TV catalog feed in case Amazon accepts us for catalog
+Alexa transport, captions that follow the viewer's Fire TV caption settings (Android `CaptioningManager`, integration
+3, pending device check), VoiceView support (integration 4: purpose labels, roles, spoken focus and usage hints, pending
+device check — [DESC-035](device-checks/DESC-035.md)), and a draft Fire TV catalog feed in case Amazon accepts us for catalog
 integration ([fire-os-bindings](platform/fire-os-bindings.md)). On the stick (device run 2026-10-10, release build): deep
 links and the remote's media keys passed, and the MediaSession module compiles in the release build; Alexa voice transport
 was inconclusive on 2026-10-14 — the session stayed up but no voice command reached the app (TASKS.md DESC-008, commit
@@ -203,7 +205,7 @@ Dev tooling listed in [docs/aws.md](aws.md): Claude Code.
 |---|---|
 | Public repo, MIT at root, README ≤ 10 steps, architecture, "what's new since Aug 31" | README has all three; repo is public |
 | Runs on Fire OS; Vega documented as experimental | Fire OS; Vega in [0004](decisions/0004-vega-deferred.md) |
-| ≥ 3 Fire TV platform integrations, each with a screenshot or log in the README | **At risk — 2 implemented** (launch intents / deep links; MediaSession). Deep links and media keys passed on the stick (device run 2026-10-10, checks 12–13); Alexa voice transport inconclusive (2026-10-14); catalog integration is partner-only (draft feed only); Personalization is not feasible on Fire OS before the freeze ([fire-os-bindings](platform/fire-os-bindings.md)). The audio-track selector is not counted: it is HLS playback, not a platform integration. The README has no evidence section yet. TODO(human): which photos or logcat lines from the device runs go in the README as evidence? |
+| ≥ 3 Fire TV platform integrations, each with a screenshot or log in the README | **At risk — 4 implemented, 2 verified** (1 launch intents / deep links; 2 MediaSession; 3 Fire TV caption settings via CaptioningManager — **pending** device check; 4 VoiceView — **pending** device check, [DESC-035](device-checks/DESC-035.md)). Fire TV Recommendations was retired by Amazon in May 2025 (docs 404). Deep links and media keys passed on the stick (device run 2026-10-10, checks 12–13); Alexa voice transport inconclusive (2026-10-14); catalog integration is partner-only (draft feed only); Personalization is not feasible on Fire OS before the freeze ([fire-os-bindings](platform/fire-os-bindings.md)). The audio-track selector is not counted: it is HLS playback, not a platform integration. The README has no evidence section yet. TODO(human): which photos or logcat lines from the device runs go in the README as evidence? |
 | Video < 3:00, public, on the device; Vega moment | [video-script.md](video-script.md); no Vega moment, by decision 0004. **Known risk:** runbook §9 says "public on YouTube/Vimeo"; our upload is unlisted |
 | Text: what, how, who, impact with a cited number | This file |
 | Tracks declared; Open Source section with repo, tag, handle, upstream PR | Above; tag `v0.1.0` and upstream PR #136 done; npm is TODO(human) |

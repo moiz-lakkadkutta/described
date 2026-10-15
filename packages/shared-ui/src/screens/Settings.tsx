@@ -31,7 +31,7 @@ export function settingsRows({ prefs, onHearVoice, onResetFirstRun, onAbout }: O
     { id: 'hearIt', name: S.hearIt, value: prefs.voice, label: strings.a11y.hearVoice(prefs.voice), hint: strings.a11y.hearVoiceHint, press: () => onHearVoice(prefs.voice) },
     value('extended', S.extended, onOff(prefs.extendedMode), () => ({ extendedMode: !prefs.extendedMode })),
     value('capSize', S.capSize, S.scale(prefs.captionScale), (d) => ({ captionScale: step(SCALES, prefs.captionScale, d) })),
-    value('capStyle', S.capStyle, S.style[prefs.captionStyle], (d) => ({ captionStyle: step(CaptionStyle.options, prefs.captionStyle, d) })),
+    { ...value('capStyle', S.capStyle, S.style[prefs.captionStyle], (d) => ({ captionStyle: step(CaptionStyle.options, prefs.captionStyle, d) })), hint: strings.a11y.capStyleHint },
     { id: 'reset', name: S.reset, value: '', label: S.reset, hint: strings.a11y.resetIntroHint, press: onResetFirstRun },
     { id: 'about', name: S.about, value: '', label: strings.a11y.about, press: onAbout },
   ]

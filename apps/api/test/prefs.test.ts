@@ -39,6 +39,11 @@ describe('PUT /me/prefs', () => {
     expect(update).toHaveBeenCalledWith({ where: { id: 'p1' }, data: { firstRunDone: true, extendedMode: false, captionStyle: 'shadow' } })
     expect(res.body.data).toMatchObject({ firstRunDone: true, extendedMode: false, captionStyle: 'shadow' })
   })
+  it('accepts Match Fire TV (captionStyle "system", DESC-035)', async () => {
+    const res = await http().put('/me/prefs').set('x-device-id', 'fireos-abc').send({ captionStyle: 'system' })
+    expect(res.status).toBe(200)
+    expect(update).toHaveBeenCalledWith({ where: { id: 'p1' }, data: { captionStyle: 'system' } })
+  })
   it.each([[{ captionStyle: 'neon' }], [{ voice: 'Brian' }], [{ captionScale: 175 }]])('rejects %j', async (body) => {
     const res = await http().put('/me/prefs').send(body)
     expect(res.status).toBe(400)

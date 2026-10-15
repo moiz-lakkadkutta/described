@@ -1,0 +1,23 @@
+// Local Expo module, autolinked from apps/expo/modules (expo-modules-autolinking `nativeModulesDir`), same shape as
+// described-media-session. Uses only the framework android.view.accessibility.CaptioningManager (API 19+; the
+// CaptionStyle colour/window getters are API 21+): no Gradle dependencies.
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'dev.moizp.described'
+version = '0.1.0'
+
+android {
+  namespace "dev.moizp.described.captioning"
+  defaultConfig {
+    versionCode 1
+    versionName '0.1.0'
+  }
+}
+
+dependencies {
+  // Plain JVM tests of CaptionSnapshot (no Android classes): ./gradlew :described-captioning:testReleaseUnitTest
+  testImplementation 'junit:junit:4.13.2'
+}
