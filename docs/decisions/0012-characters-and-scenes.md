@@ -219,3 +219,36 @@ deterministic and also apply from fit), on `sintel-90-210` and the held-out `tos
 - fit's fallback (`actionSentence`) takes the FIRST sentence with an action that fits, not the shortest, so a side detail ("Smoke rises.")
   never wins over the main action.
 - packet.json records `voicedShots`; `score` reads "not voiced" from it, falling back to the raters' "On time: n/a" for older packets.
+
+### Review round 3, g11 (2026-10-15)
+
+Evidence: the re-gate from describe still failed — `sintel-90-210-g11` 19 / 29 (bar 21; 9 shots not voiced, 5 plot events lost) and the
+held-out `tos-390-510-g11` 20 / 30 (6 not voiced, 2 plot events lost). Four faults traced to fit, 06-voice and the sentence guard, each
+replayed offline from the g11 artefacts in `packages/pipeline/test/gate-c-g11.test.ts` (recorded scene reply, recorded Nova Lite shortenings,
+recorded clip lengths; no AWS call).
+
+| Failure | Root cause | Rule now |
+|---|---|---|
+| tos 29 "In the Cluttered tech lab, man with glasses shouts, … in a cluttered tech lab." | fit's **scene pause** (`scenePauses` → `placedAction` → `withPlace`): Nova Lite's label is sentence-case ("Cluttered tech lab"); `withPlace` put "the" before it without lower-casing, and never checked that the action already says the place (fit's own merge did; the scene pause did not) | **`placeLead`** (sceneSetting): the label lower-cased (unless its first word is a name or all capitals); its own article kept; "the" for a single place noun, a glossary setting or a return; none for a plural head ("In cathedral ruins"); else "a" / "an" ("In a cluttered tech lab"); "on" for a surface ("On a stone balcony"). **`withPlace` returns an action that already says the place unchanged** (statesPlace on the label's place nouns), so no caller can say it twice. tos 29's pause is now its own description |
+| tos 22 "Dark, rope-laced industrial shaft." from "Dark, rope-laced industrial shaft; man in black jacket adjusts device." | **06-voice's overrun shortening** (`shortenSentences`) popped the last clause, the only one with a verb; the guard's check 3 failed open (a word from a verbless clause) | **`shortenKeepingAction`** (05-fit, used by 06-voice's overrun shortening, its text-split rest and afterClips' on-time shortening): the deterministic shortening only when it keeps a verb of the text (keepsAction); else fit's `actionSentence` — which now also takes a clause after a semicolon as a sentence ("Man in black jacket adjusts device."); else the text unchanged, so voice makes it a pause or drops it, never a setting-only cue |
+| Sintel 12 "Man speaks, tent." from "Old man speaks, dim tent." | **fit's deterministic shortener** (Nova Lite's "Man speaks. Tent dims." was rightly rejected, "dims" is a new word — that is the line in the fit log): `shortenPlain` dropped both listed adjectives, leaving a bare noun after the comma; the guard accepted it (the comma was the original's). Not the edit pass, not voice, not `stripBareLead` | `shortenPlain` keeps an adjective that opens the last words of a clause ("…, dim tent."); **check 6** rejects a shortening whose sentence ends on a one-word clause after a comma that was longer in the original; and later in a scene whose place was said, fit drops a trailing verbless clause naming that place (`withoutTrailingPlace`, like `withoutPlacePhrases` for an opening phrase). Shot 12 is "Old man speaks." (the slot held 4 words) |
+| Articles: "Man holds staff." (Sintel 4), "Small tan dragon bleeds on rooftop." (22), "… climbs rooftop" (19) | **Not a shortening fault**: the describer wrote them without articles (described.json, kept by verify: "Old man holds staff; young woman watches.", "Small tan dragon bleeds on rooftop."); fit only dropped "Old" from shot 4. For 19 the edit pass did propose "…, in a grey tank top and brown trousers, climbs a rooftop." and `editReadsAsSentences` rejected it as a "new list comma after trousers" | **Check 7**: a shortening (Nova Lite's or the deterministic one, fit or 06-voice) that leaves out a / an / the while keeping a later word of its phrase is rejected ("Dragon roars." from "A small tan dragon roars."; any article stands for any). The edit guard allows a comma right before the verb when an earlier comma opened the phrase it closes. A missing article in the describer's own text is the describe prompt's to fix (owned elsewhere); shortening neither invents nor drops one |
+| (item E) verbless lines | the guard's check 3 fails open; check 4 only stops a place alone | **Check 5** (English): a sentence of a shortening with no verb, cut from a sentence of the original that has one, is rejected. A sentence the describer wrote without a verb ("Snowy mountains.") stays acceptable, kept whole or shortened; the describer's own verbless descriptions are not judged here |
+
+This reverses one line of the 2026-10-15 amendment: 06-voice's "Dark, rope-laced industrial shaft." (passed on g10, failed on g11) is now
+rejected by check 5. Sweep of every recorded shortened or edited final cue in the test fixtures (g10, g11, A2, r2; 61 cues): checks 5–7
+flag g11 "Man speaks, tent." and "Dark, rope-laced industrial shaft." (both runs), g10 "The woman with red hair." (an edit) and tos-g10
+"Man in blue and yellow gear swings near organ pipes." (drops "A"); nothing else.
+
+Replay (fit → edit → 06-voice offline; the recorded clips, 282 ms a word + 781 ms otherwise; tos shot 22's 10-word clip, replaced in the
+run, taken as 5100 ms / speech 4950 from its 4-word remnant's 2616 ms, which reproduces the run's shortening):
+
+| Clip | Shot | Before (replay = run) | After |
+|---|---|---|---|
+| sintel-90-210-g11 | 12 | Man speaks, tent. | Old man speaks. |
+| tos-390-510-g11 | 22 | Dark, rope-laced industrial shaft. | Man in black jacket adjusts device. |
+| tos-390-510-g11 | 29 (scene pause) | In the Cluttered tech lab, man with glasses shouts, then looks up, surrounded by glowing green and purple displays in a cluttered tech lab. | Man with glasses shouts, then looks up, surrounded by glowing green and purple displays in a cluttered tech lab. |
+
+No other voiced cue changes in either replay (19 and 24 cues). Shots 4, 19 and 22 of Sintel are unchanged: their missing articles are the
+describer's. Consequence: these are deterministic fit / voice / guard changes, so a re-gate can start **from fit** on the g11 copies; the
+article and capitalisation fixes at describe and the cue polish (another session) need a describe re-run.

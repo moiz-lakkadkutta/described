@@ -215,9 +215,10 @@ describe('clip duration', () => {
     const measureMs = vi.fn(async (file: string) => (await readFile(file, 'utf8')).split(/\s+/).length * 560)
     await voice(ctx(), { synthesize, measureMs })
     const out = await readCues()
-    // no shots.json here: the text cue cannot lead (it may not start before the cue), so the action moves 400 ms later
-    expect(out.map((c) => [c.startMs, c.extended, c.text, c.shotIndex])).toEqual([[0, true, 'Words appear: SINTEL.', 0], [400, false, 'Snowy mountains.', 0], [2000, false, 'Smoke rises.', 1]])
-    expect(out[1]!.endMs).toBeLessThanOrEqual(2000 - 150 + OVERRUN_TOLERANCE_MS) // the action stays within its limit
+    // review round 3 (g11): the action is never shortened to its setting ("Snowy mountains." was voiced here before); no sentence with the
+    // action fits the slot, so the action becomes a pause beside the text cue (decision 0012: never a setting-only cue)
+    expect(out.map((c) => [c.startMs, c.extended, c.text, c.shotIndex])).toEqual([[0, true, 'Words appear: SINTEL.', 0], [0, true, 'Snowy mountains. A lone figure walks left, carrying a spear.', 0], [2000, false, 'Smoke rises.', 1]])
+    expect(out[1]).not.toHaveProperty('limitMs')
     expect(out[0]).not.toHaveProperty('limitMs')
     expect(out[0]!.endMs).toBe(3 * 560) // the text cue's own clip
     // every clip sits in its cue's slot
@@ -233,7 +234,8 @@ describe('clip duration', () => {
     await writeFile(`${work}/moving_cue_7.mp3`, 'stale')
     await writeCues([{ ...cue(1000, SHOT0, 3500), shotIndex: 0 }])
     await voice(ctx(), { synthesize: async (t) => new TextEncoder().encode(t), measureMs: async (f) => (await readFile(f, 'utf8')).split(/\s+/).length * 560 })
-    expect((await readCues()).map((c) => [c.startMs, c.extended, c.text])).toEqual([[600, true, 'Words appear: SINTEL.'], [1000, false, 'Snowy mountains.']])
+    // review round 3 (g11): no setting-only "Snowy mountains."; no sentence with the action fits, so the action is a pause
+    expect((await readCues()).map((c) => [c.startMs, c.extended, c.text])).toEqual([[600, true, 'Words appear: SINTEL.'], [1000, true, 'Snowy mountains. A lone figure walks left, carrying a spear.']])
     expect((await readdir(work)).filter((f) => f.startsWith('moving_'))).toEqual([])
   })
 })
@@ -258,7 +260,7 @@ describe('voice: on-screen text and pauses after measured clips (DESC-020 follow
     // 'Smoke rises.' from 0 measures 1200 ms (speech 1000 ms = its limit): kept, its file ending at the next cue's start, 1200 (decision 0009)
     const SHOT0 = 'Snowy mountains. A lone figure walks left, carrying a spear. Words appear: SINTEL.'
     const out = await run([{ ...cue(0, 'Smoke rises.', 1050), shotIndex: 0 }, { ...cue(1200, SHOT0, 5000), shotIndex: 1 }], { synthesize: perWord.synthesize, measureMs: async (f) => { const t = await readFile(f, 'utf8'); return t === 'Smoke rises.' ? 1200 : t.split(/\s+/).length * 560 }, measureSpeechMs: async (f) => ((await readFile(f, 'utf8')) === 'Smoke rises.' ? 1000 : undefined) })
-    expect(out.map((c) => [c.startMs, c.extended, c.text])).toEqual([[0, false, 'Smoke rises.'], [1200, true, 'Words appear: SINTEL.'], [1600, false, 'Snowy mountains.']])
+    expect(out.map((c) => [c.startMs, c.extended, c.text])).toEqual([[0, false, 'Smoke rises.'], [1200, true, 'Words appear: SINTEL.'], [1600, false, 'A lone figure walks left.']]) // the action, not the setting (review round 3, g11)
   })
   it('a cue starting at or after the title\'s end (probe.json) is not voiced: no Polly call, no clip, not in cues.json (so not mixed)', async () => {
     await writeFile(`${work}/probe.json`, JSON.stringify({ format: { duration: '3.000' } }))
@@ -296,7 +298,7 @@ describe('voice: on-screen text and pauses after measured clips (DESC-020 follow
     // a text cue split in voice from the previous cue counts too
     const SHOT0 = 'Snowy mountains. A lone figure walks left, carrying a spear. Words appear: SINTEL.'
     const two = await run([{ ...cue(0, SHOT0, 3000), shotIndex: 0 }, { ...cue(5604, 'Snowy mountains. A figure walks, falls. Words appear: SINTEL.', 16720), shotIndex: 1 }])
-    expect(two.map((c) => [c.startMs, c.extended, c.text])).toEqual([[0, true, 'Words appear: SINTEL.'], [400, false, 'Snowy mountains.'], [5604, false, 'Snowy mountains. A figure walks, falls.']])
+    expect(two.map((c) => [c.startMs, c.extended, c.text])).toEqual([[0, true, 'Words appear: SINTEL.'], [0, false, 'A lone figure walks left.'], [5604, false, 'Snowy mountains. A figure walks, falls.']]) // the action, not the setting (review round 3, g11)
   })
 })
 

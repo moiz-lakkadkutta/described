@@ -236,7 +236,9 @@ describe('shortening', () => {
   })
   it('falls back to deterministic shortening when the model changes a fact or does not fit', async () => {
     expect(await safeShorten('A dragon with a bloodied wing lands, then roars.', 7, () => 'Dragon with bloodied wings lands.')).toBe('A dragon with a bloodied wing lands.')
-    expect(await safeShorten('A dragon with a bloodied wing lands, then roars.', 7, () => 'Dragon with bloodied wing lands.')).toBe('Dragon with bloodied wing lands.')
+    // review round 3 (g11): a reply that drops an article of a noun it keeps is not used; the deterministic one keeps them
+    expect(await safeShorten('A dragon with a bloodied wing lands, then roars.', 7, () => 'Dragon with bloodied wing lands.')).toBe('A dragon with a bloodied wing lands.')
+    expect(await safeShorten('A dragon with a bloodied wing lands, then roars.', 7, () => 'A dragon with a wing lands.')).toBe('A dragon with a wing lands.')
     expect(await safeShorten('A dragon with a bloodied wing lands, then roars.', 3, () => 'Dragon with bloodied wing lands.')).toBe('A dragon with a bloodied wing lands.') // still too long; fit() moves on
   })
   it('drops adjectives first, then clauses from the end, and only ever removes words', () => {
@@ -263,8 +265,8 @@ describe('on-screen text clause', () => {
     expect(shortenDeterministic(SHOT0, 6)).toBe(SHOT0) // only 2 of the action's 10 words would stay beside the text: split instead
     expect(shortenDeterministic('Words appear: "Berlin, 1989." A tall man slowly crosses the old bridge.', 9)).toBe('Words appear: "Berlin, 1989." A man crosses the bridge.')
     // the model shortener never sees the clause; its reply is checked against the rest, then the clause is put back
-    const model = vi.fn(() => 'Snowy mountains. Lone figure walks left.') // r2's recorded shortening, minus the text it dropped
-    expect(await safeShorten(SHOT0, 10, model)).toBe('Snowy mountains. Lone figure walks left. Words appear: SINTEL.')
+    const model = vi.fn(() => 'Snowy mountains. A figure walks left.') // r2's recorded shortening, minus the text it dropped, with its article (review round 3)
+    expect(await safeShorten(SHOT0, 10, model)).toBe('Snowy mountains. A figure walks left. Words appear: SINTEL.')
     expect(model).toHaveBeenCalledWith('Snowy mountains. A lone figure walks left, carrying a spear.', 7)
     // a model reply that drops or rewrites the text is impossible: it only shortens the rest
     expect(await safeShorten(SHOT0, 10, () => 'Snowy mountains. A lone figure walks.')).toBe('Snowy mountains. A lone figure walks. Words appear: SINTEL.') // 6 of 10 kept
@@ -314,8 +316,8 @@ describe('on-screen text clause', () => {
     ])
     // the text fits but not beside any of the action: still split, the action shortened (both at the gap start: a 4-word gap has no room to delay 3 words)
     const gaps2 = [{ startMs: 0, endMs: 1950 }, { startMs: 3000, endMs: 6000 }]
-    const two = await fit([shot(SHOT0), shot('Smoke rises.', 1, 3000)], gaps2, (t, n) => safeShorten(t, n, () => 'Figure walks left.'))
-    expect(two.map((c) => [c.startMs, c.extended, c.text])).toEqual([[0, true, 'Words appear: SINTEL.'], [0, false, 'Figure walks left.'], [3000, false, 'Smoke rises.']])
+    const two = await fit([shot(SHOT0), shot('Smoke rises.', 1, 3000)], gaps2, (t, n) => safeShorten(t, n, () => 'A figure walks left.'))
+    expect(two.map((c) => [c.startMs, c.extended, c.text])).toEqual([[0, true, 'Words appear: SINTEL.'], [0, false, 'A figure walks left.'], [3000, false, 'Smoke rises.']])
     // "Snowy mountains." alone drops the action (decision 0012 amendment, 2026-10-15): the action takes the next room in the window (shot
     // end + LATE_MS), the text leads it, and "Smoke rises." has no room left
     const verbless = await fit([shot(SHOT0), shot('Smoke rises.', 1, 3000)], gaps2, (t, n) => safeShorten(t, n, () => 'Mountains walk.'))

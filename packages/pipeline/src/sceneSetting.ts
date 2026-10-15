@@ -1,6 +1,6 @@
 import { contentWords, stem } from './contentWords'
 import { placeStems, placeWordStems, type Glossary } from './glossary'
-import { keepsAction } from './sentenceGuard'
+import { keepsAction, originalVerbs } from './sentenceGuard'
 import { sentences, textSpans } from './textClause'
 import type { Scene } from './steps/04c-scenes'
 
@@ -55,21 +55,51 @@ export function sceneLine(scene: Pick<Scene, 'setting' | 'returning'>): string {
   return scene.returning ? `Back in ${withArticle(label)}.` : `${label[0]!.toUpperCase()}${label.slice(1)}.`
 }
 
+/** Place nouns said with "on" ("On a stone balcony"), not "in". */
+const ON_NOUNS = new Set(['balcony', 'rooftop', 'roof', 'deck', 'bridge', 'platform', 'stage', 'ledge', 'hill', 'hillside', 'mountainside', 'beach', 'field', 'shore', 'pier', 'dock', 'terrace', 'plain', 'island', 'battlefield', 'runway', 'walkway'])
+/**
+ * The phrase that states a scene's place in front of an action (decision 0012, review round 3 g11): "In a cluttered tech lab", "On a stone
+ * balcony", "In the tent", "Back in the lab". The label is lower-cased (Nova Lite writes labels sentence-case: tos-390-510-g11 voiced "In
+ * the Cluttered tech lab") unless its first word is a name (`names`) or all capitals. Article: the label's own, kept; "the" for a single
+ * place noun ("the chamber"), a glossary setting (`settingName`) or a return; none for a plural head ("cathedral ruins"); else "a" / "an"
+ * — a place described by its look is introduced, as a describer would ("In a dim, smoky chamber", the tos edit pass). undefined with no label.
+ */
+export function placeLead(scene: Pick<Scene, 'setting' | 'returning'> & { settingName?: string }, names: readonly string[] = []): string | undefined {
+  const label = scene.setting.trim().replace(/[.!?…]+$/u, '')
+  if (!label) return undefined
+  const ws = label.split(/\s+/)
+  const first = ws[0]!.replace(/[^\p{L}]/gu, '')
+  if (!names.includes(first) && !names.includes(first.replace(/s$/u, '')) && !/^\p{Lu}{2,}$/u.test(first)) ws[0] = ws[0]!.replace(/^\p{Lu}(?=\p{Ll}|[^\p{L}]|$)/u, (c) => c.toLowerCase())
+  const head = ws.at(-1)!.toLowerCase().replace(/[^\p{L}'-]/gu, '')
+  const prep = ON_NOUNS.has(head) ? 'on' : 'in'
+  const lead = scene.returning ? `Back ${prep}` : `${prep[0]!.toUpperCase()}${prep.slice(1)}`
+  if (/^(?:the|a|an)$/iu.test(ws[0]!)) return `${lead} ${scene.returning && !/^the$/iu.test(ws[0]!) ? ['the', ...ws.slice(1)].join(' ') : ws.join(' ')}`
+  const plural = /[^su]s$/u.test(head) && !/(?:ss|us|is)$/u.test(head)
+  const article = scene.returning || scene.settingName || ws.length === 1 ? 'the' : plural ? '' : /^[aeiou]/iu.test(ws[0]!) ? 'an' : 'a'
+  return [lead, article, ws.join(' ')].filter(Boolean).join(' ')
+}
+
 /**
  * The scene's place merged into one sentence with the action (decision 0012 amendment, 2026-10-15): "In the tent, a faint fire glows in a
  * stone pit."; "Back in the lab, Thom runs." on a return. A place is never a cue on its own: g10's "The tent." pause and four "In the
  * tent." cues were failed by all three raters. The first word of the action is lower-cased unless it is a name: one of `names` (the
- * glossary's), all capitals, or capitalised again later in the action ("Man in glasses stares" → "In the lab, man in glasses stares"). undefined when there is no label, no action (no verb of its own), or the action opens with on-screen text.
+ * glossary's), all capitals, or capitalised again later in the action ("Man in glasses stares" → "In the lab, man in glasses stares").
+ * An action that already says the place (a word of the label's places, statesPlace) comes back as it is: no lead, the place said once
+ * (review round 3: tos-390-510-g11 "In the Cluttered tech lab, man … in a cluttered tech lab."). The lead is placeLead's.
+ * undefined when there is no label, no action (no verb of its own), or the action opens with on-screen text.
  */
-export function withPlace(scene: Pick<Scene, 'setting' | 'returning'>, action: string, names: readonly string[] = []): string | undefined {
-  const label = scene.setting.trim().replace(/[.!?…]+$/u, '')
+export function withPlace(scene: Pick<Scene, 'setting' | 'returning'> & { settingName?: string }, action: string, names: readonly string[] = []): string | undefined {
+  const lead = placeLead(scene, names)
   const a = action.trim()
-  const lead = sentences(a)[0] ?? a
-  if (!label || !a || textSpans(a).some((s) => s.start === 0) || !(hasVerb(lead) || !keepsAction(lead, ''))) return undefined
-  const first = a.split(/\s+/)[0]!.replace(/[^\p{L}]/gu, '')
-  const name = names.includes(first) || /^\p{Lu}{2,}$/u.test(first) || new RegExp(`[^.!?…]\\s${first}\\b`, 'u').test(a)
+  const first = sentences(a)[0] ?? a
+  if (!lead || !a || textSpans(a).some((s) => s.start === 0) || !(hasVerb(first) || !keepsAction(first, ''))) return undefined
+  const stems = new Set(placeWordStems(scene.setting))
+  if (scene.settingName) for (const w of placeWordStems(scene.settingName)) stems.add(w)
+  if (statesPlace(a, new Set([...stems].filter((w) => placeStems(w).length)))) return a
+  const word = a.split(/\s+/)[0]!.replace(/[^\p{L}]/gu, '')
+  const name = names.includes(word) || /^\p{Lu}{2,}$/u.test(word) || new RegExp(`[^.!?…]\\s${word}\\b`, 'u').test(a)
   const body = name ? a : a.replace(/^\p{Lu}/u, (c) => c.toLowerCase())
-  return `${scene.returning ? 'Back in' : 'In'} ${withArticle(label)}, ${body}`
+  return `${lead}, ${body}`
 }
 
 /** Light, time and condition words: what a label must not be alone ("darkness", "dim", "night"). */
@@ -124,6 +154,23 @@ export function withoutPlacePhrases(text: string, drop: ReadonlySet<string>, atS
     i = head
   }
   return out.join(' ').replace(/,\s*$/, '').trim()
+}
+
+/**
+ * `text` without a trailing verbless clause that names a place in `drop` (stems), after a comma or semicolon at the end of a sentence:
+ * "Old man speaks, dim tent." → "Old man speaks." once the scene's place was said (decision 0012, review round 3 g11: Sintel shot 12 was
+ * shortened to "Man speaks, tent."). A clause with a verb, a sentence that is only the place (settingLead's case) and other places stay. Pure.
+ */
+export function withoutTrailingPlace(text: string, drop: ReadonlySet<string>): string {
+  if (!drop.size) return text
+  return sentences(text).map((u) => {
+    const m = /^(.*\S)[,;]\s+([^,;]+)$/u.exec(u.trim())
+    if (!m || textSpans(u).length) return u.trim()
+    const clause = m[2]!
+    const verbs = new Set(originalVerbs(u)) // judged in its sentence: "…, climbs a wall in the town." has a verb
+    if (clause.split(/\s+/).some((w) => verbs.has(w.toLowerCase().replace(/[^\p{L}'-]/gu, ''))) || !placeStems(clause).some((w) => drop.has(w))) return u.trim()
+    return `${m[1]!}${/[.!?…]$/u.exec(clause.trim())?.[0] ?? '.'}`
+  }).join(' ')
 }
 
 /**

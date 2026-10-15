@@ -89,9 +89,10 @@ describe('readsAsSentences', () => {
   })
   it('accepts complete sentences that keep a verb', () => {
     expect(readsAsSentences(CREATURE, 'A scaled creature with horns and bloodied wing stares.')).toBeUndefined()
-    expect(readsAsSentences(CREATURE, 'Creature stares as hand reaches toward it.')).toBeUndefined()
+    expect(readsAsSentences(CREATURE, 'A creature stares as a hand reaches toward it.')).toBeUndefined()
+    expect(readsAsSentences(CREATURE, 'Creature stares as hand reaches toward it.')).toMatch(/drops an article/) // review round 3 (g11)
     expect(readsAsSentences(SHOT0, 'Snowy mountains. A lone figure walks left.')).toBeUndefined() // a verbless sentence of the original may stay
-    expect(readsAsSentences(SHOT0, 'Figure walks left, carrying a spear.')).toBeUndefined() // a comma the original had
+    expect(readsAsSentences(SHOT0, 'A figure walks left, carrying a spear.')).toBeUndefined() // a comma the original had
     expect(readsAsSentences('Tent interior. Fire glows.', 'Tent glows.')).toBe('joins two sentences: "Tent glows."') // sintel-90-210 A2's recorded shortening: rejected since DESC-029
   })
   it('lets a verbless original stay verbless, without new list commas', () => {

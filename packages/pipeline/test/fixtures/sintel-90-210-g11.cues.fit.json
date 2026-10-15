@@ -1,0 +1,179 @@
+[
+  {
+    "startMs": 0,
+    "endMs": 7575,
+    "text": "In the snowy mountains, a small lone figure carrying a spear walks across a white mountainside deep in snow.",
+    "extended": false,
+    "wordCount": 19,
+    "shotIndex": 0,
+    "limitMs": 16720
+  },
+  {
+    "startMs": 7725,
+    "endMs": 11550,
+    "text": "The figure falls face down in the snow, motionless.",
+    "extended": false,
+    "wordCount": 9,
+    "shotIndex": 1,
+    "limitMs": 16720
+  },
+  {
+    "startMs": 11700,
+    "endMs": 15150,
+    "text": "A fire pit glows at the tent’s centre.",
+    "extended": false,
+    "wordCount": 8,
+    "shotIndex": 2,
+    "limitMs": 16720
+  },
+  {
+    "startMs": 19509,
+    "endMs": 21084,
+    "text": "Man holds staff.",
+    "extended": false,
+    "wordCount": 3,
+    "shotIndex": 4,
+    "limitMs": 21209
+  },
+  {
+    "startMs": 25833,
+    "endMs": 25933,
+    "text": "An old man stirs a pot over fire as a young woman watches.",
+    "extended": true,
+    "wordCount": 13,
+    "shotIndex": 5,
+    "event": true
+  },
+  {
+    "startMs": 37240,
+    "endMs": 38440,
+    "text": "Figures sit.",
+    "extended": false,
+    "wordCount": 2,
+    "shotIndex": 9,
+    "limitMs": 38989
+  },
+  {
+    "startMs": 50869,
+    "endMs": 52444,
+    "text": "Man speaks, tent.",
+    "extended": false,
+    "wordCount": 3,
+    "shotIndex": 12,
+    "limitMs": 52950
+  },
+  {
+    "startMs": 54229,
+    "endMs": 56554,
+    "text": "A young woman looks down.",
+    "extended": false,
+    "wordCount": 5,
+    "shotIndex": 13,
+    "limitMs": 58669
+  },
+  {
+    "startMs": 61119,
+    "endMs": 62694,
+    "text": "Rooftops stretch far.",
+    "extended": false,
+    "wordCount": 3,
+    "shotIndex": 14,
+    "limitMs": 62829
+  },
+  {
+    "startMs": 65833,
+    "endMs": 68533,
+    "text": "A woman lifts a wooden plank.",
+    "extended": false,
+    "wordCount": 6,
+    "shotIndex": 15,
+    "limitMs": 69000
+  },
+  {
+    "startMs": 72083,
+    "endMs": 78158,
+    "text": "A young woman with short red hair takes an apple from a large dark sleeve.",
+    "extended": false,
+    "wordCount": 15,
+    "shotIndex": 16,
+    "limitMs": 83079
+  },
+  {
+    "startMs": 79813,
+    "endMs": 82888,
+    "text": "She holds a spiky green fruit, turns.",
+    "extended": false,
+    "wordCount": 7,
+    "shotIndex": 17,
+    "limitMs": 83079
+  },
+  {
+    "startMs": 87542,
+    "endMs": 90617,
+    "text": "A woman runs, leaps, climbs a wall.",
+    "extended": false,
+    "wordCount": 7,
+    "shotIndex": 18,
+    "limitMs": 91950
+  },
+  {
+    "startMs": 90617,
+    "endMs": 90717,
+    "text": "a young woman with short red hair, in a grey tank top, in brown trousers climbs rooftop",
+    "extended": true,
+    "wordCount": 17,
+    "shotIndex": 19
+  },
+  {
+    "startMs": 92042,
+    "endMs": 92142,
+    "text": "A small tan dragon with a bleeding wing sits on a tiled rooftop, blood pooling beneath it.",
+    "extended": true,
+    "wordCount": 17,
+    "shotIndex": 20
+  },
+  {
+    "startMs": 99200,
+    "endMs": 101900,
+    "text": "Small tan dragon bleeds on rooftop.",
+    "extended": false,
+    "wordCount": 6,
+    "shotIndex": 22,
+    "limitMs": 105250
+  },
+  {
+    "startMs": 102050,
+    "endMs": 104000,
+    "text": "A woman looks up.",
+    "extended": false,
+    "wordCount": 4,
+    "shotIndex": 23,
+    "limitMs": 105250
+  },
+  {
+    "startMs": 104000,
+    "endMs": 104100,
+    "text": "A young woman kneels beside a bleeding dragon.",
+    "extended": true,
+    "wordCount": 8,
+    "shotIndex": 24,
+    "event": true
+  },
+  {
+    "startMs": 106350,
+    "endMs": 113550,
+    "text": "A tan dragon with a bleeding wing sits on a stone rooftop as a hand reaches toward it.",
+    "extended": false,
+    "wordCount": 18,
+    "shotIndex": 25,
+    "limitMs": 114900
+  },
+  {
+    "startMs": 113550,
+    "endMs": 113650,
+    "text": "A small tan dragon with a bleeding wing sits on a stone rooftop as a gloved hand reaches toward it.",
+    "extended": true,
+    "wordCount": 20,
+    "shotIndex": 26
+  }
+]

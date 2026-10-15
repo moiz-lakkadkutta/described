@@ -183,10 +183,10 @@ describe('voice: a cue dropped for overrun with a plot event (DESC-020)', () => 
   })
   it('a setting-only dropped shot stays dropped (voice)', async () => {
     // 'Tent interior. Fire glows.' into 1.05 s: the slot shortening would keep only "Tent interior.", a place alone — rejected since the
-    // decision 0012 amendment (2026-10-15: "only a place"), so it stays unshortened, overruns and, being no event, is dropped; 'Tent glows.'
-    // into 0.5 s cannot be shortened and is not an event
+    // decision 0012 amendment (2026-10-15: "only a place"); since review round 3 (g11) voice then takes the first sentence with the action,
+    // "Fire glows.", which fits (the setting is never the cue on its own); 'Tent glows.' into 0.5 s cannot be shortened and is not an event
     const out = await run([cue(0, 'Old man pours broth.', 5000), cue(10_000, 'Red-haired woman smiles.', 11_000), cue(20_000, 'Tent interior. Fire glows.', 21_050), cue(30_000, 'Tent glows.', 30_500)])
-    expect(out.map((c) => c.text)).toEqual(['Old man pours broth.'])
+    expect(out.map((c) => c.text)).toEqual(['Old man pours broth.', 'Fire glows.'])
   })
   // PR #29 review H1: after the on-screen text is split off, the pause voices the rest (said once), at the action start
   it('a dropped event whose on-screen text was split off voices the rest in its own pause, after the text cue\'s lead', async () => {
