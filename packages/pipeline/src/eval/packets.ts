@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url'
 import { execa } from 'execa'
 import { cueAudioFile } from '../cues'
 import type { Shot } from '../steps/02-shots'
-import type { Gap, Word } from '../steps/03-speech'
+import type { Gap, GapsVad, Word } from '../steps/03-speech'
+import type { Segment } from '../voiceActivity'
 import type { Described } from '../steps/04-describe'
 import type { FitCue } from '../steps/05-fit'
 import { ffmpegSpeechMs, ffprobeClipMs, NEXT_CUE_SPACING_MS, OVERRUN_TOLERANCE_MS } from '../steps/06-voice'
@@ -14,8 +15,8 @@ import { ffmpegSpeechMs, ffprobeClipMs, NEXT_CUE_SPACING_MS, OVERRUN_TOLERANCE_M
 /**
  * DESC-030: N byte-identical blind rater packets from an evaluation work dir (TypeScript port of the DESC-024 packet builder).
  * Per shot: a five-frame contact sheet and the full frames, dialogue ±2 s, the dialogue-free gaps, and for the voiced text the
- * numbers decision 0009's "fits" rule needs (limit, clip end, speech end by silencedetect −45 dB d=0.05, next dialogue word, next
- * placed cue) — or "Not voiced" and the text it would have voiced.
+ * numbers decision 0009's "fits" rule needs (limit, clip end, speech end by silencedetect −45 dB d=0.05, next speech — the
+ * earlier of the next Transcribe word and the next unlabelled speech segment (decision 0014) — and the next placed cue) — or "Not voiced" and the text it would have voiced.
  */
 
 export const RUBRIC_TEMPLATE = join(dirname(fileURLToPath(import.meta.url)), 'RUBRIC.template.md')
@@ -26,7 +27,11 @@ export const CUT_LAG_MS = 120
 const SHEET_FRAME_W = 560, SHEET_GAP = 8, SHEET_LABEL_H = 42, SHEET_BOTTOM = 8
 const FONT = '/System/Library/Fonts/Supplemental/Arial.ttf'
 
-export interface PacketData { shots: Shot[]; described: Described[]; gaps: Gap[]; words: Word[]; cues: FitCue[]; fitCues: FitCue[] }
+export interface PacketData {
+  shots: Shot[]; described: Described[]; gaps: Gap[]; words: Word[]; cues: FitCue[]; fitCues: FitCue[]
+  /** Speech Transcribe missed (gaps.vad.json, decision 0014); [] for a work dir made before it. */
+  unlabelled?: Segment[]
+}
 export interface Line { start: number; end: number; speaker?: string; text: string }
 
 export const frameTimes = (s: Shot) => FRAME_FRACTIONS.map((f) => s.startMs + (s.endMs - CUT_LAG_MS - s.startMs) * f)
@@ -55,6 +60,16 @@ export function limitOf(c: FitCue, cues: readonly FitCue[]): number | undefined 
   return lims.length ? Math.min(...lims) : undefined
 }
 export const nextWordMs = (words: readonly Word[], t: number) => { const w = words.find((x) => x.start * 1000 >= t); return w && Math.round(w.start * 1000) }
+/**
+ * The next speech after a cue start t: the earlier of the next Transcribe word and the first unlabelled speech segment still running
+ * at t (its start, which is before t when the cue starts inside it). undefined: none.
+ */
+export function nextSpeech(words: readonly Word[], unlabelled: readonly Segment[], t: number): { ms: number; kind: 'word' | 'unlabelled speech' } | undefined {
+  const w = nextWordMs(words, t)
+  const u = [...unlabelled].sort((a, b) => a.startMs - b.startMs).find((x) => x.endMs > t)
+  if (u && (w === undefined || u.startMs < w)) return { ms: u.startMs, kind: 'unlabelled speech' }
+  return w === undefined ? undefined : { ms: w, kind: 'word' }
+}
 
 /** The label of a shot that is not rated (decision 0003: score = usable / (shots − same-as-previous)). */
 export const SKIP_LABEL = 'Same as previous shot — not rated'
@@ -94,6 +109,8 @@ export function shotsMd(d: PacketData, speechMs: ReadonlyMap<number, number | un
     const near = lines.filter((l) => l.end * 1000 > a - 2000 && l.start * 1000 < b + 2000)
     md.push(`- Dialogue near the shot (±2 s): ${near.length ? '' : 'none'}`)
     for (const l of near) md.push(`  - ${t(l.start * 1000)} – ${t(l.end * 1000)} (${l.speaker ?? 'speaker ?'}): "${l.text}"`)
+    const un = (d.unlabelled ?? []).filter((x) => x.endMs > a - 2000 && x.startMs < b + 2000)
+    if (un.length) md.push(`- Unlabelled speech (not transcribed) near the shot (±2 s): ${un.map((x) => `${t(x.startMs)} – ${t(x.endMs)} (${x.startMs}–${x.endMs} ms)`).join(', ')} — loud centred voice-band sound with no transcript (a shout, a cry); it may be a false positive, see RUBRIC.md`)
     const g = d.gaps.filter((x) => x.endMs > a && x.startMs < b + 1000)
     md.push(`- Dialogue-free gaps overlapping the shot (+1 s): ${g.map((x) => `${x.startMs}–${x.endMs} ms`).join(', ') || 'none'}`)
     if (desc) md.push(`- Model description (before placement and shortening): "${desc.description}"${desc.sameAsPrev ? ' — marked same-as-previous' : ''}`)
@@ -103,10 +120,10 @@ export function shotsMd(d: PacketData, speechMs: ReadonlyMap<number, number | un
         md.push(`- **Voiced — rate this:** "${c.text}" — ${c.startMs}–${c.endMs} ms (audio length), EXTENDED${c.event ? ' (plot event)' : ''} (the film pauses while it plays), ${c.text.split(/\s+/).filter(Boolean).length} words`)
         continue
       }
-      const lim = limitOf(c, d.cues), sp = speechMs.get(k), nw = nextWordMs(d.words, c.startMs), np = placedAfter(c, d.cues)
+      const lim = limitOf(c, d.cues), sp = speechMs.get(k), ns = nextSpeech(d.words, d.unlabelled ?? [], c.startMs), np = placedAfter(c, d.cues)
       md.push(`- **Voiced — rate this:** "${c.text}" — placed in a gap, starts ${c.startMs} ms`)
       md.push(`  - Limit: ${lim ?? 'none'}${lim === undefined ? '' : ' ms'} · clip end: ${c.endMs} ms${lim === undefined ? '' : ` (limit + ${OVERRUN_TOLERANCE_MS} ms = ${lim + OVERRUN_TOLERANCE_MS})`}`
-        + ` · speech end: ${sp === undefined ? c.endMs : c.startMs + sp} ms · next dialogue word: ${nw === undefined ? 'none' : `${nw} ms`}`
+        + ` · speech end: ${sp === undefined ? c.endMs : c.startMs + sp} ms · next speech: ${ns === undefined ? 'none' : `${ns.ms} ms (${ns.kind})`}`
         + ` · next placed cue: ${np ? `${np.startMs} ms` : 'none'}`)
     }
     if (skip.has(i)) md.push(`- **${SKIP_LABEL}.** Nothing new to voice; leave its pre-filled "skip" row in scores.md as it is.`)
@@ -163,6 +180,7 @@ export async function loadPacketData(work: string): Promise<PacketData> {
     shots: await readJson<Shot[]>(work, 'shots.json'), described: await readJson<Described[]>(work, 'described.json'),
     gaps: await readJson<Gap[]>(work, 'gaps.json'), words: await readJson<Word[]>(work, 'words.json', []),
     cues: await readJson<FitCue[]>(work, 'cues.json'), fitCues: await readJson<FitCue[]>(work, 'cues.fit.json', []),
+    unlabelled: (await readJson<Partial<GapsVad>>(work, 'gaps.vad.json', {})).unlabelledSpeech ?? [],
   }
 }
 

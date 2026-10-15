@@ -25,6 +25,8 @@ jobs:
         with: { node-version: 22 }
       - run: pnpm install --frozen-lockfile && pnpm build
         working-directory: vega-media-kit
+      # ffmpeg for the real-ffmpeg tests (voice activity, clip duration); they are skipped without it
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:generate
       - run: pnpm typecheck

@@ -5,7 +5,7 @@ import { readFile, stat, writeFile } from 'node:fs/promises'
 import { download, upload } from '../s3'
 import type { Ctx } from './index'
 import { meter, transcribeUsd } from '../cost'
-import { gapMs, splitGaps, unlabelledSpeech, VAD, type Segment } from '../voiceActivity'
+import { gapMs, splitGaps, unlabelledSpeech, VAD, type Segment, type VadResult } from '../voiceActivity'
 export interface Word { start: number; end: number; text: string; speaker?: string }
 export interface Gap { startMs: number; endMs: number }
 
@@ -22,16 +22,35 @@ export async function speechMap(ctx: Ctx) {
   const probe = JSON.parse(await readFile(`${ctx.work}/probe.json`, 'utf8')) as { format: { duration: string } }
   if (words.length === 0) console.warn('no speech in clip — the whole duration is one gap') // no dialogue (e.g. Sintel 0:00–1:00): words.json = [], gaps = whole clip
   await writeFile(`${ctx.work}/words.json`, JSON.stringify(words))
-  const fromWords = gapsFromWords(words, Math.round(parseFloat(probe.format.duration) * 1000))
-  const vad = await gapsWithVoiceActivity(`${ctx.work}/mezz.mp4`, fromWords, { on: process.env.SPEECH_VAD !== '0', signal: ctx.signal })
-  await writeFile(`${ctx.work}/gaps.json`, JSON.stringify(vad.gaps, null, 2))
-  await writeFile(`${ctx.work}/gaps.vad.json`, JSON.stringify(vad, null, 2))
+  await regap(ctx.work, { signal: ctx.signal })
 }
+
+/**
+ * Rebuilds gaps.json and gaps.vad.json from words.json and probe.json in a work dir: gapsFromWords, then the voice-activity split
+ * (unless SPEECH_VAD=0). Never calls Transcribe. speechMap ends with it; `pnpm gate-c run` calls it on each evaluation copy, so an
+ * evaluation of a dir made before decision 0014 still gets the split.
+ */
+export async function regap(work: string, { on = process.env.SPEECH_VAD !== '0', signal, detect }: { on?: boolean; signal?: AbortSignal; detect?: Detect } = {}): Promise<GapsVad> {
+  const words = JSON.parse(await readFile(`${work}/words.json`, 'utf8')) as Word[]
+  const probe = JSON.parse(await readFile(`${work}/probe.json`, 'utf8')) as { format: { duration: string } }
+  const fromWords = gapsFromWords(words, Math.round(parseFloat(probe.format.duration) * 1000))
+  const vad = await gapsWithVoiceActivity(`${work}/mezz.mp4`, fromWords, words, { on, signal, detect })
+  await writeFile(`${work}/gaps.json`, JSON.stringify(vad.gaps, null, 2))
+  await writeFile(`${work}/gaps.vad.json`, JSON.stringify(vad, null, 2))
+  return vad
+}
+
+type Detect = (mezz: string, gaps: Gap[], words: Word[], signal?: AbortSignal) => Promise<VadResult>
 
 /** {work}/gaps.vad.json: how gaps.json was made. `source` 'transcribe' = Transcribe only (SPEECH_VAD=0, or ffmpeg failed: `note`). */
 export interface GapsVad {
   source: 'transcribe' | 'transcribe+vad'
   note?: string
+  /** The mix is mono (L = R): the check was skipped (decision 0014). */
+  mono?: boolean
+  /** Clip median of mid − side, and the absolute floor used (dBFS). */
+  centreMedianDb?: number
+  floorDb?: number
   options: typeof VAD
   /** Gaps from Transcribe's words alone (gapsFromWords). */
   transcribeGaps: Gap[]
@@ -50,20 +69,27 @@ export interface GapsVad {
 export async function gapsWithVoiceActivity(
   mezz: string,
   fromWords: Gap[],
-  { on = true, signal, detect = unlabelledSpeech }: { on?: boolean; signal?: AbortSignal; detect?: (mezz: string, gaps: Gap[], signal?: AbortSignal) => Promise<Segment[]> } = {},
+  words: Word[],
+  { on = true, signal, detect = unlabelledSpeech }: { on?: boolean; signal?: AbortSignal; detect?: Detect } = {},
 ): Promise<GapsVad> {
-  const only = (note: string): GapsVad => ({ source: 'transcribe', note, options: VAD, transcribeGaps: fromWords, unlabelledSpeech: [], gaps: fromWords, gapMs: { transcribe: gapMs(fromWords), final: gapMs(fromWords), lost: 0 } })
+  const only = (note: string, extra: Partial<GapsVad> = {}): GapsVad => ({ source: 'transcribe', note, ...extra, options: VAD, transcribeGaps: fromWords, unlabelledSpeech: [], gaps: fromWords, gapMs: { transcribe: gapMs(fromWords), final: gapMs(fromWords), lost: 0 } })
   if (!on) return only('SPEECH_VAD=0')
-  let speech: Segment[]
-  try { speech = await detect(mezz, fromWords, signal) } catch (e) {
+  let r: VadResult
+  try { r = await detect(mezz, fromWords, words, signal) } catch (e) {
     if (signal?.aborted) throw e
     console.warn(`speech: voice-activity check failed, gaps are Transcribe's only: ${(e as Error).message.split('\n')[0]}`)
     return only(`voice-activity check failed: ${(e as Error).message.split('\n')[0]}`)
   }
+  const measured = { centreMedianDb: r.centreMedianDb, floorDb: r.floorDb }
+  if (r.mono) {
+    console.warn(`speech: the mix is mono (median mid − side ${r.centreMedianDb} dB); voice-activity check skipped, gaps are Transcribe's only`)
+    return only('mono mix: voice-activity check skipped', { mono: true, ...measured })
+  }
+  const speech = r.speech
   const gaps = splitGaps(fromWords, speech)
   const lost = gapMs(fromWords) - gapMs(gaps)
   if (speech.length) console.log(`speech: ${speech.length} unlabelled speech segment(s) Transcribe missed; ${(lost / 1000).toFixed(1)} s of gap time removed`)
-  return { source: 'transcribe+vad', options: VAD, transcribeGaps: fromWords, unlabelledSpeech: speech, gaps, gapMs: { transcribe: gapMs(fromWords), final: gapMs(gaps), lost } }
+  return { source: 'transcribe+vad', mono: false, ...measured, options: VAD, transcribeGaps: fromWords, unlabelledSpeech: speech, gaps, gapMs: { transcribe: gapMs(fromWords), final: gapMs(gaps), lost } }
 }
 
 /** Identifies what a transcript was made from: sha256 of the mezzanine bytes + language. A retry or re-run with both unchanged does not pay Transcribe again. */

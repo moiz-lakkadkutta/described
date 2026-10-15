@@ -31,7 +31,8 @@ A run passes when **at least 70 % of the shots are majority-usable**: rated usab
    re-scored under it.
 2. **Run on a copy.** `pnpm gate-c run <source> <eval> --cap 0.30` copies the inputs of an existing work dir (never its describe
    cache, frames or outputs) and runs describe → scenes → fit → edit → voice there, under the pipeline meter, with a hard spend cap. It
-   never publishes and never writes the DB. `--dry-run` first.
+   never publishes and never writes the DB. Before the first step it rebuilds the copy's gaps with the voice-activity split
+   (decision 0014; no Transcribe; `--keep-gaps` to keep the copied ones). `--dry-run` first.
 3. **Build blind packets.** `pnpm gate-c packets <eval> <out> --raters 3` gives each rater an identical folder: contact sheets and
    frames per shot, dialogue ±2 s, the gaps, the numbers "fits" needs (limit, clip end, speech end, next dialogue word, next placed
    cue), the voiced text or "Not voiced" with the text it would have voiced. Packets name no model or run.

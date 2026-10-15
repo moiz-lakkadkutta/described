@@ -22,18 +22,31 @@ no paid service) and splits each gap around what it finds, with the same 200 ms 
   ([pan](https://ffmpeg.org/ffmpeg-filters.html#pan), [highpass / lowpass](https://ffmpeg.org/ffmpeg-filters.html#highpass))
 - **Voiced frame.** mid ≥ the gap's own **median** mid level + **6 dB** (a loud action scene raises its own bar) **and**
   mid ≥ side + **8 dB** (the sound is centred; mid power ≥ 6.3 × side power).
+- **Absolute floor.** A voiced frame is also ≥ the median mid level of Transcribe's word frames − **20 dB** (−60 dBFS when there
+  are no words), so a faint sound in a near-silent gap, far over that gap's median, is not speech.
+- **Mono.** A mono source upmixed to stereo (L = R after 01-probe's `-ac 2`) has no side, so every loud sound would look centred.
+  When the clip's median mid − side is above **30 dB**, the check is skipped with a warning, Transcribe's gaps are kept and
+  `gaps.vad.json` records `mono: true`. (The four clips measure 2.0 to 8.6 dB.)
 - **Segment.** Voiced frames joined across holes ≤ **50 ms**, kept when ≥ **500 ms** (single impacts, knocks and squeaks stay out).
   These are "unlabelled speech".
 - **Output.** `gaps.json` holds the final gaps (fit, describe's word budget, the API's Gap rows read it unchanged).
   `gaps.vad.json` records `source` (`transcribe+vad`, or `transcribe` with a `note` when off or when ffmpeg failed), the options,
   Transcribe's gaps, the unlabelled speech, the final gaps and the gap time lost. A work dir without `gaps.vad.json` predates this
-  decision and keeps working (nothing requires it). Gate C evaluation copies carry it.
+  decision and keeps working (nothing requires it). `regap(work)` (03-speech) rebuilds both files from `words.json` and
+  `probe.json` without calling Transcribe; speechMap ends with it.
+- **Gate C.** `pnpm gate-c run` calls `regap` on the evaluation copy after copying and before the first step, so an evaluation of
+  a source dir made before this decision gets the split; `--keep-gaps` keeps the copied gaps. The manifest (`gate-c.json`)
+  records `gapsSource`. `speech` is not an evaluation step. The packets list "Unlabelled speech (not transcribed)" near each shot,
+  and each placed cue's "next speech" is the earlier of the next Transcribe word and the next unlabelled segment. Decision 0009 and
+  the rubric add: "fits" also means before unlabelled speech; a rater who sees from the frames and timing that a segment is not
+  speech rates as if it were not there and says so in the note.
 - **Failure.** If ffmpeg cannot read the mezzanine, the step does not fail: the gaps stay Transcribe's, with a warning and the note.
 - **Off:** `SPEECH_VAD=0`.
 
 ## Evidence
 
-Measured with the code in this PR on the four recorded clips (read from the work dirs, nothing modified). "Cues over it" counts
+Measured with the code in this PR (absolute floor and mono check included: the numbers did not change; floors −42.3, −63.6,
+−47.5 and −64.1 dBFS, centre medians 2.0, 8.6, 5.4 and 8.0 dB) on the four recorded clips (read from the work dirs, nothing modified). "Cues over it" counts
 the placed (not extended) cues of each clip's latest run that overlap a detected segment, i.e. the cues that move or go.
 
 | Clip | Unlabelled speech found | Gap time, Transcribe → after | Lost | Placed cues over it |
@@ -83,11 +96,10 @@ no longer held out; report it as such. The other three clips had no known misses
 
 ## Consequences
 
-- Existing work dirs keep their old `gaps.json` until the speech step runs again; it reuses the transcript (no Transcribe charge)
-  and writes the new gaps and `gaps.vad.json`. The next Gate C runs (`tos-390-510`, `sintel-90-210`) need that re-run before fit:
-  4 placed cues on each clip move or go.
-- 06-voice's limit is the gap end, so "fits" (0009) now also means before unlabelled speech. The Gate C packets still show only
-  the next Transcribe word; they should show unlabelled speech too (TASKS DESC-032).
+- Existing work dirs keep their old `gaps.json`; nothing rewrites them. The next Gate C runs (`tos-390-510`, `sintel-90-210`)
+  get the new gaps on their copies through `pnpm gate-c run` (no Transcribe, no extra cost); 4 placed cues on each clip move or
+  go. Do **not** use `pnpm pipeline describe --from speech` for this: it runs every later step and publishes.
+- 06-voice's limit is the gap end, so "fits" (0009) now also means before unlabelled speech, and the packets show it.
 - No AWS call is added; the check is not metered (it is local ffmpeg).
 - If the false positives cost too many cues on a full-length film, the next step is a real speech / music / effects classifier,
   not a lower threshold.

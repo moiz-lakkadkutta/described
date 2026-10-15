@@ -36,13 +36,14 @@ program.command('run <sourceSlug> <evalSlug>')
   .option('--steps <list>', `comma-separated, consecutive, from ${EVAL_STEPS.join(',')}`, EVAL_STEPS.join(','))
   .option('--cap <usd>', 'hard spend cap in USD', usd, DEFAULT_CAP_USD)
   .option('--dry-run', 'print what would be copied and run; copy nothing, call nothing')
+  .option('--keep-gaps', 'keep the copied gaps.json; by default the copy\'s gaps are rebuilt from words.json with the voice-activity split (decision 0014; no Transcribe)')
   .option('--lang <en|de>', 'description language (as pnpm pipeline describe)')
   .option('--voice <name>', 'Polly voice (default POLLY_VOICE_EN/DE, else Joanna/Vicki)')
   .option(...WORK_OPT)
-  .action(async (sourceSlug: string, evalSlug: string, o: { steps: string; cap: number; dryRun?: boolean; work?: string; lang?: string; voice?: string }) => {
+  .action(async (sourceSlug: string, evalSlug: string, o: { steps: string; cap: number; dryRun?: boolean; keepGaps?: boolean; work?: string; lang?: string; voice?: string }) => {
     const WORK_ROOT = workRoot(o)
     try {
-      const r = await runGateC({ workRoot: WORK_ROOT, sourceSlug, evalSlug, steps: parseSteps(o.steps), cap: o.cap, dryRun: o.dryRun, ...resolveLanguageAndVoice(o) },
+      const r = await runGateC({ workRoot: WORK_ROOT, sourceSlug, evalSlug, steps: parseSteps(o.steps), cap: o.cap, dryRun: o.dryRun, keepGaps: o.keepGaps, ...resolveLanguageAndVoice(o) },
         { runStep, metered, meter, log: (l) => console.log(l) })
       if (!o.dryRun) console.log(`total: $${r.totalUsd.toFixed(4)}; next: pnpm gate-c packets ${evalSlug} <outDir> --raters 3`)
     } catch (e) {

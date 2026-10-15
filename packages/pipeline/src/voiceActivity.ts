@@ -1,5 +1,5 @@
 import { execa } from 'execa'
-import type { Gap } from './steps/03-speech'
+import type { Gap, Word } from './steps/03-speech'
 
 /**
  * Speech that Transcribe missed (decision 0014). Transcribe gives word timings only for what it recognised; a shout under
@@ -14,9 +14,11 @@ import type { Gap } from './steps/03-speech'
  *   so a loud action scene raises the bar) **and** mid is ≥ `centreDb` over side (the sound is centred);
  * - voiced runs are joined across holes ≤ `bridgeMs` and kept when ≥ `minSpeechMs`; short knocks and impacts stay out.
  * Measured on four recorded clips (decision 0014): both Transcribe misses on Tears of Steel 6:30–8:30 are caught; 0–10 % of gap time is lost.
- * A mono source upmixed to stereo has no side, so only the level test applies there.
+ * - a voiced frame is also ≥ an absolute floor: the median level of Transcribe's word frames − 20 dB (−60 dBFS with no words), so
+ *   a faint sound in a near-silent gap is not speech;
+ * - a mono source (L = R; the clip's median mid − side above 30 dB) is not checked: every loud sound would be centred.
  */
-export interface VadOptions { sampleRate: number; lowHz: number; highHz: number; frameMs: number; centreDb: number; aboveMedianDb: number; minSpeechMs: number; bridgeMs: number }
+export interface VadOptions { sampleRate: number; lowHz: number; highHz: number; frameMs: number; centreDb: number; aboveMedianDb: number; minSpeechMs: number; bridgeMs: number; floorBelowDialogueDb: number; floorNoWordsDb: number; monoCentreDb: number }
 export const VAD: Readonly<VadOptions> = {
   sampleRate: 8000,
   lowHz: 300,
@@ -30,6 +32,12 @@ export const VAD: Readonly<VadOptions> = {
   minSpeechMs: 500,
   /** Voiced frames separated by at most this much unvoiced time are one segment. */
   bridgeMs: 50,
+  /** Absolute floor: a voiced frame is also ≥ the median mid level of Transcribe's word frames − this (a near-silent gap has no bar). */
+  floorBelowDialogueDb: 20,
+  /** The floor when Transcribe found no words. */
+  floorNoWordsDb: -60,
+  /** A clip whose median mid − side is above this is mono (L = R after 01-probe's -ac 2): the centre test means nothing, so no check. */
+  monoCentreDb: 30,
 }
 export interface Segment { startMs: number; endMs: number }
 /** Band-passed mid and side level per frame, dBFS (−120 for digital silence). */
@@ -84,7 +92,7 @@ const median = (xs: number[]) => {
 }
 
 /** Unlabelled speech inside one gap: centred voice-band sound well above the gap's median level, ≥ minSpeechMs after bridging. */
-export function voicedSegments(levels: Levels, gap: Gap, o: VadOptions = VAD): Segment[] {
+export function voicedSegments(levels: Levels, gap: Gap, o: VadOptions = VAD, floorDb = -Infinity): Segment[] {
   const f = levels.frameMs
   const i0 = Math.ceil(gap.startMs / f)
   const i1 = Math.min(levels.midDb.length, Math.floor(gap.endMs / f))
@@ -94,7 +102,7 @@ export function voicedSegments(levels: Levels, gap: Gap, o: VadOptions = VAD): S
   const bar = median(Array.from(mid)) + o.aboveMedianDb
   const runs: Array<[number, number]> = []
   for (let i = i0; i < i1; i++) {
-    const voiced = mid[i - i0]! >= bar && mid[i - i0]! - side[i - i0]! >= o.centreDb
+    const voiced = mid[i - i0]! >= bar && mid[i - i0]! >= floorDb && mid[i - i0]! - side[i - i0]! >= o.centreDb
     if (!voiced) continue
     const last = runs.at(-1)
     if (last && (i - last[1]) * f <= o.bridgeMs) last[1] = i + 1
@@ -131,8 +139,38 @@ export async function measureLevels(mezz: string, signal?: AbortSignal, o: VadOp
   return meter.levels()
 }
 
-/** Unlabelled speech in every gap, in time order. */
-export async function unlabelledSpeech(mezz: string, gaps: Gap[], signal?: AbortSignal, o: VadOptions = VAD): Promise<Segment[]> {
-  const levels = await measureLevels(mezz, signal, o)
-  return gaps.flatMap((g) => voicedSegments(levels, g, o))
+/** The absolute floor: median mid level over the frames inside Transcribe's words − floorBelowDialogueDb; floorNoWordsDb without words. */
+export function dialogueFloorDb(levels: Levels, words: Pick<Word, 'start' | 'end'>[], o: VadOptions = VAD): number {
+  const f = levels.frameMs
+  const xs: number[] = []
+  for (const w of words) for (let i = Math.ceil((w.start * 1000) / f); i < Math.min(levels.midDb.length, Math.floor((w.end * 1000) / f)); i++) xs.push(levels.midDb[i]!)
+  return xs.length ? median(xs) - o.floorBelowDialogueDb : o.floorNoWordsDb
+}
+
+/** Median of mid − side over the clip's audible frames (mid > −100 dBFS); 0 when nothing is audible. */
+export function centreMedianDb(levels: Levels): number {
+  const xs: number[] = []
+  for (let i = 0; i < levels.midDb.length; i++) if (levels.midDb[i]! > -100) xs.push(levels.midDb[i]! - levels.sideDb[i]!)
+  return xs.length ? median(xs) : 0
+}
+
+export interface VadResult {
+  /** L = R: not checked (speech is then empty). */
+  mono: boolean
+  centreMedianDb: number
+  floorDb: number
+  speech: Segment[]
+}
+
+/** Pure: unlabelled speech in every gap, in time order, with the clip-level checks (mono, floor) that decided it. */
+export function findUnlabelledSpeech(levels: Levels, gaps: Gap[], words: Pick<Word, 'start' | 'end'>[], o: VadOptions = VAD): VadResult {
+  const centre = centreMedianDb(levels)
+  const floorDb = dialogueFloorDb(levels, words, o)
+  const mono = centre > o.monoCentreDb
+  return { mono, centreMedianDb: Math.round(centre * 10) / 10, floorDb: Math.round(floorDb * 10) / 10, speech: mono ? [] : gaps.flatMap((g) => voicedSegments(levels, g, o, floorDb)) }
+}
+
+/** Measures the mezzanine with ffmpeg and finds unlabelled speech in every gap. */
+export async function unlabelledSpeech(mezz: string, gaps: Gap[], words: Pick<Word, 'start' | 'end'>[], signal?: AbortSignal, o: VadOptions = VAD): Promise<VadResult> {
+  return findUnlabelledSpeech(await measureLevels(mezz, signal, o), gaps, words, o)
 }

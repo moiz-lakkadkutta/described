@@ -27,6 +27,8 @@ Three causes were found after the result:
    - the clip **file** ends by limit + `OVERRUN_TOLERANCE_MS` (200 ms), before the next dialogue word starts, and before the next
      placed cue starts.
 
+   "Fits" also means before unlabelled speech (decision 0014): speech Transcribe did not transcribe counts as dialogue.
+
    The limit is the one 06-voice uses: the end of the cue's gap, or the next placed cue's start − 150 ms when that is earlier.
    An **extended** cue fits when it is at most 25 words.
 

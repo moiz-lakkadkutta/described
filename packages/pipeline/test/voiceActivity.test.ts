@@ -2,8 +2,8 @@ import { execa } from 'execa'
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { LevelMeter, splitGaps, unlabelledSpeech, vadArgs, VAD, voicedSegments, type Levels } from '../src/voiceActivity'
-import { gapsWithVoiceActivity, mezzMarker, speechMap } from '../src/steps/03-speech'
+import { centreMedianDb, dialogueFloorDb, findUnlabelledSpeech, LevelMeter, splitGaps, unlabelledSpeech, vadArgs, VAD, voicedSegments, type Levels, type VadResult } from '../src/voiceActivity'
+import { gapsWithVoiceActivity, mezzMarker, regap, speechMap } from '../src/steps/03-speech'
 
 /** Levels for a clip of `ms` at 50 ms frames: background mid/side, then [startMs, endMs, midDb, sideDb] events on top. */
 function levels(ms: number, bg: [number, number], events: Array<[number, number, number, number]> = []): Levels {
@@ -105,36 +105,90 @@ describe('vadArgs', () => {
   })
 })
 
+describe('mono and the absolute floor (findUnlabelledSpeech)', () => {
+  it('a mono mix (L = R: side is silence) is flagged and not checked, so loud sound is not all "speech"', () => {
+    const l = levels(10_000, [-40, -120], [[2000, 3000, -20, -120]])
+    expect(centreMedianDb(l)).toBeGreaterThan(VAD.monoCentreDb)
+    expect(findUnlabelledSpeech(l, [whole(10_000)], [])).toMatchObject({ mono: true, speech: [] })
+  })
+  it('a stereo mix is not mono: frames below −100 dBFS do not count toward the centre median', () => {
+    const l = levels(10_000, [-40, -42], [[0, 6000, -120, -120], [7000, 8000, -30, -45]])
+    expect(centreMedianDb(l)).toBeCloseTo(2, 5)
+    expect(findUnlabelledSpeech(l, [whole(10_000)], [])).toMatchObject({ mono: false, speech: [{ startMs: 7000, endMs: 8000 }] })
+  })
+  it('the floor is the median level of Transcribe’s word frames − 20 dB, or −60 dBFS with no words', () => {
+    const l = levels(20_000, [-90, -100], [[10_000, 12_000, -30, -40]]) // words at 10–12 s, mid −30
+    expect(dialogueFloorDb(l, [{ start: 10, end: 12 }])).toBe(-50)
+    expect(dialogueFloorDb(l, [])).toBe(-60)
+  })
+  it('a faint centred sound in a near-silent gap is not speech: it is under the floor though far over the gap median', () => {
+    const l = levels(20_000, [-90, -100], [[2000, 3000, -55, -80], [10_000, 12_000, -30, -40]])
+    const gap = { startMs: 0, endMs: 9800 }
+    expect(voicedSegments(l, gap)).toEqual([{ startMs: 2000, endMs: 3000 }]) // without the floor it would count
+    expect(findUnlabelledSpeech(l, [gap], [{ start: 10, end: 12 }])).toMatchObject({ floorDb: -50, speech: [] })
+    expect(findUnlabelledSpeech(l, [gap], [])).toMatchObject({ floorDb: -60, speech: [{ startMs: 2000, endMs: 3000 }] }) // −55 ≥ −60
+  })
+})
+
 describe('gapsWithVoiceActivity', () => {
   const fromWords = [{ startMs: 0, endMs: 10_000 }]
+  const words = [{ start: 10.5, end: 11, text: 'hi' }]
+  const found = (speech: VadResult['speech'], mono = false): VadResult => ({ mono, centreMedianDb: mono ? 99 : 4, floorDb: -50, speech })
   it('splits Transcribe’s gaps around what the check finds and records it', async () => {
-    const detect = vi.fn(async () => [{ startMs: 4000, endMs: 5000 }])
-    const r = await gapsWithVoiceActivity('m.mp4', fromWords, { detect })
-    expect(detect).toHaveBeenCalledWith('m.mp4', fromWords, undefined)
-    expect(r).toMatchObject({ source: 'transcribe+vad', transcribeGaps: fromWords, unlabelledSpeech: [{ startMs: 4000, endMs: 5000 }], gaps: [{ startMs: 0, endMs: 3800 }, { startMs: 5200, endMs: 10_000 }], gapMs: { transcribe: 10_000, final: 8600, lost: 1400 } })
+    const detect = vi.fn(async () => found([{ startMs: 4000, endMs: 5000 }]))
+    const r = await gapsWithVoiceActivity('m.mp4', fromWords, words, { detect })
+    expect(detect).toHaveBeenCalledWith('m.mp4', fromWords, words, undefined)
+    expect(r).toMatchObject({ source: 'transcribe+vad', mono: false, centreMedianDb: 4, floorDb: -50, transcribeGaps: fromWords, unlabelledSpeech: [{ startMs: 4000, endMs: 5000 }], gaps: [{ startMs: 0, endMs: 3800 }, { startMs: 5200, endMs: 10_000 }], gapMs: { transcribe: 10_000, final: 8600, lost: 1400 } })
     expect(r.options).toEqual(VAD)
   })
   it('SPEECH_VAD=0 (on: false): Transcribe’s gaps, no check run', async () => {
     const detect = vi.fn()
-    expect(await gapsWithVoiceActivity('m.mp4', fromWords, { on: false, detect })).toMatchObject({ source: 'transcribe', note: 'SPEECH_VAD=0', gaps: fromWords, gapMs: { lost: 0 } })
+    expect(await gapsWithVoiceActivity('m.mp4', fromWords, words, { on: false, detect })).toMatchObject({ source: 'transcribe', note: 'SPEECH_VAD=0', gaps: fromWords, gapMs: { lost: 0 } })
     expect(detect).not.toHaveBeenCalled()
+  })
+  it('a mono mix: Transcribe’s gaps, mono: true recorded, a warning', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const r = await gapsWithVoiceActivity('m.mp4', fromWords, words, { detect: async () => found([], true) })
+    expect(r).toMatchObject({ source: 'transcribe', mono: true, note: 'mono mix: voice-activity check skipped', gaps: fromWords, unlabelledSpeech: [] })
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/mono/))
+    warn.mockRestore()
   })
   it('an ffmpeg failure keeps Transcribe’s gaps and says so; an abort is still thrown', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const r = await gapsWithVoiceActivity('m.mp4', fromWords, { detect: async () => { throw new Error('ffmpeg: Invalid data\nmore') } })
+    const r = await gapsWithVoiceActivity('m.mp4', fromWords, words, { detect: async () => { throw new Error('ffmpeg: Invalid data\nmore') } })
     expect(r).toMatchObject({ source: 'transcribe', note: 'voice-activity check failed: ffmpeg: Invalid data', gaps: fromWords })
     expect(warn).toHaveBeenCalled()
     warn.mockRestore()
     const ac = new AbortController()
     ac.abort()
-    await expect(gapsWithVoiceActivity('m.mp4', fromWords, { signal: ac.signal, detect: async () => { throw new Error('aborted') } })).rejects.toThrow('aborted')
+    await expect(gapsWithVoiceActivity('m.mp4', fromWords, words, { signal: ac.signal, detect: async () => { throw new Error('aborted') } })).rejects.toThrow('aborted')
+  })
+})
+
+describe('regap', () => {
+  it('rebuilds gaps.json and gaps.vad.json from words.json and probe.json, never Transcribe', async () => {
+    const work = await mkdtemp(join(tmpdir(), 'regap-'))
+    await writeFile(join(work, 'words.json'), JSON.stringify([{ start: 8, end: 8.5, text: 'Hi.' }]))
+    await writeFile(join(work, 'probe.json'), JSON.stringify({ format: { duration: '12' } }))
+    await writeFile(join(work, 'gaps.json'), '[{"startMs":0,"endMs":1}]')
+    const detect = vi.fn(async (_m: string, _g: unknown, _w: unknown) => ({ mono: false, centreMedianDb: 3, floorDb: -40, speech: [{ startMs: 3000, endMs: 3600 }] }))
+    const r = await regap(work, { detect })
+    expect(detect.mock.calls[0]![0]).toBe(`${work}/mezz.mp4`)
+    expect(detect.mock.calls[0]![1]).toEqual([{ startMs: 0, endMs: 7800 }, { startMs: 8700, endMs: 12_000 }])
+    expect(detect.mock.calls[0]![2]).toEqual([{ start: 8, end: 8.5, text: 'Hi.' }])
+    const gaps = [{ startMs: 0, endMs: 2800 }, { startMs: 3800, endMs: 7800 }, { startMs: 8700, endMs: 12_000 }]
+    expect(r.gaps).toEqual(gaps)
+    expect(JSON.parse(await readFile(join(work, 'gaps.json'), 'utf8'))).toEqual(gaps)
+    expect(JSON.parse(await readFile(join(work, 'gaps.vad.json'), 'utf8'))).toMatchObject({ source: 'transcribe+vad', gaps })
+    expect(await regap(work, { on: false, detect })).toMatchObject({ source: 'transcribe', gaps: [{ startMs: 0, endMs: 7800 }, { startMs: 8700, endMs: 12_000 }] })
+    expect(detect).toHaveBeenCalledTimes(1)
   })
 })
 
 const hasFfmpeg = await execa('ffmpeg', ['-version']).then(() => true, () => false) // CI images may lack ffmpeg
 describe.skipIf(!hasFfmpeg)('voice activity on synthetic audio (real ffmpeg)', () => {
   /**
-   * 10 s stereo, 48 kHz: uncorrelated white noise in each channel (wide, like music and effects) at 0.05, plus 600 Hz tones at 0.3:
+   * 10 s stereo, 48 kHz: uncorrelated white noise in each channel (two seeds) (wide, like music and effects) at 0.05, plus 600 Hz tones at 0.3:
    * centred (same in both channels) at 2.0–3.0 s (speech-like: found) and 5.0–5.3 s (too short: not found); anti-phase (wide) at
    * 7.0–8.0 s (not centred: not found).
    */
@@ -143,15 +197,27 @@ describe.skipIf(!hasFfmpeg)('voice activity on synthetic audio (real ffmpeg)', (
     const centred = `${tone}*(between(t,2,3)+between(t,5,5.3))`
     const wide = `${tone}*between(t,7,8)`
     const file = join(dir, 'mezz.mp4') // a WAV under the mezzanine's name: ffmpeg reads the content, not the extension
-    await execa('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `aevalsrc=exprs='0.05*(2*random(0)-1)+${centred}+${wide}|0.05*(2*random(1)-1)+${centred}-${wide}':s=48000:d=10`, '-c:a', 'pcm_s16le', '-f', 'wav', file])
+    await execa('ffmpeg', ['-v', 'error', '-y',
+      '-f', 'lavfi', '-i', 'anoisesrc=c=white:a=0.05:seed=1:r=48000:d=10', '-f', 'lavfi', '-i', 'anoisesrc=c=white:a=0.05:seed=2:r=48000:d=10',
+      '-f', 'lavfi', '-i', `aevalsrc=exprs='${centred}+${wide}|${centred}-${wide}':s=48000:d=10`,
+      '-filter_complex', '[0][1]amerge=inputs=2[n];[n][2]amix=inputs=2:normalize=0', '-c:a', 'pcm_s16le', '-f', 'wav', file])
     return file
   }
   it('finds the centred burst only, at its time (±100 ms)', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'vad-'))
-    const found = await unlabelledSpeech(await fixture(dir), [{ startMs: 0, endMs: 10_000 }])
+    const r = await unlabelledSpeech(await fixture(dir), [{ startMs: 0, endMs: 10_000 }], [])
+    expect(r.mono).toBe(false)
+    const found = r.speech
     expect(found).toHaveLength(1)
     expect(Math.abs(found[0]!.startMs - 2000)).toBeLessThanOrEqual(100)
     expect(Math.abs(found[0]!.endMs - 3000)).toBeLessThanOrEqual(100)
+  })
+  it('a mono source upmixed to stereo (L = R, as 01-probe’s -ac 2 makes it) is flagged mono and not checked', async () => {
+    const file = join(await mkdtemp(join(tmpdir(), 'vad-mono-')), 'mezz.mp4')
+    await execa('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `aevalsrc=exprs='0.05*(2*random(0)-1)+0.3*sin(2*PI*600*t)*between(t,2,3)':s=48000:d=10`, '-ac', '2', '-c:a', 'aac', '-f', 'mp4', file])
+    const r = await unlabelledSpeech(file, [{ startMs: 0, endMs: 10_000 }], [])
+    expect(r.mono).toBe(true)
+    expect(r.speech).toEqual([])
   })
   it('speechMap writes split gaps.json and gaps.vad.json; SPEECH_VAD=0 writes Transcribe’s gaps', async () => {
     const work = await mkdtemp(join(tmpdir(), 'vad-speech-'))
