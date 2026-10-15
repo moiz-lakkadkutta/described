@@ -24,6 +24,7 @@ step, fit, edit pass and its grounding guard); the API does not store them. Base
 | `elephants-dream-0-60` | Elephants Dream (Orange, 2006) | https://download.blender.org/ED/elephantsdream-1024-h264-st-aac.mov | 0:00–1:00 | CC-BY 2.5 | Elephants Dream © 2006 Blender Foundation / Netherlands Media Art Institute, CC-BY 2.5. |
 | `caminandes-35-95` | Caminandes 2: Gran Dillama (Blender Institute, 2013) | https://download.blender.org/demo/movies/caminandes_gran_dillama.mp4.zip | 0:35–1:35 | CC-BY 3.0 | Caminandes: Gran Dillama © 2013 Blender Foundation (a Blender Institute production, www.caminandes.org), CC-BY 3.0. |
 | `tears-of-steel-40-100` | Tears of Steel (Mango, 2012) | https://download.blender.org/demo/movies/ToS/tears_of_steel_1080p.mov.zip | 0:40–1:40 | CC-BY 3.0 | Tears of Steel © 2012 Blender Foundation, CC-BY 3.0. |
+| `sintel` | Sintel (Durian, 2010), full length | https://download.blender.org/durian/movies/Sintel.2010.1080p.mkv (1920×818, 888.0 s) | 0:00–14:48 (whole film, credits included) | CC-BY 3.0 | Sintel © Blender Foundation, CC-BY 3.0. |
 
 Why these segments: Big Buck Bunny opens on its title card, a slow landscape pan and the rabbit waking (on-screen text, no
 dialogue); Elephants Dream opens on two title cards and the machine chase with shouted lines (text, dialogue gaps, action);
@@ -78,6 +79,50 @@ From the CLI meter (`src/cost.ts` list prices, unverified — each still marked 
 Transcribe is the floor: $0.024 for 60 s (billed per second, 15 s minimum) even when the clip has no speech (Caminandes). Every
 title took 4–5 minutes wall clock, four in parallel with `DESCRIBE_CONCURRENCY=2`; no throttling. Sintel's earlier figure,
 $0.0499 (2026-10-04), was the same segment before DESC-017/018/020.
+
+## Full-length Sintel (DESC-036, 2026-10-15)
+
+`sintel` is the whole film, made by `pnpm describe` (DESC-025) rather than the seed: its Title row is created by the CLI, and its
+people and places are in `apps/api/prisma/glossaries.json` (decision 0016), with name reveals in film seconds (Scales 228.3 s,
+Sintel 457.8 s). Command, run from the start so those reveal times line up with the film:
+
+```
+pnpm describe https://download.blender.org/durian/movies/Sintel.2010.1080p.mkv --title "Sintel" --slug sintel --language en \
+  --year 2010 --license "CC-BY 3.0" --credit "Sintel © Blender Foundation, CC-BY 3.0." \
+  --synopsis "A girl named Sintel searches the snowy mountains for the baby dragon she raised." --yes
+```
+
+Voice Joanna, verify on (the default), Qwen3-VL 235B describe, Nova Lite edit. The run took 49 minutes of wall-clock time: the
+download, upload and re-encode alone took 17 minutes. Approved spend was about $1 (estimate $0.81), with a hard stop at $1.30.
+
+| Title | Shots | Transcribe | Describe + verify (Qwen3-VL) | Scenes + fit + edit (Nova Lite) | Polly | **Total** |
+|---|---|---|---|---|---|---|
+| sintel (full, 14:48, Joanna) | 189 | $0.3556 | $0.5977 | $0.0041 ($0.0006 + $0.0004 + $0.0031) | $0.1471 | **$1.1043** |
+
+The estimate ($0.8088) used per-minute rates measured before the verify pass. Describe plus verify cost $0.040 a minute, against
+the $0.019 a minute the estimator assumes. So `src/cost.ts` underestimates a run with verify on by about $0.02 a minute, as its
+own comment says.
+
+Outcome: 189 shots → 129 cues from fit (15 extended) → 127 published (17 extended). Voice dropped 2 cues ("Sintel stares
+wide-eyed." at 9:00.1, 150 ms over its limit, and a pause at 5:43.9 that started 1.6 s after its shot), turned 3 credit cues into
+extended pauses, and shortened 1 cue. Verify changed 56 of 181 shots and kept 47 drafts by a guard. The edit pass revised 12
+of 129 cues and rejected 13 edits. Captions have 37 cues. Rich captions were **omitted**: Nova Lite answered the single SDH window
+(c1–c37) with `ModelErrorException` twice, so `sdh.json` is `{"degraded":true}`, as happened on Tears of Steel. The credit
+roll's long text cards (more than 8 words) are dropped by describe, as designed.
+
+Checks: `validate` reported no problems (audio Original and Audio description; text Captions and Description text). The Title
+row is published, 888.032 s, with 127 DescriptionCue rows and TextTrack rows captions 37 and descriptions 127. `master.m3u8`,
+both audio playlists, both text playlists and VTTs, and the poster and hero art answer 200 from CloudFront. `descriptions.vtt` from
+CloudFront is byte-identical to the work dir. No `<v ` spans appear in captions.vtt or its HLS segments. No glossary name is voiced
+before its reveal: Scales first at 4:43.3, Sintel first at 7:57.7. "Shaman" appears only in the credit card text at 12:50.6.
+
+Notes for review:
+- Two cues give the name Scales to dragons that the glossary leaves unnamed: "Scales soars through pink clouds toward a ruined
+  town" at 5:22.3, during the horned dragon's swoop (5:15–5:30), and the two cues at 12:10.8 and 12:18.1, which the glossary marks
+  as "the baby dragon in the lair" (12:08–12:20). The look matches the small tan dragon, so the name passes the guard. A viewer
+  should check these against the frames.
+- The work dir is `packages/pipeline/work/sintel/` on the machine that ran it, and S3 does not keep `described.json`. A
+  `--from` re-run needs that machine.
 
 ## Validation (2026-10-14)
 
