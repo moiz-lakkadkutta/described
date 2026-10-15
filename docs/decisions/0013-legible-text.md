@@ -57,8 +57,17 @@ check that would catch it). Tests: `packages/pipeline/test/legible-text.test.ts`
 
 ## Intended, not fixed (review L4)
 
-- A neutral sentence is plain description: it is not de-duplicated across cues (two shots in a row may each say "Words appear."),
-  and fit's shortener or the edit pass may drop it whole when room is short. Both are deletions; neither states wrong text.
+- Once verify replaces a quote with "Words appear.", `introducesNew` (05-fit) is false for that sentence (no text span), so the
+  shot loses extended-cue eligibility. Intended: there is no text left to read aloud, so there is nothing to pause the film for.
+
+## Other known effects
+
+- Repeats are removed by describe's dedupe, not by fit or voice: a shot whose whole description is "Words appear." right after a
+  voiced "Words appear." is "nothing new" (parseDescription's repeat test), and a later part of a split shot drops it when an
+  earlier part said it (newSentences). Fit has no "already said" step, and 06-voice's `withoutSaidText` removes only quoted text
+  clauses, so two different shots in a row with "Words appear." among other sentences can each say it.
+- fit's deterministic shortener may drop the sentence whole when room is short (it drops sentences from the end); it never cuts it
+  (L3). A deletion, never wrong text.
 - A kept carrier can read flat ("A sign reads. Words appear.") — it is still only the draft's own words.
 
 ## Consequences
