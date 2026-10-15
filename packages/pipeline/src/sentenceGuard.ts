@@ -73,8 +73,9 @@ function bareNounAfterComma(orig: readonly Word[], aligned: ReadonlyArray<Word &
 /**
  * Check 7 (review round 3 g11; English): a shortening keeps "a" / "an" / "the" with its noun. An article of the original that the
  * shortening leaves out, while it keeps a later word of the same phrase (no clause mark between), is rejected: "Dragon roars." from "A
- * small tan dragon roars."; "sits by fire" from "sits by the fire". Any article counts for any here ("An old bearded man" → "A bearded
- * man", the shortener re-picks a / an; "The dragon lies …" for "A small tan dragon lies …").
+ * small tan dragon roars."; "Man sits" from "The man sits". Any article counts for any here ("An old bearded man" → "A bearded
+ * man", the shortener re-picks a / an; "The dragon lies …" for "A small tan dragon lies …"). Exempt (review): "the" before an unmodified
+ * noun right after a preposition ("walks through the rain." → "walks through rain.").
  */
 function dropsArticle(orig: readonly Word[], short: readonly Word[]): string | undefined {
   const norm = (w: string) => (w === 'an' || w === 'the' ? 'a' : w) // any article stands for any: "The dragon lies …" from "A small dragon lies …"
@@ -99,6 +100,10 @@ function dropsArticle(orig: readonly Word[], short: readonly Word[]): string | u
   }
   for (const [a, w] of orig.entries()) {
     if (!isArticle(w.bare) || kept.has(a)) continue
+    // "the" before a bare noun after a preposition may go: "through the rain" → "through rain" (review); not "the heavy rain"
+    const next = orig[a + 1], after = orig[a + 2]
+    const bareNoun = !!next && kept.has(a + 1) && (/[,;:.!?…]["'”’)\]]*$/.test(next.raw) || !after || PREPOSITIONS.has(after.bare) || JOINERS.has(after.bare) || verbs.has(a + 2))
+    if (w.bare === 'the' && a > 0 && PREPOSITIONS.has(orig[a - 1]!.bare) && bareNoun) continue
     for (let j = a + 1; j < orig.length; j++) {
       // the first word kept after it: a word of its phrase, unless that is a verb, preposition or joining word — then the whole phrase
       // went ("The dragon lies …" from "A … dragon with a bleeding wing lies …")

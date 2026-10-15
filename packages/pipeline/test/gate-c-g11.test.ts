@@ -77,6 +77,35 @@ describe('A. a place lead is lower-cased, takes its article, and is never added 
     expect(placeLead({ setting: 'snowy mountains', settingName: 'the snowy mountains', returning: false })).toBe('In the snowy mountains')
     expect(placeLead({ setting: '', returning: false })).toBeUndefined()
   })
+  it('review: possessives, proper nouns, a / an by sound, "of" phrases, a label that is already a phrase', () => {
+    const lead = (setting: string, texts: string[] = [], extra: { returning?: boolean; settingName?: string } = {}, names: string[] = []) => placeLead({ setting, returning: false, ...extra }, names, texts)
+    // possessives: none after a proper noun, "the" otherwise
+    expect(lead('Sintel\'s village', ['Sintel\'s village lies in snow.'], {}, ['Sintel'])).toBe('In Sintel\'s village')
+    expect(lead('Sintel\'s village', ['A hut in Sintel\'s village.'])).toBe('In Sintel\'s village')
+    expect(lead('Dragon\'s lair', ['A dragon\'s lair glows.'])).toBe('In the dragon\'s lair')
+    // proper nouns keep their capitals; the first word is lower-cased only when the scene's descriptions write it so
+    expect(lead('Amsterdam bridge', ['A man runs across an Amsterdam bridge.'])).toBe('On an Amsterdam bridge')
+    expect(lead('Oude Kerk', ['Bells ring above the Oude Kerk.'])).toBe('In the Oude Kerk')
+    expect(lead('Paris', ['Rain falls on Paris.'])).toBe('In Paris')
+    expect(lead('Cluttered tech lab', ['A man shouts in a cluttered tech lab.'])).toBe('In a cluttered tech lab')
+    expect(lead('Cluttered tech lab', ['Cluttered tech lab. A man shouts.'])).toBe('In a Cluttered tech lab') // the descriptions only ever capitalise it
+    // a / an by sound
+    expect(lead('hour glass room', ['an hour glass room'])).toBe('In an hour glass room')
+    expect(lead('European city street', ['a European city street'])).toBe('In a European city street')
+    expect(lead('one-way street', ['a one-way street'])).toBe('In a one-way street')
+    expect(lead('MRI room', ['an MRI room'])).toBe('In an MRI room')
+    expect(lead('unicorn stable', ['a unicorn stable'])).toBe('In a unicorn stable')
+    expect(lead('underground hall', ['an underground hall'])).toBe('In an underground hall')
+    // the head before "of" picks the preposition and the article
+    expect(lead('rooftop of the town', ['the rooftop of the town'])).toBe('On the rooftop of the town')
+    expect(lead('top of the bridge', ['on top of the bridge'])).toBe('On top of the bridge')
+    expect(lead('ruins of a cathedral', ['the ruins of a cathedral'])).toBe('In the ruins of a cathedral')
+    // a label that is already a place phrase is the lead itself, never "In inside the tent"
+    expect(lead('inside the tent', ['A fire burns inside the tent.'])).toBe('Inside the tent')
+    expect(lead('Inside the tent', [], { returning: true })).toBe('Back inside the tent')
+    expect(lead('On the bridge', ['on the bridge'])).toBe('On the bridge')
+    expect(withPlace({ setting: 'inside the tent', returning: false }, 'An old man stirs a pot.', [], ['inside the tent'])).toBe('Inside the tent, an old man stirs a pot.')
+  })
   it('withPlace merges the lead into the action, or leaves an action that already says the place as it is', () => {
     expect(withPlace(lab, 'Man with glasses shouts.')).toBe('In a cluttered tech lab, man with glasses shouts.')
     expect(withPlace(lab, shot29)).toBe(shot29)
@@ -126,8 +155,12 @@ describe('C. a cue never ends in a bare noun after a comma (Sintel 12)', () => {
     expect(readsAsSentences(shot12, 'Man speaks, tent.')).toMatch(/bare noun after a comma/)
     expect(shortenDeterministic(shot12, 3)).toBe('Man speaks.')
     expect(readsAsSentences(shot12, 'Man speaks.')).toBeUndefined()
-    // a one-word clause the describer wrote is left alone
+    // a one-word clause the describer wrote is left alone (review): kept whole, or with other words shortened around it
     expect(readsAsSentences('A woman runs, leaps, climbs a wall.', 'A woman runs, leaps, climbs a wall.')).toBeUndefined()
+    expect(readsAsSentences('The figure falls face down in the snow, motionless.', 'The figure falls face down in the snow, motionless.')).toBeUndefined()
+    expect(readsAsSentences('The small figure falls face down in the deep snow, motionless.', 'The figure falls face down in the snow, motionless.')).toBeUndefined()
+    expect(readsAsSentences('A dragon lands, wings spread, roaring.', 'A dragon lands, roaring.')).toBeUndefined()
+    expect(shortenDeterministic('The small figure falls face down in the snow, motionless.', 9)).toBe('The figure falls face down in the snow, motionless.')
   })
   it('later in a scene whose place was said, a trailing verbless clause naming that place is not said again', () => {
     const drop = new Set(['tent'])
@@ -146,10 +179,24 @@ describe('C. a cue never ends in a bare noun after a comma (Sintel 12)', () => {
 })
 
 describe('D. a shortening keeps a / an / the with its noun', () => {
+  it('review: "the" before a bare noun after a preposition may go ("through the rain" → "through rain"); every other article stays', () => {
+    expect(readsAsSentences('A man walks through the rain.', 'A man walks through rain.')).toBeUndefined()
+    expect(readsAsSentences('A man walks slowly through the heavy rain.', 'A man walks through heavy rain.')).toMatch(/article/) // the noun is modified
+    expect(readsAsSentences('An old man stirs a pot.', 'Old man stirs a pot.')).toMatch(/article/)
+    expect(readsAsSentences('A man walks through a door.', 'A man walks through door.')).toMatch(/article/) // only "the"
+    expect(readsAsSentences('The man walks.', 'Man walks.')).toMatch(/article/) // not after a preposition
+  })
+  it('verify\'s article fills (copulaFills, decision 0015) are the source: a cue that keeps them passes; polishCue only recases', () => {
+    const verified = 'An old man holds a staff; a young woman watches.' // verify added "An" and "a" to "Old man holds staff; young woman watches."
+    expect(readsAsSentences(verified, 'An old man holds a staff.')).toBeUndefined()
+    expect(shortenDeterministic(verified, 5)).toBe('A man holds a staff.')
+    expect(readsAsSentences(verified, 'A man holds a staff.')).toBeUndefined()
+  })
   it('sentenceGuard: a shortening that drops an article of a noun it keeps is rejected', () => {
     expect(readsAsSentences('A small tan dragon roars.', 'Dragon roars.')).toMatch(/article/)
     expect(readsAsSentences('A small tan dragon roars.', 'A dragon roars.')).toBeUndefined()
-    expect(readsAsSentences('An old bearded man sits by the fire.', 'A bearded man sits by fire.')).toMatch(/article/)
+    expect(readsAsSentences('An old bearded man sits by the fire.', 'Bearded man sits by the fire.')).toMatch(/article/)
+    expect(readsAsSentences('An old bearded man sits by the fire.', 'A bearded man sits by fire.')).toBeUndefined() // "the" after a preposition (review)
     expect(readsAsSentences('An old bearded man sits by the fire.', 'A bearded man sits by the fire.')).toBeUndefined()
   })
   it('the deterministic shortener never drops one; voice\'s overrun shortening is the same shortener', () => {
@@ -169,5 +216,28 @@ describe('D. a shortening keeps a / an / the with its noun', () => {
     // still a list or a comma splice
     expect(editReadsAsSentences('A scaled creature with horns and bloodied wing stares.', 'Scaled creature, horns, bloodied wing, stares.', ['A scaled creature with horns and bloodied wing stares.'])).toMatch(/list comma/)
     expect(editReadsAsSentences('Old man stirs pot over fire as woman watches.', 'Old man stirs pot over fire, woman watches.', ['Old man stirs pot over fire as woman watches.'])).toMatch(/list comma/)
+  })
+})
+
+/**
+ * Review (round 3): how many cues the raters passed do the new guard checks (5–7: verbless cut, bare noun after a comma, dropped article)
+ * reject? Every recorded final cue of the g10 / g11 runs that is a shortening or an edit of its shot's description (the description does
+ * not contain it), on a shot a majority of the 3 blind raters called usable (gate-c-rated.json, from their scores.md). Pinned: a change
+ * that rejects more good cues fails here.
+ */
+describe('the new checks against the raters', () => {
+  const rated = fixture<Record<string, number[]>>('gate-c-rated.json')
+  it('reject exactly two rater-passed cues: tos-390-510-g10 shots 22 and 25', () => {
+    const hits: string[] = []
+    for (const [name, passed] of Object.entries(rated)) {
+      const shots = fixture<Described[]>(`${name}.described.json`), cues = fixture<FitCue[]>(`${name}.cues.json`)
+      for (const c of cues) {
+        const d = shots.find((x) => x.index === c.shotIndex)?.description
+        if (!d || d.includes(c.text) || !passed.includes(c.shotIndex)) continue
+        const why = readsAsSentences(d, c.text)
+        if (why && /verbless sentence cut|bare noun|drops an article/.test(why)) hits.push(`${name} ${c.shotIndex}: ${c.text}`)
+      }
+    }
+    expect(hits).toEqual(['tos-390-510-g10 22: Dark, rope-laced industrial shaft.', 'tos-390-510-g10 25: Man in blue and yellow gear swings near organ pipes.'])
   })
 })

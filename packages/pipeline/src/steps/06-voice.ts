@@ -341,7 +341,7 @@ async function afterClips(work: string, cues: FitCue[], shots: { start: Readonly
     const deadline = end + LATE_MS, p = block.c
     const n = Math.floor((words(p.text) * (deadline - p.startMs)) / (p.endMs - p.startMs))
     const shorter = n >= 3 ? shortenKeepingAction(p.text, n, 'voice', language) : p.text
-    if (shorter === p.text) continue
+    if (shorter === p.text) { console.log(`voice: no shortening of the cue at ${p.startMs} ms keeps its action in ${n} words; the event pause of shot ${c.shotIndex} stays late and is dropped: ${JSON.stringify(p.text)}`); continue }
     const clip = await reshorten(block.from, shorter)
     if (!clip) continue
     console.log(`voice: cue at ${p.startMs} ms shortened so the event pause of shot ${c.shotIndex} is on time: ${JSON.stringify(p.text)} → ${JSON.stringify(shorter)}`)

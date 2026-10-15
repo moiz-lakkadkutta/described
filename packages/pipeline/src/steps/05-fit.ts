@@ -81,7 +81,7 @@ export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, max
       const stems = opening ? sceneStems(opening, glossary) : undefined
       const ownLead = stems ? settingLead(s.description, stems) : undefined
       const rest = ownLead ? s.description.slice(s.description.indexOf(ownLead) + ownLead.length).trim() : s.description
-      const merge = !ownLead && opening && !statesPlace(s.description, stems!) && placeKnown(opening, s.index, shots) ? (action: string) => withPlace(opening, action, names) : undefined
+      const merge = !ownLead && opening && !statesPlace(s.description, stems!) && placeKnown(opening, s.index, shots) ? (action: string) => withPlace(opening, action, names, sceneTexts(opening, shots)) : undefined
       /** The text with the scene's place in maxWords: the shot's own setting sentence beside the rest, or the place merged into the action; the rest shortened to the words left, its action kept. Never the place alone. */
       const withLead = async (maxWords: number) => {
         if (!ownLead && !merge) return undefined
@@ -190,14 +190,14 @@ export function scenePauses(scenes: readonly Scene[], cues: readonly FitCue[], g
     if (startMs >= sc.endMs || startMs - last < SCENE_PAUSE_SPACING_MS) continue
     const same = out.find((c) => c.extended && !textOnly(c) && c.startMs === startMs && sc.shots.includes(c.shotIndex))
     if (same) {
-      const merged = (!shots.length || placeKnown(sc, same.shotIndex, shots)) ? withPlace(sc, same.text, g.characters.map((c) => c.name)) : undefined
+      const merged = (!shots.length || placeKnown(sc, same.shotIndex, shots)) ? withPlace(sc, same.text, g.characters.map((c) => c.name), sceneTexts(sc, shots)) : undefined
       if (merged && words(merged) <= EXTENDED_WORDS) { last = startMs; same.text = merged; same.wordCount = words(merged); same.scene = true }
       continue
     }
     const under = shots.find((x) => sc.shots.includes(x.index) && x.startMs <= startMs && startMs < x.endMs)
     if (!under || under.sameAsPrev || !under.description || out.some((c) => c.shotIndex === under.index) || !placeKnown(sc, under.index, shots)) continue
     const action = textClauses(under.description) ? undefined : under.description
-    const text = action && placedAction(sc, action, g.characters.map((c) => c.name))
+    const text = action && placedAction(sc, action, g.characters.map((c) => c.name), sceneTexts(sc, shots))
     if (!text) continue
     last = startMs
     out.push({ startMs, endMs: startMs + 100, text, extended: true, wordCount: words(text), shotIndex: under.index, scene: true })
@@ -221,16 +221,18 @@ function actionPause(sc: Scene, out: readonly FitCue[], shots: readonly Describe
   return { startMs, endMs: startMs + 100, text, extended: true, wordCount: words(text), shotIndex: under.index, scene: true }
 }
 /** The place merged into the action within EXTENDED_WORDS: whole, else the action shortened deterministically to the words left, its verb kept and still sentences. */
-function placedAction(sc: Pick<Scene, 'setting' | 'returning' | 'settingName'>, action: string, names: readonly string[]): string | undefined {
-  const whole = withPlace(sc, action, names)
+function placedAction(sc: Pick<Scene, 'setting' | 'returning' | 'settingName'>, action: string, names: readonly string[], texts: readonly string[]): string | undefined {
+  const whole = withPlace(sc, action, names, texts)
   if (!whole) return undefined
   if (words(whole) <= EXTENDED_WORDS) return whole
   const room = EXTENDED_WORDS - (words(whole) - words(action))
   const short = shortenDeterministic(action, room)
   if (words(short) > room || !keepsVerb(action, short) || readsAsSentences(action, short)) return undefined
-  const t = withPlace(sc, short, names)
+  const t = withPlace(sc, short, names, texts)
   return t && words(t) <= EXTENDED_WORDS ? t : undefined
 }
+/** The descriptions of a scene's shots: how they write the label's words decides its case (placeLead). */
+const sceneTexts = (sc: Pick<Scene, 'shots'>, shots: readonly { index: number; description: string }[]) => shots.filter((x) => sc.shots.includes(x.index)).map((x) => x.description)
 /**
  * A description as fit and the edit pass read it (decision 0012 amendment, 2026-10-15): "Darkness." whole or absent (stripDarkness), no
  * bare light word as a lead (stripBareLead: g10 "Dim. A fire pit glows …"), and no place phrase naming another scene's place
@@ -502,7 +504,9 @@ export function shortenKeepingAction(text: string, maxWords: number, step = 'voi
   const d = shortenSentences(text, maxWords, step, language)
   if (d !== text && keepsActionOf(text, d)) return d // maxWords is voice's estimate: a longer shortening is voiced and measured
   if (d !== text) console.warn(`${step}: shortening drops the action, trying its sentences:`, JSON.stringify(text), '→', JSON.stringify(d))
-  return actionSentence(text, maxWords, language) ?? text
+  const a = actionSentence(text, maxWords, language)
+  if (a === undefined) console.warn(`${step}: no shortening keeps the action in ${maxWords} words; the text stays whole (a pause or a drop follows):`, JSON.stringify(text))
+  return a ?? text
 }
 
 export async function fitDescriptions(ctx: Ctx) {
