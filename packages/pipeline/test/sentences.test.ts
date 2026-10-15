@@ -81,7 +81,7 @@ describe('verify guard: a reply that only adds a, an, the, is, are is accepted (
   })
   // PR #61 review (HIGH): an added is / are must not fill a deleted verb or preposition — "Man holds staff." → "Man is staff." is a false claim
   it('rejects an added is / are that stands where a draft word was deleted, or ends a sentence', () => {
-    const filled = /"(?:is|are|ist|sind)" added in place of a deleted word/
+    const filled = /"(?:is|are|ist|sind)" (?:added|kept) in place of a deleted word/
     kept(G11.staff, 'Man is staff.', filled)
     kept(G11.staff, 'A man is a staff.', filled)
     kept('A dragon bleeds on rooftop.', 'A dragon is rooftop.', filled)
@@ -90,6 +90,11 @@ describe('verify guard: a reply that only adds a, an, the, is, are is accepted (
     kept('Man holds staff near door.', 'Man is staff. Is door.', filled)
     kept('Mann hält Stab.', 'Ein Mann ist Stab.', filled, 25, 'de')
     kept('Zwei Männer halten Stäbe.', 'Zwei Männer sind Stäbe.', filled, 25, 'de')
+    // at / by / over (an / am / bei / über) are not place words: the deleted action would become a false place
+    kept('The man points at the door.', 'The man is at the door.', filled)
+    kept('The girl is attacked by the dragon.', 'The girl is by the dragon.', filled)
+    kept('Der Mann klopft an die Tür.', 'Der Mann ist an der Tür.', filled, 25, 'de')
+    kept('A bird flies over the town.', 'A bird is over the town.', filled)
     // still fine: the copula sits where nothing was deleted, or before an added "visible" (its own guard)
     ok(G11.face, "A man's face is pressed against a mechanical device.")
     ok(G11.chamber, 'There is a dim, smoky chamber with glowing lines.')

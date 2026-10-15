@@ -33,14 +33,21 @@ draft unchanged when every detail is visible, so it never added the articles it 
    "visible" — may go past the shot's word cap by those words, up to `MAX_ADDED_WORDS` (3) over the draft, so a draft already at
    its budget can still become a sentence. Every other guard is unchanged: no new content word, no has / have, names, negations
    and protected words kept, order kept, on-screen text kept or replaced whole. Any other reply keeps the cap.
-   **Added is / are never fills a deleted word** (PR #61 review): "Man holds staff." → "Man is staff." / "A man is a staff." would
-   be a false claim. Positional, no part-of-speech tagging: for an is / are (ist / sind) the draft does not have at that spot, take
-   the nearest aligned reply words before and after it; a draft word between them that is neither a linking word nor kept means
-   the copula stands in a deleted word's place, and the reply is rejected (`"is" added in place of a deleted word`) — unless the
-   copula's next word other than an article is a place word (a closed list: with, in, on, under, near, beside …; mit, in, auf …)
-   or "visible". The exception keeps decision 0010's approved deletions: "The woman … blinks slowly in dim light." → "The woman …
-   is in dim light.", "Red-haired girl reads book." → "A red-haired girl is with a creature.". A sentence that ends in an added
-   copula ("A woman is.") is always rejected.
+   **An is / are never fills a deleted word** (PR #61 review): "Man holds staff." → "Man is staff." / "A man is a staff." would
+   be a false claim. Positional, no part-of-speech tagging (04b-verify `copulaFills`): for each is / are (ist / sind) in the reply,
+   take the nearest aligned reply words before and after it (for a copula the draft has too, from its own draft position); a draft
+   word between them that is neither a linking word nor kept means the copula stands in a deleted word's place, and the reply is
+   rejected (`"is" added in place of a deleted word`, or `kept …`). A sentence that ends in a copula ("A woman is.") is always
+   rejected.
+
+   One exception: the copula's next word other than an article is "visible" (its own guard) or a **place word** — with, in, on,
+   under, near, beside, behind, inside, outside, above, below, beneath, across, against, among, amid, between, into, onto,
+   through, around; German mit, in, im, auf, unter, neben, hinter, vor, zwischen, innerhalb, außerhalb. "X is in / on / with Y"
+   says where X is, which the draft said too, so decision 0010's approved deletions stay: "The woman … blinks slowly in dim
+   light." → "The woman … is in dim light.", "Red-haired girl reads book." → "A red-haired girl is with a creature.". The list
+   leaves out **at, by, over** (German **an, am, bei, über**) on purpose: they usually belong to the action, so the deleted
+   action becomes a false place — "The man points at the door." → "The man is at the door.", "The girl is attacked by the
+   dragon." → "The girl is by the dragon.", "Der Mann klopft an die Tür." → "Der Mann ist an der Tür." are all rejected.
 4. **polishCue(text, language)** (packages/pipeline/src/polishCue.ts, pure): collapses spaces (none before , . ; : ! ?),
    capitalises the first letter of each sentence in the language's locale, and makes the cue end with . ! or ? (a trailing , ; :
    dash or ellipsis becomes a full stop; after a closing quote the full stop goes outside it, unless the quote itself ends with
