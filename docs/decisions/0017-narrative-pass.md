@@ -30,7 +30,10 @@ with the 05b guards plus three new ones, keeps about half of the cues it rewrite
      glossary name — in one of the last **2** action cues as heard, starting **≤ 20 s** before, in the **same scene**, or earlier in
      the same cue (a noun before the pronoun, never a pronoun, counted in the same word split); one candidate only (a plural, two
      singular mentions of that gender in one nearby cue, "another"/"other" before one, or two glossary characters of that gender
-     reject it); and the cue's own shots
+     reject it); the **nearest person or creature before the pronoun** (backwards through the cue, then the window's cues; a
+     prepositional object or "it" does not count) must be who it stands for — the noun or name the rewrite dropped, its glossary
+     character, or a pronoun of the same gender ("She stands." for the girl after "An old woman knits." and "She lies prone…" after
+     "The dragon flies toward a hand." are rejected); and the cue's own shots
      must show someone of that kind. A new "it" must stand for a non-person word the rewrite dropped that those 2 cues said
      ("The dragon flies…" → "It flies…" after "The dragon soars…").
    - **Carried look.** A glossary character's look words (minus generic words and **minus place words**) count as already said once

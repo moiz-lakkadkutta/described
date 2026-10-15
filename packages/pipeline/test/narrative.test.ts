@@ -47,8 +47,8 @@ describe('pronoun licence', () => {
     expect(edit(t, 1, 'Then she climbs a rooftop.').applied).toEqual([{ i: 1, from: t.cues[1]!.text, to: 'Then she climbs a rooftop.' }])
   })
   it('two cues back is still near; three is not', () => {
-    const t = title([WOMAN, DRAGON, 'A young woman with short red hair climbs a rooftop.', DRAGON, 'A young woman with short red hair smiles.'])
-    expect(edit(t, 2, 'She climbs a rooftop.').applied).toHaveLength(1) // the woman is two cues back
+    const t = title([WOMAN, 'Snow falls on the roof.', 'A young woman with short red hair climbs a rooftop.'])
+    expect(edit(t, 2, 'She climbs a rooftop.').applied).toHaveLength(1) // the woman is two cues back, nobody in between
     const far = title([WOMAN, DRAGON, DRAGON, 'A young woman with short red hair climbs a rooftop.'])
     expect(reasons(edit(far, 3, 'She climbs a rooftop.'))).toEqual(['pronoun "she" with no referent in the last 2 cues (20 s, same scene)'])
   })
@@ -78,6 +78,24 @@ describe('pronoun licence', () => {
     // 25 s apart: no referent in the window, so only the name before "her" can license it (the look carries within the scene)
     const named = title(['The red-haired young woman, Sintel, walks under a full moon.', 'The red-haired young woman, Sintel, holds a staff under a full moon.'], { startMs: 480_000, gapMs: 25_000 })
     expect(edit(named, 1, 'Sintel holds her staff under a full moon.').applied).toHaveLength(1) // a name before it does too (Sintel dry run from fit, cue 71)
+  })
+  it('the nearest person or creature before the pronoun must be who it stands for (review of #80, item 2)', () => {
+    // the probe: "She stands." for the girl reads as the old woman
+    const probe = title(['A girl sits.', 'An old woman knits.', 'A girl stands.'])
+    expect(reasons(edit(probe, 2, 'She stands.'))).toEqual(['pronoun "she": the nearest person or creature before it is "woman", not who it stands for'])
+    expect(edit(probe, 1, 'An old woman knits.').rejected).toEqual([]) // unchanged
+    // Sintel #5: a figure in between
+    const fig = title(['A young woman with short red hair walks.', 'A figure appears.', 'A young woman with short red hair stumbles in the snow.'])
+    expect(reasons(edit(fig, 2, 'She stumbles in the snow.'))).toEqual(['pronoun "she": the nearest person or creature before it is "figure", not who it stands for'])
+    // Sintel #50: the dragon is the last cue's subject
+    const dragon = title(['A young woman with short red hair stands.', 'The dragon flies toward a hand.', 'A young woman with red hair lies prone.'], { startMs: 340_000 })
+    expect(reasons(edit(dragon, 2, 'She lies prone.'))).toEqual(['pronoun "she": the nearest person or creature before it is "dragon", not who it stands for'])
+    // a creature as a prepositional object does not compete: "She kneels beside the bleeding dragon." → "She reaches…" (spike 28 → 29)
+    const obj = title(['A young woman with short red hair kneels beside the bleeding dragon.', 'A young woman with short red hair reaches toward the dragon.'])
+    expect(edit(obj, 1, 'She reaches toward the dragon.').applied).toHaveLength(1)
+    // a name and its kind noun are one referent: "Sintel stands." → "She stands." after "The woman runs."
+    const named = title(['The red-haired young woman, Sintel, runs.', 'Sintel stands on a ledge.'], { startMs: 600_000 })
+    expect(edit(named, 1, 'She stands on a ledge.').applied).toHaveLength(1)
   })
   it('two singular women in one cue nearby make "she" ambiguous (review of #80)', () => {
     const t = title(['A woman and an old woman talk.', 'A woman walks away.'])

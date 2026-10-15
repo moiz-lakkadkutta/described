@@ -101,8 +101,10 @@ function ambiguous(texts: readonly string[], g: 'she' | 'he', chars: readonly Ch
 /**
  * The pronoun licence for cue i's rewrite `edited` (its old text `original`, its own shot descriptions `own`). Returns the reasons a
  * new pronoun is not licensed ([] = fine). A pronoun the old text already had (same count or fewer) is its own: nothing to check.
- * she/he: the referent is in the referent window (unambiguous) or earlier in the edited text; and the cue's own shots show someone of
- * that gender (so "she" is never put on a shot of a dragon alone). it: the new "it" stands for a non-person word the rewrite dropped,
+ * she/he: the referent is in the referent window (unambiguous) or earlier in the edited text; the cue's own shots show someone of
+ * that gender (so "she" is never put on a shot of a dragon alone); and the NEAREST person or creature before the pronoun (nearestMention)
+ * is the one it stands for (the noun or name the rewrite dropped): "She stands." for "A girl stands." after "An old woman knits." reads
+ * as the old woman, and "She lies prone…" after "The dragon flies toward a hand." as the dragon — both rejected. it: the new "it" stands for a non-person word the rewrite dropped,
  * and that word is in the referent window ("The dragon flies…" → "It flies…" after "The dragon soars…").
  */
 export function pronounProblems(v: NarrativeView, i: number, original: string, edited: string, own: readonly string[]): string[] {
@@ -118,7 +120,10 @@ export function pronounProblems(v: NarrativeView, i: number, original: string, e
     const near = window.some((t) => refersTo(t, g, chars) || PLURAL[g].test(t))
     if (!inCue && !near) { out.push(`pronoun "${g}" with no referent in the last ${PRONOUN_CUES} cues (${PRONOUN_WINDOW_MS / 1000} s, same scene)`); continue }
     if (!inCue && ambiguous(window, g, chars, v.glossary)) { out.push(`pronoun "${g}" could mean more than one person`); continue }
-    if (![...own, original].some((t) => refersTo(t, g, chars))) out.push(`pronoun "${g}": no one of that kind in this cue's shots`)
+    if (![...own, original].some((t) => refersTo(t, g, chars))) { out.push(`pronoun "${g}": no one of that kind in this cue's shots`); continue }
+    // the nearest person or creature before the pronoun is who a listener takes it for: it must be who the pronoun stands for
+    const nearest = nearestMention(edited, first, window, chars)
+    if (!nearest || !sameReferent(nearest, g, droppedReferents(original, edited, chars), chars)) out.push(`pronoun "${g}": the nearest person or creature before it is ${nearest ? `"${nearest}"` : 'none'}, not who it stands for`)
   }
   if (count(edited, 'it') > count(original, 'it')) {
     const kept = new Set(contentWords(edited).map(stem))
@@ -127,6 +132,43 @@ export function pronounProblems(v: NarrativeView, i: number, original: string, e
     if (!dropped.some((w) => near.has(w))) out.push(`pronoun "it" with no referent in the last ${PRONOUN_CUES} cues (${PRONOUN_WINDOW_MS / 1000} s, same scene)`)
   }
   return out
+}
+
+/** Nouns that name a person or a creature: a mention that can take a she / he / it. Glossary names count too. */
+const MENTION_NOUNS = new Set([...KIND, 'woman', 'girl', 'lady', 'man', 'boy', 'person', 'figure', 'child', 'warrior', 'beast', 'chicken', 'horse', 'wolf', 'shaman'])
+/** A word after one of these (within 4 words) is a prepositional object ("kneels beside the bleeding dragon"), not who the sentence is about. */
+const PREPOSITIONS = new Set(['beside', 'toward', 'towards', 'at', 'with', 'of', 'over', 'into', 'onto', 'on', 'under', 'near', 'from', 'to', 'past', 'behind', 'above', 'below', 'around', 'across', 'through', 'by', 'in', 'among', 'amid', 'against', 'before', 'after', 'like'])
+const isPrepObject = (ws: readonly string[], j: number) => ws.slice(Math.max(0, j - 4), j).some((w) => PREPOSITIONS.has(w))
+/**
+ * The nearest mention of a person or creature before the first new pronoun (at token `first` of `edited`): backwards through the words
+ * before it in the cue, then through each cue of the referent window, nearest first, from its end. A prepositional object does not
+ * count, and neither does "it"/"its" (a thing, not a rival referent). A she/he/her/him/his counts as its gender.
+ */
+export function nearestMention(edited: string, first: number, window: readonly string[], chars: readonly CharRef[]): string | undefined {
+  const names = new Set(chars.filter((c) => isProperName({ name: c.name })).map((c) => c.name.toLowerCase()))
+  const isMention = (w: string) => MENTION_NOUNS.has(w) || names.has(w) || FAMILY.she.has(w) || FAMILY.he.has(w)
+  for (const ws of [tokens(edited).slice(0, Math.max(0, first)), ...window.map(tokens)]) {
+    for (let j = ws.length - 1; j >= 0; j--) if (isMention(ws[j]!) && (FAMILY.she.has(ws[j]!) || FAMILY.he.has(ws[j]!) || !isPrepObject(ws, j))) return ws[j]
+  }
+  return undefined
+}
+/** The person nouns and glossary names the rewrite dropped from the old text: who a new pronoun stands for. */
+export function droppedReferents(original: string, edited: string, chars: readonly CharRef[]): string[] {
+  const names = chars.filter((c) => isProperName({ name: c.name })).map((c) => c.name.toLowerCase())
+  const o = tokens(original), e = tokens(edited)
+  const n = (ws: readonly string[], w: string) => ws.filter((x) => x === w).length
+  return [...new Set(o.filter((w) => (MENTION_NOUNS.has(w) || names.includes(w)) && n(o, w) > n(e, w)))]
+}
+/**
+ * Is the nearest mention the one the pronoun stands for: a pronoun of the same gender (the chain goes on); the dropped noun or name
+ * itself; or a glossary character and its kind noun ("Sintel" ~ "woman"). With nothing dropped, any noun or name of that gender.
+ */
+function sameReferent(nearest: string, g: 'she' | 'he', dropped: readonly string[], chars: readonly CharRef[]): boolean {
+  if (FAMILY[g].has(nearest)) return true
+  if (FAMILY.she.has(nearest) || FAMILY.he.has(nearest)) return false
+  const kindOf = (w: string) => chars.find((c) => c.name.toLowerCase() === w)?.kind
+  if (!dropped.length) return IN_CUE_NOUNS[g].test(nearest) || chars.some((c) => c.gender === g && c.name.toLowerCase() === nearest)
+  return dropped.some((d) => d === nearest || kindOf(nearest) === d || kindOf(d) === nearest)
 }
 
 /** The edited text as the faithful guard reads it: free words and licensed gendered pronouns removed (the licence checked them). */
