@@ -98,6 +98,8 @@ Voiced-usable, not voiced and plot events lost are informational; they do not ch
 | `tos-390-510-g10` (2026-10-15, same code; no glossary) | held out | 30 (shot 16 skipped, 0003) | 21 / 20 / 20 | **20 / 30 = 66.7 %** (bar 21) | 17 / 26 | 4 | 2 (shots 26, 30) | $0.100 | FAIL |
 | `sintel-90-210-g11` (2026-10-15, after #55 / #56 / #57 / #59; from describe, voice-activity regap on) | primary (tuned) | 29 | 20 / 18 / 21 | **19 / 29 = 65.5 %** (bar 21) | 14 / 20 | 9 | 5 (shots 7, 8, 11, 27, 28) | $0.098 | FAIL |
 | `tos-390-510-g11` (2026-10-15, same code; no glossary) | held out | 30 (shot 16 skipped) | 19 / 20 / 20 | **20 / 30 = 66.7 %** (bar 21) | 16 / 24 | 6 | 2 (shots 26, 27) | $0.101 | FAIL |
+| `sintel-90-210-g12` (2026-10-15, main `748e2ef` after #61 / #62; from describe, glossary) | primary (tuned) | 29 | 19 / 20 / 22 | **21 / 29 = 72.4 %** (bar 21; all raters 16) | 13 / 17 | 12 | 5 (shots 7, 11, 14, 27, 28) | $0.099 | PASS |
+| `tos-390-510-g12` (2026-10-15, same code; no glossary) | held out | 31 (none skipped) | 17 / 18 / 18 | **18 / 31 = 58.1 %** (bar 22; all raters 16) | 17 / 27 | 4 | 3 (shots 23, 26, 30) | $0.103 | FAIL |
 
 **g10 and g11 are not strictly comparable.** The g10 packets rated an unvoiced shot on its raw described.json text (g10 shot 28
 "… inside the tent"); from g11 on, the text to rate is fit's grounded description (step 3 above; 0012 amendment of 2026-10-15).
@@ -134,4 +136,36 @@ Known limits; both shots were majority-usable as rated, and 0014 now splits thos
   Cluttered tech lab … in a cluttered tech lab");
 - 2 plot events lost: the man on the rope firing as a robot smashes the organ pillars (26), the robot's crash (27).
 
-Neither clip passes. The five-title re-run from describe (DESC-029) is on hold until Gate C passes on both clips.
+Neither clip passes in g10 or g11.
+
+**`sintel-90-210-g12`** (after DESC-033, decision [0015](decisions/0015-complete-sentences.md), and DESC-029 round 3) passes at
+the bar exactly: 21 of 29, with no on-time fail. The pass comes with fewer shots voiced: 17 of 29 (20 in g11), so 12 are not
+voiced (3, 5, 6, 7, 8, 10, 11, 14, 23, 26, 27, 28) against 9 in g11. The gate counts an unvoiced shot like a voiced one (step 5),
+so part of the gain is shots that say nothing. Voiced-usable is 13 / 17. Plot events lost (listed by a majority): the ladle pour
+(7), the face in the bowl (11), the cut to the sunlit town (14), the smile and the roar (27), the woman cradling the dragon (28).
+Rater 2 listed "Shots 7–8" and rater 3 "Shot 5/7/8"; `score` reads the dash as shot 7 only, so shot 8 counts once; read by hand
+it is listed twice, which would make 6. Left (8 shots):
+
+- clean: extended cue 9 ends on a verbless sentence, "An old man with a grey beard, in red-brown robes." (the shortener cut
+  his action); shot 0 says its setting twice ("In the snowy mountains, … a white mountainside deep in snow"); shot 14 is a
+  verbless line ("The town, sunlit, dense with rooftops, …");
+- faithful: details the frames do not show on 3 (face paint, grey beard), 6 and 10 ("blinks slowly"), 16 (a dark cloth, not a
+  "sleeve") and 21 ("stands in the town" for a woman crouched on a rooftop; two raters also failed it as setting-only filler).
+
+**`tos-390-510-g12`** is worse than g11: 18 of 31 against 20 of 30 (shot 16 is no longer same-as-previous, so it is rated and
+the bar is 22). More shots are voiced (27 of 31, 24 in g11). Plot events lost: the man on the rope firing as a robot crashes
+through the organ columns (26), the man on the tower readying a device (23, minor), the argument at the end (30). Left (13
+shots):
+
+- clean, dropped articles from describe drafts (8 shots: 3, 5, 7, 10, 11, 13, 23, 30, e.g. "Boy faces giant robot.", "Man
+  holds device."): the drafts are telegraphic and verify changed only 3 of 31 (shots 2, 19, 29);
+- clean, the edit pass removed articles: shot 24 "A man climbs a rope in a sunlit industrial ruin." → "Man climbs rope in
+  sunlit industrial ruin.";
+- "Dark." as a one-word cue over a lit shaft (22: faithful and clean);
+- a verbless setting-only line, "Dim, smoky chamber with glowing lines." (9, not voiced);
+- faithful: the hand at his cheek, not the eyepiece (5), robots that charge rather than clash, with no crumbling pillars (20),
+  not all four figures in white (21), and on 24 (one rater) a drop into a dark shaft rather than a climb.
+
+**Gate C is not passed.** A run passes at ≥ 70 % majority-usable (The bar); each clip is reported on its own (step 6); the
+primary clip is tuned, and "a change that helps only the tuned clip is not an improvement"; the five-title re-run from describe
+(DESC-029) is on hold until Gate C passes on **both** clips. g12 passes on the tuned clip only, so the re-run stays on hold.
