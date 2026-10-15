@@ -5,6 +5,7 @@ import { CreateInvalidationCommand } from '@aws-sdk/client-cloudfront'
 import { cacheControl, contentType, createInvalidation } from '../src/s3'
 import { pack, type PackageReport } from '../src/steps/09-package'
 import { publish } from '../src/steps/10-publish'
+import { clipHash } from '../src/cues'
 import type { Ctx } from '../src/steps'
 
 const execa = vi.hoisted(() => vi.fn())
@@ -101,6 +102,26 @@ describe('10-publish', () => {
       ['s3://media/published/sintel/master.m3u8', 'public,max-age=60'],
       ['s3://media/published/sintel/sdh.vtt', 'public,max-age=60'],
     ])
+  })
+  it('publish uploads the track-level clip (cue_{i}.track.mp3) under a hash of its own bytes, else the Polly clip with a warning', async () => {
+    const { dir, ctx } = await published()
+    await writeFile(join(dir, 'cues.json'), JSON.stringify([{}, {}]))
+    await writeFile(join(dir, 'cue_0.mp3'), 'polly 0')
+    await writeFile(join(dir, 'cue_0.track.mp3'), 'levelled 0')
+    await writeFile(join(dir, 'cue_1.mp3'), 'polly 1') // mixed before track clips existed
+    await writeFile(join(dir, 'cue_2.mp3'), 'left over from a longer run')
+    await writeFile(join(dir, 'cue_2.track.mp3'), 'left over too')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const upload = vi.fn(async () => {})
+    await publish(ctx, { upload })
+    const h = (s: string) => clipHash(new TextEncoder().encode(s))
+    const clips = upload.mock.calls.map((c) => c as unknown as [string, string]).filter(([, uri]) => uri.includes('/cues/')).map(([f, uri]) => [f, uri]).sort()
+    expect(clips).toEqual([
+      [join(dir, 'cue_0.track.mp3'), `s3://media/published/sintel/cues/cue_0.${h('levelled 0')}.mp3`],
+      [join(dir, 'cue_1.mp3'), `s3://media/published/sintel/cues/cue_1.${h('polly 1')}.mp3`],
+    ])
+    expect(JSON.parse(await readFile(join(dir, 'clips.json'), 'utf8'))).toEqual({ 0: `published/sintel/cues/cue_0.${h('levelled 0')}.mp3`, 1: `published/sintel/cues/cue_1.${h('polly 1')}.mp3` })
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/^publish: 1 of 2 clips have no cue_\{i\}\.track\.mp3/))
   })
   it('publish calls CreateInvalidation only when PUBLISH_INVALIDATE=1', async () => {
     const { ctx } = await published()

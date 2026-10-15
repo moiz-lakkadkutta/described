@@ -5,7 +5,7 @@ import { mezzanineArgs } from '../src/steps/01-probe'
 import { shotsFromCuts, sceneFilter } from '../src/steps/02-shots'
 import { gapsFromWords, wordsFromTranscribe } from '../src/steps/03-speech'
 import { segment, wrap } from '../src/steps/08-text'
-import { buildMixArgs, buildLoudnormMeasureArgs, buildLoudnormApplyArgs, parseLoudnorm } from '../src/steps/07-mix'
+import { buildMixArgs, buildLoudnormMeasureArgs, buildLoudnormApplyArgs, buildTrackClipArgs, loudnormGainDb, NARRATION_LIMIT, parseLoudnorm } from '../src/steps/07-mix'
 import { buildPackagerArgs } from '../src/steps/09-package'
 import { wordBudget, stripFence } from '../src/prompts'
 
@@ -470,6 +470,24 @@ describe('mix', () => {
     expect(() => parseLoudnorm('no json here')).toThrow(/loudnorm/)
   })
 })
+describe('app clips at the track level', () => {
+  it('loudnormGainDb is the linear offset, or the peak-limited one when loudnorm would fall back to dynamic', () => {
+    // Sintel's premix (2026-10-15): −18.69 LUFS, +0.07 dBTP → −5.31 dB, the gain the published audio_ad shows (film bed −5.35 dB)
+    expect(loudnormGainDb({ input_i: -18.69, input_tp: 0.07, input_lra: 18.1, input_thresh: -29.85 })).toBeCloseTo(-5.31, 5)
+    expect(loudnormGainDb({ input_i: -27.21, input_tp: -6.13, input_lra: 13.4, input_thresh: -37.5 })).toBeCloseTo(3.21, 5) // −6.13 + 3.21 ≤ −2
+    expect(loudnormGainDb({ input_i: -30, input_tp: -1, input_lra: 9, input_thresh: -40 })).toBeCloseTo(-1, 5) // +6 would peak at +5 dBTP
+  })
+  it('a clip goes through the narration chain of the mix: 48 kHz stereo, the same limiter, then the loudnorm gain', () => {
+    const f = buildMixArgs('work/x', [{ i: 0, startMs: 1000, endMs: 3000, text: 'x', extended: false, wordCount: 1, shotIndex: 0 }], 60).find((a) => a.includes('amix'))!
+    expect(f).toContain(`normalize=0,${NARRATION_LIMIT}[narr]`)
+    const args = buildTrackClipArgs('work/x', 7, -5.3125)
+    expect(args[args.indexOf('-i') + 1]).toBe('work/x/cue_7.mp3')
+    expect(args[args.indexOf('-af') + 1]).toBe(`aformat=sample_rates=48000:channel_layouts=stereo,${NARRATION_LIMIT},volume=-5.31dB`)
+    expect(args).toEqual(expect.arrayContaining(['-c:a', 'libmp3lame']))
+    expect(args.at(-1)).toBe('work/x/cue_7.track.mp3')
+  })
+})
+
 describe('package', () => {
   it('signals the AD rendition and uses real spaces and ;-separated characteristics', () => {
     const args = buildPackagerArgs('en', true, true, true)
