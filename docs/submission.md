@@ -114,6 +114,8 @@ describer — and delivers description through the TV's own audio-track selector
   and 14 / 29 (run g9, [0010](decisions/0010-verify-pass.md)), mostly visual details the frames do not show. We added a
   visual verify pass (DESC-027) and a shortener that keeps sentences (DESC-028); the next re-check, after the scene
   build-up (DESC-029), also fell short, and a fix for that regression is in progress.
+  The combined re-checks of 2026-10-15 (g10, g11) are in [evaluation.md](evaluation.md#gate-c-results); the latest scored
+  65.5 % on Sintel and 66.7 % on the held-out Tears of Steel clip, both below the gate.
   TODO(human): Replace with the final Gate C re-check score before submitting.
 - **The raters were models.** Gate C was scored by two Claude raters against frame contact sheets. A usability session
   with a screen-reader user has also taken place. TODO(human): where are the session notes, so they can be linked here?
