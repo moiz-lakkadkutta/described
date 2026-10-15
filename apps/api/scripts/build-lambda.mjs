@@ -1,4 +1,4 @@
-// Bundles the hosted copy of the API (src/lambda.ts) for Lambda (DESC-034): `pnpm --filter @described/api build:lambda`.
+// Bundles the hosted copy of the API (src/lambda.ts) for Lambda (DESC-034): `pnpm --filter @described/api build:lambda` (runs `prisma generate` first).
 // Output dist-lambda/: index.js (CommonJS, Node.js 22), Prisma's query engine for linux-arm64-openssl-3.0.x and
 // schema.prisma next to it (Prisma looks beside the bundle: https://www.prisma.io/docs/orm/prisma-client/deployment/serverless/deploy-to-aws-lambda),
 // and prisma/migrations for the function's `migrate` operation. infra/lib/viewer-stack.ts deploys this folder as is.

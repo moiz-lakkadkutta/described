@@ -54,7 +54,7 @@ AWS_PROFILE=<profile> pnpm run deploy:stack described-media-dev -c stage=dev --o
 `described-viewer-<stage>` (`infra/lib/viewer-stack.ts`), us-east-1, synthesised only with `-c viewer=1`:
 
 - VPC with two isolated subnets: no NAT gateway, no internet gateway, no public IPv4 address (none of them billed).
-- Lambda function `Api` (Node.js 22, arm64, 512 MB, 20 s), code `apps/api/dist-lambda` (`pnpm --filter @described/api build:lambda`:
+- Lambda function `Api` (Node.js 22, arm64, 512 MB, 20 s), code `apps/api/dist-lambda` (`pnpm --filter @described/api build:lambda`: `prisma generate`, then
   esbuild bundle + Prisma's `linux-arm64-openssl-3.0.x` engine + `prisma/migrations`). `API_MODE=viewer`: `/admin` is not mounted.
   Function URL, auth type `NONE`: HTTPS, CORS from Express. Logs kept one week.
 - RDS PostgreSQL 17 db.t4g.micro, single-AZ, 20 GiB gp3, encrypted, not public; ingress 5432 from the function's security group
