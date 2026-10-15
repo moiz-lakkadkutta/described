@@ -7,7 +7,8 @@ function lum(hex: string) {
 const contrast = (a: string, b: string) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x! + 0.05) / (y! + 0.05) }
 describe('palette contrast', () => {
   it('body text ≥ 7:1 on ground (AAA) — we target far higher for TV', () => { expect(contrast(tokens.color.text, tokens.color.ground)).toBeGreaterThanOrEqual(7) })
-  it('secondary text ≥ 4.5:1 on ground', () => { expect(contrast(tokens.color.textSecondary, tokens.color.ground)).toBeGreaterThanOrEqual(4.5) })
+  it('secondary text ≥ 4.5:1 on ground', () => { expect(contrast(tokens.color.textSecondary, tokens.color.ground)).toBeGreaterThanOrEqual(tokens.contrast.min) })
+  it('the contrast floor is WCAG AA', () => { expect(tokens.contrast.min).toBe(4.5) })
   it('interactive and badge ≥ 3:1 on ground (non-text contrast)', () => {
     expect(contrast(tokens.color.interactive, tokens.color.ground)).toBeGreaterThanOrEqual(3)
     expect(contrast(tokens.color.badge, tokens.color.ground)).toBeGreaterThanOrEqual(3)

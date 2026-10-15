@@ -11,8 +11,12 @@ export const TitleDetail = CatalogItem.extend({
 })
 /** Polly neural voices offered in Settings, in the order the list shows them. Vicki and Daniel are de-DE voices. */
 export const Voice = z.enum(['Vicki', 'Joanna', 'Daniel', 'Matthew'])
-/** Caption background: a dark box (default, PLAN §8) or a text shadow only. */
-export const CaptionStyle = z.enum(['box', 'shadow'])
+/**
+ * Caption look. `system` (default, DESC-035): follow the viewer's Fire TV caption style (Settings › Accessibility ›
+ * Captions) while Fire TV captions are on, else the dark box. `box` (PLAN §8) and `shadow` are the app's own styles; a
+ * viewer who picks one in Settings keeps it whatever Fire TV says.
+ */
+export const CaptionStyle = z.enum(['system', 'box', 'shadow'])
 export const Prefs = z.object({ adDefault: z.boolean(), extendedMode: z.boolean(), voice: Voice, captionKind: z.enum(['off', 'captions', 'sdh', 'descriptions']), captionScale: z.union([z.literal(100), z.literal(125), z.literal(150), z.literal(200)]), captionStyle: CaptionStyle, firstRunDone: z.boolean() })
 /**
  * Prompts the app voice speaks: the three first-run panels and the Settings voice preview. Clips live at CloudFront

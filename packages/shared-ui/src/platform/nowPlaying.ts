@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import type { TransportControl } from '@moizp/vega-media-kit/platform'
 import { SEEK_STEP_S } from '../playback'
 import type { PlayerSession } from '../screens/Player'
+import type { CaptioningBinding } from './captioning'
 
 /**
  * Platform playback bindings (DESC-008): media session (Alexa "pause", "resume", "fast forward", "go to 5 minutes")
@@ -26,11 +27,17 @@ export interface MediaSessionBinding {
 export interface PlaybackEvent { slug: string; positionS: number; durationS: number | null; state: 'playing' | 'paused' | 'exit' }
 /** Watch activity for the platform's "continue watching" (Fire TV Integration SDK); progress for our own API is Root's job. */
 export interface PlaybackReporter { report(e: PlaybackEvent): void }
-export interface PlatformBindings { mediaSession?: MediaSessionBinding; reporter?: PlaybackReporter }
+export interface PlatformBindings {
+  mediaSession?: MediaSessionBinding; reporter?: PlaybackReporter
+  /** The viewer's system caption settings (DESC-035, platform/captioning.ts). */
+  captioning?: CaptioningBinding
+}
 
 let bindings: PlatformBindings = {}
 /** Call once from the platform entry, before Root mounts. */
 export function configurePlatform(b: PlatformBindings) { bindings = b }
+/** The bindings configured now (empty without `configurePlatform`). */
+export const platformBindings = (): PlatformBindings => bindings
 
 /** How often watch activity is reported while playing. */
 export const REPORT_EVERY_MS = 30_000

@@ -14,6 +14,12 @@ to confirm before submission.
 | 2 | Launch / deep-link intents | Android `VIEW` intent on a custom scheme; with catalog integration, also the Fire TV launcher's capabilities broadcast | **Implemented now** (scheme) · launcher broadcast **deferred with #1** | `described://title/{slug}`, `described://play/{slug}?t=…` |
 | 3 | Personalization (continue watching, watchlist) | Fire TV Integration SDK (jar from Amazon + data-integration service); **needs catalog integration** | **Not feasible before freeze** | Interface + events, no-op reporter |
 | 4 | Media controls / Alexa transport | Android `MediaSession` | **Implemented now** with a small native module | `modules/described-media-session` |
+| 5 | Viewer's caption settings (Settings › Accessibility › Captions) | Android `CaptioningManager` | **Implemented** (DESC-035) with a small native module; device check pending | `modules/described-captioning` |
+| 6 | VoiceView screen reader | Android accessibility framework + app announcements | **Implemented and documented** (DESC-009, DESC-035); device check pending | `shared-ui` `a11y.ts`, `Focusable` |
+
+Fire TV Recommendations (home-screen rows posted by apps) was the planned third integration; Amazon retired it in May
+2025 — its pages return 404 and only the Wayback Machine has them — so DESC-035 built #5 and #6 instead (friction
+2026-10-15).
 
 ---
 
@@ -189,11 +195,88 @@ default; behaviour unverified).
 key (127) always reach the Player (`transportAction` no longer drops pause while the kit reports paused) and keep the film
 paused after the clip.
 
+## 5. Captions follow the viewer's Fire TV caption settings (DESC-035)
+
+**Mechanism.** Fire TV's Settings › Accessibility › Captions are Android's system caption settings, exposed to apps by
+`CaptioningManager`: `isEnabled()`, `getFontScale()`, `getLocale()`, `getUserStyle()` → `CaptionStyle`
+(foreground, background and window colours, edge type and colour, typeface; `hasXxx()` says which are set), and
+`addCaptioningChangeListener` for changes while the app runs. Amazon's accessibility guide asks apps to support
+"Closed captions and subtitle customization" and "CC settings".
+- https://developer.android.com/reference/android/view/accessibility/CaptioningManager
+- https://developer.android.com/reference/android/view/accessibility/CaptioningManager.CaptionStyle
+- https://developer.amazon.com/apps-and-games/blogs/2025/11/guide-to-accessibility-on-amazon-fire-devices
+- https://developer.amazon.com/docs/fire-tv/implement-voiceview-accessibility-features-fire-os.html ("Support program
+  selection, program information, playback, and CC settings")
+
+**Built.**
+- `apps/expo/modules/described-captioning` (Kotlin, autolinked like #4, framework API only, no Gradle dependencies):
+  `get()` returns the state; `onCaptioningChange` sends the full state on every listener callback (registered while JS
+  listens). Pure value mapping is `CaptionSnapshot` (JVM unit tests: `./gradlew :described-captioning:testReleaseUnitTest`).
+  The typeface is matched by identity to `Typeface.create(family, NORMAL)` for the families Android's caption settings
+  offer. Logcat: `adb logcat -s DescribedCaptioning`.
+- `apps/expo/src/platform/captioning.ts`: native state → shared-ui `SystemCaptions` (edge type names, unset → null);
+  `configurePlatform({ captioning })` in App.tsx. Missing module → no binding → captions look as before.
+- `packages/shared-ui/src/platform/captioning.ts`: `useSystemCaptions()` (Player, live) and `captionTheme(prefs, system)`.
+
+**Precedence.** Settings › Caption style has three values: **Match Fire TV** (`system`, the default), Box, Shadow.
+- Box or Shadow chosen in the app always wins.
+- Match Fire TV follows the system style while system captions are **on**; with them off (or without the module, e.g.
+  Vega) it is the Box. Following the style only when captions are on keeps the designed look for viewers who never
+  touched Fire TV's caption settings (Android's default style is opaque white on black).
+- Size: the system font scale × the app's Caption size (100 % = the viewer's Fire TV size), clamped to 200 % and to
+  the type floor (`tokens.type.floor` / caption size).
+- Captions are on by default (Rich captions); "off" is only ever an in-app choice, so it is kept whatever Fire TV says.
+  So "system captions on and no in-app choice → captions on" holds without extra code.
+- Migration `20261015120000_caption_style_system`: default `system`; stored `box` (the old default, never a choice)
+  becomes `system`; `shadow` stays.
+
+**Colours.** System colours are the viewer's choice, so they are used as given and are not tokens. They are clamped
+so text never drops under `tokens.contrast.min` (4.5:1, WCAG AA) against its box over both the darkest and brightest
+picture (`theme/colour.ts` `readable`): text made opaque → box made more opaque in 5 % steps → light or dark token text
+on the opaque box → the app's own box. Background is behind the text; the kit draws one box, so the window colour is
+used when the background is clear. Typeface: serif, monospace, casual, cursive, condensed, small caps are used;
+default or sans-serif keeps Atkinson Hyperlegible.
+
+**Gaps (friction 2026-10-15).** Edge type and colour are read but not drawn — the kit's `CueTheme` has no text shadow
+or outline (TODO(kit)); a clear background still gets a box. Locale is read but unused: every title has English
+captions only. Compiled: `./gradlew :app:compileReleaseKotlin` passed (2026-10-15, AGP via Expo SDK 54 prebuild).
+**Device check pending:** docs/device-checks/DESC-035.md.
+
+## 6. VoiceView (DESC-009, DESC-035)
+
+Amazon's guidance: content descriptions for every control; usage hints on list and grid **containers** (read on
+entering, not repeated inside); "Described By" for static content that goes with the focused item; orientation text;
+announce dynamic changes; make focus visible. —
+https://developer.amazon.com/docs/fire-tv/implement-voiceview-accessibility-features-fire-os.html ,
+https://developer.amazon.com/apps-and-games/blogs/2025/11/guide-to-accessibility-on-amazon-fire-devices
+
+Focus moves in JavaScript (react-tv-space-navigation), not through Android, so VoiceView does not follow it by itself.
+What the app does (each checked in code and tests):
+
+| Amazon asks | Described does | Where |
+|---|---|---|
+| Content description on every control | Every focusable is a `Focusable`, whose `label` (required) is its `aria-label` / accessibilityLabel and states its purpose ("Play Sintel with audio description", "Go to Settings"); never "button" | components/Focusable.tsx; tests voiceview "every focusable states its purpose" |
+| Speak each newly focused item | `announceFocus`: label, then hint, 200 ms after focus settles and only if it still has focus (holding ◄► speaks where you stop) | a11y.ts |
+| Usage hints on the list/grid container (`com.amazon.accessibility.usageHint.remote`) | Entering a row says its name and, after the first card, "Left and right move along the row"; entering a grid, "…up and down between rows". Not repeated inside. React Native cannot set node extras, so the app speaks them | components/Row.tsx, Grid.tsx (`setFocusContext(text, usageHint)`) |
+| "Described By" / read everything shown | Focus context: a title's facts, badges and synopsis, the hero's synopsis, a row's name, said once before the first label | a11y.ts `setFocusContext`; models.ts `titleSummary` |
+| Usage hints on controls | `accessibilityHint` + spoken hint: Settings values "Press left or right to change", Caption style, Player surface, sample | strings.ts `a11y.*Hint` |
+| Roles / Android nodes | `accessibilityRole`: `button` for anything Select acts on (default), `adjustable` + `accessibilityValue` for Settings values, `text` for static lines, `list` on rows and grids, `menu` on the rail; `accessibilityState.selected` on toggles | Focusable.tsx, Row.tsx, Grid.tsx, Rail.tsx |
+| Announce dynamic changes and alerts | `announceForAccessibility` for Settings changes, My list add/remove, description on/off, not-saved errors, loading; live regions for offline, empty grids, processing status | index.tsx, Settings.tsx, Player.tsx, Title.tsx, Grid.tsx |
+| Focus order | Spatial: rail ◄, rows ▲▼, cards ◄►; screens open on a default focus and return to the last focused item (focus memory) | focus/memory.ts, DefaultFocus |
+| Visible focus | Outline + 1.04 scale in 150 ms, never colour alone | Focusable.tsx, tokens.motion |
+| Don't talk over VoiceView | First-run prompt clips in the app voice are skipped while VoiceView is on | index.tsx `speakPrompt` |
+| CC settings | §5 above | |
+
+**Not done:** orientation text (`com.amazon.accessibility.orientationText`) and real "Described By" node extras —
+both need an AccessibilityDelegate on native views React Native does not expose; the spoken focus context covers the
+same need. **Device check pending:** docs/device-checks/DESC-035.md §2 and the full script docs/a11y/voiceview-checklist.md.
+
 ## What the human needs to do
 
 - **Amazon developer account / submission form:** ask Amazon for catalog integration (they decide; partner-only). If
   accepted: get the partner ID, EMBER schema/XSD and upload channel; then launcher integration and the Integration SDK
   jar. None of it blocks submission — the app is fully usable from its own rows.
+- **Device:** run docs/device-checks/DESC-035.md (captions follow Fire TV; VoiceView capture).
 - **Device:** run docs/device-checks/DESC-008.md, especially the release build with the new native module and the
   Alexa voice test.
 
@@ -208,3 +291,5 @@ paused after the clip.
 | Media-key ownership | apps/expo/src/platform/mediaSession.ts (`ownsKey`, `keySkipFor`, `MEDIA_SESSION_OWNS_KEYS`), apps/expo/src/remote.ts (`setKeySkip`) → the key hub's `setSkip` in apps/expo/src/keys.ts (skipped codes reach no subscriber) |
 | Fire OS wiring | apps/expo/src/platform/*.ts, apps/expo/App.tsx (`configurePlatform`, `launches`) |
 | Native media session | apps/expo/modules/described-media-session |
+| System caption settings | apps/expo/modules/described-captioning (native), apps/expo/src/platform/captioning.ts (binding), packages/shared-ui/src/platform/captioning.ts (precedence, theme), packages/shared-ui/src/theme/colour.ts (contrast clamp) |
+| VoiceView | packages/shared-ui/src/a11y.ts, components/Focusable.tsx, components/Row.tsx, components/Grid.tsx |

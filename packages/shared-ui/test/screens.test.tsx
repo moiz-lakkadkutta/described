@@ -220,7 +220,7 @@ describe('Described and My list grids', () => {
     act(() => first.unmount())
     expect(label(defaults(render(described(catalog)))[0]!.findByType('FocusableView' as never))).toMatch(/^Open Sintel/)
   })
-  it('says the heading once on entering the grid', () => {
+  it('says the heading and how to move once on entering the grid', () => {
     vi.useFakeTimers(); _setScreenReader(true)
     try {
       const r = render(described())
@@ -229,7 +229,7 @@ describe('Described and My list grids', () => {
       act(() => grid.props.onActive())
       const [a, b] = focusables(r).filter((n) => label(n)?.startsWith('Open '))
       for (const card of [a!, b!]) { act(() => card.props.onFocus()); act(() => { vi.advanceTimersByTime(ANNOUNCE_DEBOUNCE_MS) }) }
-      expect(a11yCalls).toEqual([`${strings.described.heading}. ${label(a!)}`, label(b!)])
+      expect(a11yCalls).toEqual([`${strings.described.heading}. ${label(a!)}. ${strings.a11y.gridHint}`, label(b!)])
     } finally { vi.useRealTimers(); _setScreenReader(false) }
   })
   it("the last row keeps room below for the focus outline", () => {

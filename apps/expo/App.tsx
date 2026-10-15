@@ -9,12 +9,15 @@ import { launchSource } from './src/platform/launch'
 import { createMediaSession, keySkipFor } from './src/platform/mediaSession'
 import { nativeMediaSession } from './src/platform/nativeMediaSession'
 import { playbackReporter } from './src/platform/personalization'
+import { createCaptioning } from './src/platform/captioning'
+import { nativeCaptioning } from './src/platform/nativeCaptioning'
 // Fire OS entry. Platform-specific wiring (fonts, keys, audio, IAP, camera) goes here, never in shared-ui.
 configureRemote(keySource)
 // DESC-008: Alexa transport through the media session, watch activity (no-op until Fire TV catalog integration).
 const mediaSession = createMediaSession(nativeMediaSession)
 setKeySkip(keySkipFor(mediaSession)) // one path per media key; MEDIA_SESSION_OWNS_KEYS is the device-check switch
-configurePlatform({ mediaSession, reporter: playbackReporter })
+// DESC-035: captions follow Fire TV Settings › Accessibility › Captions (Caption style "Match Fire TV").
+configurePlatform({ mediaSession, reporter: playbackReporter, captioning: createCaptioning(nativeCaptioning) })
 const id = deviceId()
 export default function App() {
   // Family names must match tokens.type.*.family. On error, Root falls back to system sans at the same sizes.

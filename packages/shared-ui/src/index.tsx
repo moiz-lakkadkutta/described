@@ -35,7 +35,7 @@ const screenRoute = (k: string): Route => (k === 'described' ? { name: 'describe
 const noSpeech = async () => {}
 const noStop = () => {}
 const noop = () => {}
-const defaultPrefs: Prefs = { adDefault: true, extendedMode: true, voice: 'Joanna', captionKind: 'sdh', captionScale: 100, captionStyle: 'box', firstRunDone: false }
+const defaultPrefs: Prefs = { adDefault: true, extendedMode: true, voice: 'Joanna', captionKind: 'sdh', captionScale: 100, captionStyle: 'system', firstRunDone: false }
 // A player route keys on its audio and start too, so a new deep link to the same title remounts the Player.
 const routeKey = (r: Route) => (r.name === 'player' ? `player:${r.slug}:${r.withAd ? 'ad' : 'main'}:${r.startAtS ?? ''}` : 'slug' in r ? `${r.name}:${r.slug}` : r.name)
 /** The API answered with `success: false`; `status` tells a refusal (4xx) from a server failure (5xx). */

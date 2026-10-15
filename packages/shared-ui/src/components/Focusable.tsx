@@ -14,7 +14,10 @@ export interface FocusableProps {
   onBlur?: () => void
   label: string // aria-label: purpose, not "button"
   hint?: string
-  /** Platform role where it adds meaning: a settings value is `adjustable` (◄► changes it), a static line is `text`. */
+  /**
+   * Platform role: a settings value is `adjustable` (◄► changes it), a static line is `text`. Without one, anything
+   * Select acts on is a `button` (DESC-035: Amazon's VoiceView guidance asks for working Android accessibility nodes).
+   */
   role?: 'button' | 'adjustable' | 'text'
   /** Current value of an adjustable element, exposed as accessibilityValue. */
   value?: string
@@ -42,6 +45,7 @@ export function Focusable({ children, onPress, onFocus, onBlur, label, hint, rol
   // text and selecting does not change the width (DESC-019: "My lis✓t") — except at a large Android font scale, where
   // the slot (a minWidth) grows to fit the ✓ rather than clip it. No room (collapsed rail) → check={false}: no slot.
   const slot = check && selected !== undefined
+  const a11yRole = role ?? (onPress ? 'button' : undefined)
   const animate = (to: number) => Animated.timing(scale, { toValue: to, duration: tokens.motion.focusMs, useNativeDriver: true }).start()
   // Always wrapped: toggling the wrapper would remount the node and drop focus.
   return (
@@ -50,7 +54,7 @@ export function Focusable({ children, onPress, onFocus, onBlur, label, hint, rol
         onSelect={onPress}
         onFocus={() => { focused.current = true; animate(tokens.motion.focusScale); announceFocus(value ? strings.a11y.setting(label, value) : label, hint, () => focused.current); onFocus?.() }}
         onBlur={() => { focused.current = false; animate(1); onBlur?.() }}
-        viewProps={{ 'aria-label': label, accessibilityHint: hint, accessibilityState: { selected: !!selected }, testID, ...(role ? { accessibilityRole: role } : {}), ...(value ? { accessibilityValue: { text: value } } : {}) }}
+        viewProps={{ 'aria-label': label, accessibilityHint: hint, accessibilityState: { selected: !!selected }, testID, ...(a11yRole ? { accessibilityRole: a11yRole } : {}), ...(value ? { accessibilityValue: { text: value } } : {}) }}
       >
         {({ isFocused }) => {
           const content = typeof children === 'function' ? children({ focused: isFocused }) : children

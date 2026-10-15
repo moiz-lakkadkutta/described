@@ -28,6 +28,12 @@ describe('focus context', () => {
     announceFocus('Open Tears of Steel', undefined, () => true); vi.advanceTimersByTime(ANNOUNCE_DEBOUNCE_MS)
     expect(a11yCalls).toEqual(['Newly described. Open Sintel', 'Open Tears of Steel'])
   })
+  it('a usage hint for the group just entered is said once, after the first announcement (Amazon: hint on the container)', () => {
+    setFocusContext('Newly described', strings.a11y.rowHint)
+    announceFocus('Open Sintel', undefined, () => true); vi.advanceTimersByTime(ANNOUNCE_DEBOUNCE_MS)
+    announceFocus('Open Tears of Steel', undefined, () => true); vi.advanceTimersByTime(ANNOUNCE_DEBOUNCE_MS)
+    expect(a11yCalls).toEqual([`Newly described. Open Sintel. ${strings.a11y.rowHint}`, 'Open Tears of Steel'])
+  })
   it('is not kept while no screen reader is on', () => {
     _setScreenReader(false); setFocusContext('Newly described'); _setScreenReader(true)
     announceFocus('Open Sintel', undefined, () => true); vi.advanceTimersByTime(ANNOUNCE_DEBOUNCE_MS)
@@ -43,9 +49,33 @@ describe('Home', () => {
     act(() => rows[1]!.props.onActive())
     focusOn(find(r, 'Open Sintel'))
     expect(a11yCalls.at(-1)).toMatch(/^Newly described\. Open Sintel\. 2010/)
+    expect(a11yCalls.at(-1)).toMatch(new RegExp(`\\. ${strings.a11y.rowHint}$`))
+    focusOn(find(r, 'Open Tears of Steel'))
+    expect(a11yCalls.at(-1)).not.toContain(strings.a11y.rowHint) // not repeated inside the row
     act(() => hero!.props.onActive())
     focusOn(find(r, 'Play Sintel with audio description'))
     expect(a11yCalls.at(-1)).toBe('Sintel. Sintel synopsis. Play Sintel with audio description')
+  })
+})
+
+describe('VoiceView integration (DESC-035)', () => {
+  const screens = () => [
+    create(<Home catalog={catalog} myList={new Set()} onOpen={noop} onPlay={noop} onToggleList={noop} />),
+    create(<Title title={title} captionKind="sdh" inList={false} sample="idle" onPlay={noop} onSample={noop} onCaptions={noop} onToggleList={noop} onMore={noop} />),
+  ]
+  it('every focusable states its purpose and has a role; anything Select acts on is a button', () => {
+    for (const r of screens()) {
+      const all = focusables(r)
+      expect(all.length).toBeGreaterThan(0)
+      for (const n of all) {
+        expect(String(n.props['aria-label'] ?? '').trim().length, 'label').toBeGreaterThan(2)
+        expect(n.props.accessibilityRole, n.props['aria-label']).toBe('button')
+      }
+    }
+  })
+  it('rows are lists (Android collection semantics)', () => {
+    const r = create(<Home catalog={catalog} myList={new Set()} onOpen={noop} onPlay={noop} onToggleList={noop} />)
+    expect(r.root.findAll((n) => (n.type as unknown) === 'View' && n.props.accessibilityRole === 'list').length).toBeGreaterThanOrEqual(3)
   })
 })
 
