@@ -88,7 +88,13 @@ describe('A. a place lead is lower-cased, takes its article, and is never added 
     expect(lead('Oude Kerk', ['Bells ring above the Oude Kerk.'])).toBe('In the Oude Kerk')
     expect(lead('Paris', ['Rain falls on Paris.'])).toBe('In Paris')
     expect(lead('Cluttered tech lab', ['A man shouts in a cluttered tech lab.'])).toBe('In a cluttered tech lab')
-    expect(lead('Cluttered tech lab', ['Cluttered tech lab. A man shouts.'])).toBe('In a Cluttered tech lab') // the descriptions only ever capitalise it
+    // final check: a capital at a sentence start, or a word the descriptions do not have, is no name
+    expect(lead('Cluttered tech lab', ['Cluttered tech lab. A man shouts.'])).toBe('In a cluttered tech lab')
+    expect(lead('Cluttered tech lab', ['A man shouts.'])).toBe('In a cluttered tech lab')
+    expect(lead('Snowy mountains', ['Snowy mountains. A figure walks.'])).toBe('In snowy mountains')
+    expect(lead('Old church', ['Old church. A bell rings.'])).toBe('In an old church')
+    expect(lead('Old church', ['A bell rings in the old church.'])).toBe('In an old church')
+    expect(lead('Oude Kerk', ['Oude Kerk. Bells ring above the Oude Kerk.'])).toBe('In the Oude Kerk')
     // a / an by sound
     expect(lead('hour glass room', ['an hour glass room'])).toBe('In an hour glass room')
     expect(lead('European city street', ['a European city street'])).toBe('In a European city street')

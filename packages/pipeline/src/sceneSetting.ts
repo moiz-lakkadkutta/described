@@ -73,19 +73,26 @@ export function takesAn(word: string): boolean {
   if (/^(?:eu|ewe|uni|use|usu|uti|ura|ure|uri|uro|ubiq|one|once)/u.test(l)) return false
   return /^[aeiou]/u.test(l)
 }
-/** How the scene's own descriptions write `word` (case-insensitive, whole word): 'lower' when any writes it in lower case, 'upper' when only capitalised, undefined when none has it. */
-function writtenAs(word: string, texts: readonly string[]): 'lower' | 'upper' | undefined {
+/**
+ * Is `word` written with a capital in the middle of a sentence of the scene's own descriptions (case-insensitive, whole word)? A match
+ * that opens a sentence says nothing about the word ("Snowy mountains. A figure walks."), and one in lower case means it is not a name.
+ */
+function capitalisedMidSentence(word: string, texts: readonly string[]): boolean {
   const re = new RegExp(`(?<![\\p{L}])${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}])`, 'giu')
   let upper = false
-  for (const t of texts) for (const m of t.matchAll(re)) { if (/^\p{Ll}/u.test(m[0])) return 'lower'; upper = true }
-  return upper ? 'upper' : undefined
+  for (const t of texts) for (const m of t.matchAll(re)) {
+    if (/^\s*$/u.test(t.slice(0, m.index)) || /[.!?…:]["'”’)\]]*\s+$/u.test(t.slice(0, m.index))) continue // opens a sentence
+    if (/^\p{Ll}/u.test(m[0])) return false
+    upper = true
+  }
+  return upper
 }
 /**
  * The phrase that states a scene's place in front of an action (decision 0012, review round 3 g11 and its review): "In a cluttered tech
  * lab", "On a stone balcony", "In the tent", "Back in the lab", "In Sintel's village", "In the Oude Kerk", "On top of the bridge".
- * - Case: the label's first word is lower-cased only when the scene's own descriptions (`texts`) write it in lower case (Nova Lite writes
- *   labels sentence-case: tos-390-510-g11 voiced "In the Cluttered tech lab"); a glossary name or an all-capitals word stays. Without
- *   `texts`, a capitalised first word that is no name is lower-cased.
+ * - Case: the label's first word keeps a capital only when the scene's own descriptions (`texts`) capitalise it in the middle of a
+ *   sentence, or it is a glossary name or all capitals; otherwise it is lower-cased (Nova Lite writes labels sentence-case: tos-390-510-g11
+ *   voiced "In the Cluttered tech lab"; "Snowy mountains. A figure walks." says nothing about "Snowy").
  * - A label that already opens with a preposition is the lead itself ("inside the tent" → "Inside the tent"; "Back inside the tent").
  * - Its own article is kept (a return says "the"). The head is the noun before "of" when there is one ("rooftop of the town" → "On the
  *   rooftop of the town"; "top of the bridge" → "On top of the bridge"), else the last word; "on" for a surface, else "in".
@@ -101,7 +108,7 @@ export function placeLead(scene: Pick<Scene, 'setting' | 'returning'> & { settin
   const bare = (w: string) => w.toLowerCase().replace(/[^\p{L}'-]/gu, '')
   const first = ws[0]!.replace(/[^\p{L}]/gu, '')
   const firstStem = ws[0]!.replace(/['’]s$/u, '').replace(/[^\p{L}]/gu, '')
-  const keepCase = names.includes(firstStem) || /^\p{Lu}{2,}$/u.test(first) || (texts.length > 0 && writtenAs(firstStem, texts) !== 'lower')
+  const keepCase = names.includes(firstStem) || /^\p{Lu}{2,}$/u.test(first) || capitalisedMidSentence(firstStem, texts)
   if (!keepCase) ws[0] = ws[0]!.replace(/^\p{Lu}(?=\p{Ll}|[^\p{L}]|$)/u, (c) => c.toLowerCase())
   if (LEAD_PREPOSITIONS.has(bare(ws[0]!))) {
     const rest = [bare(ws[0]!), ...ws.slice(1)].join(' ')
