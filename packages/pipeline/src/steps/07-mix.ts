@@ -15,23 +15,32 @@ export async function mix(ctx: Ctx) {
   const probe = JSON.parse(await readFile(`${ctx.work}/probe.json`, 'utf8')) as { format: { duration: string } }
   const durationS = parseFloat(probe.format.duration)
   await execa('ffmpeg', buildMixArgs(ctx.work, cues, durationS), { stdio: 'inherit' })
-  const { stderr } = await execa('ffmpeg', buildLoudnormMeasureArgs(ctx.work))
-  const measured = parseLoudnorm(stderr)
-  await execa('ffmpeg', buildLoudnormApplyArgs(ctx.work, measured), { stdio: 'inherit' })
-  await writeTrackClips(ctx.work, measured)
+  await writeTrackClips(ctx.work, appliedGainDb(await normalise(ctx.work)))
+}
+
+/** Passes B and C on work/premix.wav → work/audio_ad.m4a; returns what the apply pass reports it did. */
+export async function normalise(work: string): Promise<LoudnormReport> {
+  const { stderr } = await execa('ffmpeg', buildLoudnormMeasureArgs(work))
+  const applied = await execa('ffmpeg', buildLoudnormApplyArgs(work, parseLoudnorm(stderr)))
+  return parseLoudnormReport(applied.stderr)
 }
 
 /**
  * The clips the app plays (Extended mode's pauses, the Title sample) at the level the narration has in the AD track: every
  * cue's Polly clip through the narration's own chain — the mix's 48 kHz stereo format, its limiter (NARRATION_LIMIT) and the
- * loudnorm gain the apply pass used (loudnormGainDb) — as work/{slug}/cue_{i}.track.mp3, which 10-publish uploads. The raw
+ * loudnorm gain the apply pass reported (appliedGainDb) — as work/{slug}/cue_{i}.track.mp3, which 10-publish uploads. The raw
  * Polly clip played ~7.5 dB louder than the same voice in the track (Sintel, measured against the published audio_ad), so a
  * pause sounded like a second narrator. All cues, extended or not, so a stale file from an earlier run never survives.
+ * `gainDb` null (loudnorm ran dynamic, so the track has no one gain): stale clips are removed, none is written, and 10-publish
+ * falls back to the Polly clips with its own warning.
  */
-export async function writeTrackClips(work: string, measured: Loudness) {
+export async function writeTrackClips(work: string, gainDb: number | null) {
   const count = (JSON.parse(await readFile(`${work}/cues.json`, 'utf8')) as unknown[]).length
   for (const f of (await readdir(work)).filter((f) => /^cue_\d+\.track\.mp3$/.test(f))) await rm(`${work}/${f}`, { force: true })
-  const gainDb = loudnormGainDb(measured)
+  if (gainDb === null) {
+    console.warn('mix: loudnorm normalised the AD track dynamically (its gain varies over the film), so no app clip can match it; no cue_{i}.track.mp3 written, publish uploads the Polly clips as they are')
+    return
+  }
   const have = new Set(await readdir(work))
   const todo = Array.from({ length: count }, (_, i) => i).filter((i) => have.has(cueAudioFile(i)))
   for (let k = 0; k < todo.length; k += 8) await Promise.all(todo.slice(k, k + 8).map((i) => execa('ffmpeg', buildTrackClipArgs(work, i, gainDb))))
@@ -65,30 +74,38 @@ export function buildMixArgs(work: string, cues: Array<FitCue & { i: number }>, 
 }
 
 export interface Loudness { input_i: number; input_tp: number; input_lra: number; input_thresh: number }
-const TARGET_I = -24, TARGET_TP = -2
-const TARGET = `loudnorm=I=${TARGET_I}:TP=${TARGET_TP}`
+const TARGET = 'loudnorm=I=-24:TP=-2'
 
 /** Pass B: measure only; the JSON block lands on stderr. */
 export function buildLoudnormMeasureArgs(work: string): string[] {
   return ['-hide_banner', '-nostats', '-i', `${work}/premix.wav`, '-af', `${TARGET}:LRA=11:print_format=json`, '-f', 'null', '-']
 }
 
-/** Pass C: linear (two-pass) normalisation; loudnorm falls back to dynamic mode if the target LRA is below the source's, so LRA = max(11, source). */
+/** Pass C: linear (two-pass) normalisation, reporting what it did as JSON on stderr (parseLoudnormReport); loudnorm falls back to dynamic mode if the target LRA is below the source's, so LRA = max(11, source). */
 export function buildLoudnormApplyArgs(work: string, m: Loudness): string[] {
   const lra = Math.min(50, Math.max(11, Math.ceil(m.input_lra)))
-  const af = `${TARGET}:LRA=${lra}:measured_I=${m.input_i}:measured_TP=${m.input_tp}:measured_LRA=${m.input_lra}:measured_thresh=${m.input_thresh}:linear=true:print_format=summary,aresample=48000`
+  const af = `${TARGET}:LRA=${lra}:measured_I=${m.input_i}:measured_TP=${m.input_tp}:measured_LRA=${m.input_lra}:measured_thresh=${m.input_thresh}:linear=true:print_format=json,aresample=48000`
   return ['-y', '-i', `${work}/premix.wav`, '-af', af, '-ar', '48000', '-ac', '2', '-c:a', 'aac', '-b:a', '192k', `${work}/audio_ad.m4a`]
 }
 
+/** What the apply pass reports (print_format=json): its own input and output loudness and the mode it ran in. */
+export interface LoudnormReport { input_i: number; output_i: number; normalization_type: string; target_offset: number }
+export function parseLoudnormReport(stderr: string): LoudnormReport {
+  const m = /\{[^{}]*"normalization_type"[^{}]*\}/.exec(stderr)
+  if (!m) throw new Error(`loudnorm: no report JSON from the apply pass:\n${stderr.slice(-2000)}`)
+  const j = JSON.parse(m[0]) as Record<string, string>
+  return { input_i: +j.input_i!, output_i: +j.output_i!, normalization_type: j.normalization_type!, target_offset: +j.target_offset! }
+}
+
 /**
- * The gain the apply pass gives the premix, in dB. Linear loudnorm (af_loudnorm.c, LINEAR_MODE) applies one constant offset,
- * target I − measured I, when the measured true peak plus that offset stays at or under the TP target (the LRA condition always
- * holds: buildLoudnormApplyArgs sets LRA ≥ the measured LRA). Otherwise loudnorm falls back to dynamic mode, whose gain varies;
- * the offset that keeps the peak at the target is the nearest constant. https://ffmpeg.org/ffmpeg-filters.html#loudnorm
+ * The one gain the apply pass gave the premix, in dB, read from its report rather than predicted: in linear mode loudnorm applies a
+ * constant offset (af_loudnorm.c LINEAR_MODE), so output I − input I is it. loudnorm falls back to dynamic mode when the offset
+ * would push the true peak over the TP target (or the measurement is degenerate); its gain then rides the programme (on a quiet
+ * premix it applied +8 to +10 dB where the peak-limited offset is +6), so no constant matches and this returns null.
+ * https://ffmpeg.org/ffmpeg-filters.html#loudnorm
  */
-export function loudnormGainDb(m: Loudness): number {
-  const offset = TARGET_I - m.input_i
-  return m.input_tp + offset <= TARGET_TP ? offset : TARGET_TP - m.input_tp
+export function appliedGainDb(r: LoudnormReport): number | null {
+  return r.normalization_type === 'linear' ? r.output_i - r.input_i : null
 }
 
 /**

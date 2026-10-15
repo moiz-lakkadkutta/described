@@ -1,4 +1,4 @@
-import { readdir, readFile } from 'node:fs/promises'
+import { readdir, readFile, stat } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 import { cacheControl, contentType, createInvalidation, upload as s3Upload } from '../s3'
 import { clipHash, cueAudioKey, trackClipFile, writeClips } from '../cues'
@@ -36,18 +36,20 @@ export async function publish(ctx: Ctx, { upload = s3Upload, invalidate = create
   // Only this run's cues: a cue_{i}.mp3 left over from an earlier, longer run (i ≥ cues.json length) is not published.
   const count = (JSON.parse(await readFile(`${ctx.work}/cues.json`, 'utf8')) as unknown[]).length
   // The app plays the clip at the track's narration level (07-mix cue_{i}.track.mp3), so a pause speaks in the voice the track
-  // does; a work dir mixed before that file existed publishes the Polly clip and says so (re-run --from mix to level it).
-  const names = await readdir(ctx.work)
-  const have = new Set(names)
-  const raw = names.filter((f) => /^cue_\d+\.mp3$/.test(f) && Number(/\d+/.exec(f)![0]) < count)
+  // does. A levelled clip older than its Polly clip (voice re-ran after the mix) is stale and not used; with none, or a stale
+  // one, the Polly clip goes up and publish says so (re-run --from mix to level it).
+  const raw = (await readdir(ctx.work)).filter((f) => /^cue_\d+\.mp3$/.test(f) && Number(/\d+/.exec(f)![0]) < count)
+  const mtime = (f: string) => stat(`${ctx.work}/${f}`).then((s) => s.mtimeMs, () => null)
+  let unlevelled = 0
   for (const r of raw) {
-    const i = Number(/\d+/.exec(r)![0]), f = have.has(trackClipFile(i)) ? trackClipFile(i) : r
+    const i = Number(/\d+/.exec(r)![0]), levelled = await mtime(trackClipFile(i))
+    const f = levelled !== null && levelled >= (await mtime(r))! ? trackClipFile(i) : r
+    if (f === r) unlevelled++
     const key = cueAudioKey(ctx.slug, i, clipHash(await readFile(`${ctx.work}/${f}`)))
     clips.set(i, key)
     jobs.push(() => upload(`${ctx.work}/${f}`, `s3://${process.env.S3_BUCKET_MEDIA!}/${key}`, { ContentType: contentType(f), CacheControl: cacheControl(f) }))
   }
-  const unlevelled = raw.filter((r) => !have.has(trackClipFile(Number(/\d+/.exec(r)![0])))).length
-  if (unlevelled) console.warn(`publish: ${unlevelled} of ${raw.length} clips have no cue_{i}.track.mp3 and go up as Polly made them (louder than the track); re-run --from mix to level them`)
+  if (unlevelled) console.warn(`publish: ${unlevelled} of ${raw.length} clips have no current cue_{i}.track.mp3 (missing, or older than the Polly clip) and go up as Polly made them (louder than the track); re-run --from mix to level them`)
   for (let i = 0; i < jobs.length; i += 8) await Promise.all(jobs.slice(i, i + 8).map((j) => j()))
   await writeClips(ctx.work, clips)
   const distribution = process.env.CLOUDFRONT_DISTRIBUTION_ID

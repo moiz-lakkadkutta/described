@@ -5,7 +5,7 @@ import { mezzanineArgs } from '../src/steps/01-probe'
 import { shotsFromCuts, sceneFilter } from '../src/steps/02-shots'
 import { gapsFromWords, wordsFromTranscribe } from '../src/steps/03-speech'
 import { segment, wrap } from '../src/steps/08-text'
-import { buildMixArgs, buildLoudnormMeasureArgs, buildLoudnormApplyArgs, buildTrackClipArgs, loudnormGainDb, NARRATION_LIMIT, parseLoudnorm } from '../src/steps/07-mix'
+import { buildMixArgs, buildLoudnormMeasureArgs, buildLoudnormApplyArgs, appliedGainDb, buildTrackClipArgs, NARRATION_LIMIT, parseLoudnorm, parseLoudnormReport } from '../src/steps/07-mix'
 import { buildPackagerArgs } from '../src/steps/09-package'
 import { wordBudget, stripFence } from '../src/prompts'
 
@@ -463,7 +463,7 @@ describe('mix', () => {
     const apply = buildLoudnormApplyArgs('work/x', m)
     const af = apply[apply.indexOf('-af') + 1]!
     expect(af).toContain('loudnorm=I=-24:TP=-2:LRA=14:measured_I=-27.21:measured_TP=-6.13:measured_LRA=13.4:measured_thresh=-37.5:linear=true')
-    expect(af).toContain('aresample=48000')
+    expect(af).toContain('linear=true:print_format=json,aresample=48000') // its report gives the gain the app clips use
     expect(apply).toEqual(expect.arrayContaining(['-ar', '48000', '-ac', '2']))
     expect(apply.at(-1)).toBe('work/x/audio_ad.m4a')
     expect(buildLoudnormApplyArgs('work/x', { ...m, input_lra: 4 })[4]).toContain(':LRA=11:') // never below the −24 LUFS target's LRA
@@ -471,11 +471,13 @@ describe('mix', () => {
   })
 })
 describe('app clips at the track level', () => {
-  it('loudnormGainDb is the linear offset, or the peak-limited one when loudnorm would fall back to dynamic', () => {
-    // Sintel's premix (2026-10-15): −18.69 LUFS, +0.07 dBTP → −5.31 dB, the gain the published audio_ad shows (film bed −5.35 dB)
-    expect(loudnormGainDb({ input_i: -18.69, input_tp: 0.07, input_lra: 18.1, input_thresh: -29.85 })).toBeCloseTo(-5.31, 5)
-    expect(loudnormGainDb({ input_i: -27.21, input_tp: -6.13, input_lra: 13.4, input_thresh: -37.5 })).toBeCloseTo(3.21, 5) // −6.13 + 3.21 ≤ −2
-    expect(loudnormGainDb({ input_i: -30, input_tp: -1, input_lra: 9, input_thresh: -40 })).toBeCloseTo(-1, 5) // +6 would peak at +5 dBTP
+  it('the gain is read from the apply pass report: output I − input I when it ran linear, none when it ran dynamic', () => {
+    const report = (type: string, i: string, o: string) => `[Parsed_loudnorm_0 @ 0x1] \n{\n\t"input_i" : "${i}",\n\t"input_tp" : "0.07",\n\t"input_lra" : "18.10",\n\t"input_thresh" : "-29.85",\n\t"output_i" : "${o}",\n\t"output_tp" : "-5.24",\n\t"output_lra" : "18.10",\n\t"output_thresh" : "-35.16",\n\t"normalization_type" : "${type}",\n\t"target_offset" : "0.00"\n}\n`
+    const linear = parseLoudnormReport(report('linear', '-18.69', '-24.00')) // Sintel's premix, 2026-10-15
+    expect(linear).toEqual({ input_i: -18.69, output_i: -24, normalization_type: 'linear', target_offset: 0 })
+    expect(appliedGainDb(linear)).toBeCloseTo(-5.31, 5)
+    expect(appliedGainDb(parseLoudnormReport(report('dynamic', '-33.89', '-24.05')))).toBeNull()
+    expect(() => parseLoudnormReport('no json here')).toThrow(/apply pass/)
   })
   it('a clip goes through the narration chain of the mix: 48 kHz stereo, the same limiter, then the loudnorm gain', () => {
     const f = buildMixArgs('work/x', [{ i: 0, startMs: 1000, endMs: 3000, text: 'x', extended: false, wordCount: 1, shotIndex: 0 }], 60).find((a) => a.includes('amix'))!

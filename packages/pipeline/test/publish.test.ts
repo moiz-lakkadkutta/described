@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CreateInvalidationCommand } from '@aws-sdk/client-cloudfront'
@@ -121,7 +121,20 @@ describe('10-publish', () => {
       [join(dir, 'cue_1.mp3'), `s3://media/published/sintel/cues/cue_1.${h('polly 1')}.mp3`],
     ])
     expect(JSON.parse(await readFile(join(dir, 'clips.json'), 'utf8'))).toEqual({ 0: `published/sintel/cues/cue_0.${h('levelled 0')}.mp3`, 1: `published/sintel/cues/cue_1.${h('polly 1')}.mp3` })
-    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/^publish: 1 of 2 clips have no cue_\{i\}\.track\.mp3/))
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/^publish: 1 of 2 clips have no current cue_\{i\}\.track\.mp3/))
+  })
+  it('publish ignores a levelled clip older than its Polly clip (voice re-ran after the mix) and warns', async () => {
+    const { dir, ctx } = await published()
+    await writeFile(join(dir, 'cues.json'), JSON.stringify([{}]))
+    await writeFile(join(dir, 'cue_0.track.mp3'), 'levelled from the old clip')
+    await writeFile(join(dir, 'cue_0.mp3'), 'new polly clip')
+    await utimes(join(dir, 'cue_0.track.mp3'), new Date(1_000_000), new Date(1_000_000))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const upload = vi.fn(async () => {})
+    await publish(ctx, { upload })
+    const clips = upload.mock.calls.map((c) => c as unknown as [string, string]).filter(([, uri]) => uri.includes('/cues/')).map(([f, uri]) => [f, uri])
+    expect(clips).toEqual([[join(dir, 'cue_0.mp3'), `s3://media/published/sintel/cues/cue_0.${clipHash(new TextEncoder().encode('new polly clip'))}.mp3`]])
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/^publish: 1 of 1 clips have no current/))
   })
   it('publish calls CreateInvalidation only when PUBLISH_INVALIDATE=1', async () => {
     const { ctx } = await published()
