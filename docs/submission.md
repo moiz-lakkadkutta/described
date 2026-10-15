@@ -15,10 +15,10 @@ source; anything that needs a person is marked **TODO(human)**. Sources are list
 | Tracks | **Fire TV** · **AWS Builder** mini-challenge · **Open Source** mini-challenge (runbook §1, §2) |
 | Platform | Fire OS (Fire TV Stick, Fire OS 7). Vega OS: experimental, not built ([decision 0004](decisions/0004-vega-deferred.md)) |
 | Repository | https://github.com/moiz-lakkadkutta/described (public, MIT `LICENSE` at the root) |
-| Demo video | TODO(human): YouTube URL (upload Oct 20), < 3:00 — runbook §9 asks for "public"; confirm unlisted is accepted or upload public |
-| Team members | TODO(human): names and Devpost handles |
+| Demo video | Unlisted on YouTube, < 3:00 (upload Oct 20). TODO(human): what is the video's URL? |
+| Team members | Moiz — solo entry (GitHub `moiz-lakkadkutta`). TODO(human): what is Moiz's Devpost handle? |
 | Built with | Amazon Bedrock (Qwen3-VL 235B, Nova Lite), Amazon Polly, Amazon Transcribe, Amazon S3, Amazon CloudFront, AWS CDK, React Native, Expo, react-native-video, Shaka Packager, ffmpeg, Express, Prisma, PostgreSQL, pg-boss, TypeScript |
-| Try it | TODO(human): how judges try it (README "Run it", APK sideload, or video only) |
+| Try it | Sideload the release APK onto a Fire TV (APK attached to the GitHub release of this repo), or watch the demo video. No release exists on 2026-10-15 (`gh release list`). TODO(human): what is the URL of the GitHub release with the APK attached? |
 
 ---
 
@@ -28,7 +28,8 @@ Described plays films with audio description on Fire TV — for video that has n
 dialogue a voice tells you what is on screen: who is there, what they do, where it happens, and any words that appear.
 
 - **Description is on by default.** The whole app works with the D-pad, Select, Back and Menu, and every control carries a
-  VoiceView label. Full VoiceView run-through: TODO(human) (waves plan H3).
+  VoiceView label. Full VoiceView run-through ([checklist](a11y/voiceview-checklist.md); no `docs/a11y/voiceview-<date>.md` yet, TASKS.md DESC-009):
+  TODO(human): did the full VoiceView pass on the stick pass?
 - **Fire TV's own track selector is the switch.** The narration is a second audio track in the stream, marked as
   description. Menu shows Audio — Original · Audio description, and Captions — Off · Captions · Rich captions ·
   Description text.
@@ -59,9 +60,11 @@ On the TV, a React Native app (Expo, Fire OS) plays it through
 [`@moizp/vega-media-kit`](https://github.com/moiz-lakkadkutta/vega-media-kit), our open-source player and cue-overlay
 library (the Player screen plays through its `KitPlayer` and `CueOverlay`). Fire TV integrations: Android deep links
 (`described://title/{slug}`, `described://play/{slug}?t=…`), an Android MediaSession module for remote media keys and
-Alexa transport (device check pending), and a draft Fire TV catalog feed in case Amazon accepts us for catalog
-integration ([fire-os-bindings](platform/fire-os-bindings.md)). TODO(human): firm up the MediaSession wording after the
-DESC-008 device check (the module has not yet been compiled in a release build or run on the stick). Infrastructure is AWS CDK
+Alexa transport, and a draft Fire TV catalog feed in case Amazon accepts us for catalog
+integration ([fire-os-bindings](platform/fire-os-bindings.md)). On the stick (device run 2026-10-10, release build): deep
+links and the remote's media keys passed, and the MediaSession module compiles in the release build; Alexa voice transport
+was inconclusive on 2026-10-14 — the session stayed up but no voice command reached the app (TASKS.md DESC-008, commit
+`169df23`). TODO(human): did "Alexa, pause" reach the app in a re-run of RUN-2026-10 check 14? Infrastructure is AWS CDK
 (`infra/`). Every AWS call, its purpose and its cost is in [docs/aws.md](aws.md).
 
 **Choosing the model was measured, not assumed.** Our quality gate was ≥ 70 % usable descriptions in a sample of shots
@@ -69,8 +72,9 @@ DESC-008 device check (the module has not yet been compiled in a release build o
 the same prompt through four models, rated blind by two raters: Qwen3-VL 235B 75.9 %, TwelveLabs Pegasus 1.2 44.8 %,
 Nova Pro 17.2 %, Nova 2 Lite 3.4 %. The full pipeline with Qwen3-VL then scored **72.4 %** usable on the five-point
 rubric (faithful, on time, style, clean, fits), counting a shot only when both raters agreed
-([decision 0003](decisions/0003-gate-c.md)). The raters were Claude models (Fable, then Opus) reading frame contact
-sheets, not people — see Honest limits.
+([decision 0003](decisions/0003-gate-c.md)). That run chose the model; later re-checks of the same 29 shots, after
+further pipeline changes, scored lower — see Honest limits. The raters were Claude models (Fable, then Opus) reading frame
+contact sheets, not people.
 
 **What it costs.** Describing 2 minutes of film cost ≈ $0.03 on Bedrock (61,495 input tokens;
 [docs/aws.md](aws.md), [0003](decisions/0003-gate-c.md)). A full 2-minute run, including Transcribe and Polly, is
@@ -104,24 +108,32 @@ describer — and delivers description through the TV's own audio-track selector
 
 - **AI-drafted, not human-authored.** Described drafts description for video that has none. Human-authored description
   remains the gold standard, and Described follows its style rules rather than replacing it.
-- **The quality margin is thin.** 72.4 % clears the 70 % gate by 2.4 points. Every miss in the confirmation run was a
-  wrong detail (direction, an invented "veiled face", "wings" for "wing"); only the last, "wings", came from the
-  shortening step
-  ([0003](decisions/0003-gate-c.md)). Follow-ups: a shortener that may not change facts (TASKS.md DESC-015) and per-title
-  spot checks.
+- **Quality is below the gate on later re-checks.** 72.4 % is the model-selection run that chose Qwen3-VL
+  ([0003](decisions/0003-gate-c.md)); it cleared the 70 % gate by 2.4 points, and every miss was a wrong detail. Re-checks
+  of the same 29 shots after later pipeline changes scored lower: 69.0 % (run g8, [0009](decisions/0009-gate-c-fits.md))
+  and 14 / 29 (run g9, [0010](decisions/0010-verify-pass.md)), mostly visual details the frames do not show. We added a
+  visual verify pass (DESC-027) and a shortener that keeps sentences (DESC-028); the next re-check, after the scene
+  build-up (DESC-029), also fell short, and a fix for that regression is in progress.
+  TODO(human): Replace with the final Gate C re-check score before submitting.
 - **The raters were models.** Gate C was scored by two Claude raters against frame contact sheets. A usability session
-  with a screen-reader user is planned. TODO(human): state whether it happened and link the notes.
+  with a screen-reader user has also taken place. TODO(human): where are the session notes, so they can be linked here?
 - **Fire OS only.** Vega OS is experimental: no Vega SDK was installed and the media kit's Vega adapter is not finished
   ([decision 0004](decisions/0004-vega-deferred.md)).
 - **No Fire TV search yet.** Catalog integration is available to select partners only; the feed is drafted and the request
-  is TODO(human) (waves plan H12) ([fire-os-bindings §1](platform/fire-os-bindings.md#1-catalog-integration)).
+  needs a person with the Amazon developer account ([fire-os-bindings §1](platform/fire-os-bindings.md#1-catalog-integration)).
+  TODO(human): has the catalog integration request gone to Amazon (waves plan H12)?
   Personalization (continue watching in the Fire TV UI) needs catalog integration and is not built
   ([fire-os-bindings](platform/fire-os-bindings.md) table, row 3).
 - **Switching audio takes about 450 ms**: the sound fades down, stays silent for ~150 ms while ExoPlayer resets its audio
   decoder, and fades back up (TASKS.md DESC-006). Before the fade, Gate A measured a 0.5–0.6 s stall on the stick
   ([0001](decisions/0001-week0-gates.md)).
-- **Device checks pending.** The Player, Extended mode and platform-binding checks on the stick (docs/device-checks/DESC-006–008) had not been run on 2026-10-04. TODO(human): delete this line once they pass, or say what did not.
-- **English only** in the demo titles. TODO(human): confirm; Polly's de-DE voice is wired but not shown.
+- **Device checks partly done.** On the stick (device run 2026-10-10, recorded in TASKS.md; checklist
+  [RUN-2026-10](device-checks/RUN-2026-10.md)) the Player checks 5–8 passed (DESC-006), deep links (check 12) and media
+  keys (check 13) passed (DESC-008). Still open on 2026-10-15 (TASKS.md): the by-ear re-check of the faded audio switch
+  (check 6, build 788e973), Alexa voice transport (check 14, inconclusive on 2026-10-14), and Extended mode (DESC-007,
+  [device check](device-checks/DESC-007.md) not run). TODO(human): which of check 6, check 14 and DESC-007 have passed on the stick?
+- **English only** in the demo titles: all five are `en` (voices Joanna and Matthew) in `apps/api/prisma/titles.json`.
+  German (`de`, Polly Vicki and Daniel) is wired but not shown.
 - All demo content is CC-BY (Blender open movies) with attribution in the app (Title screen, Settings → About & licenses). The five
   titles ([docs/titles.md](titles.md)): Sintel (2010, CC-BY 3.0), Big Buck Bunny (2008, CC-BY 3.0), Elephants Dream (2006, CC-BY 2.5),
   Caminandes: Gran Dillama (2013, CC-BY 3.0), Tears of Steel (2012, CC-BY 3.0) — 60 s segments from download.blender.org.
@@ -132,8 +144,7 @@ Described and Lingo are substantially different entries. Different users: blind 
 versus language learners (Lingo). Different AI doing the load-bearing work: vision models and speech synthesis versus
 transcription, translation and explanation. Different interaction: listen versus pause and study. They share
 vega-media-kit the way two apps share React — it is infrastructure, published on its own.
-TODO(human): confirm Lingo is submitted; add its Devpost URL here and link back from Lingo's write-up. If Lingo is not
-submitted, delete this section.
+Lingo is submitted; its write-up should link back here. TODO(human): what is Lingo's Devpost URL?
 
 ## What's new since Aug 31, 2026
 
@@ -146,11 +157,11 @@ hackathon window. vega-media-kit was also created during the window: its first c
 |---|---|
 | Project | `@moizp/vega-media-kit` — React Native player wrapper (Fire OS via react-native-video; Vega adapter experimental), WebVTT cue overlay, HLS/VTT parsers that run in Node, Fire TV platform bindings, focus helpers |
 | Repository | https://github.com/moiz-lakkadkutta/vega-media-kit (MIT) |
-| Release tag | TODO(human): tag after kit 0.1.0 (waves plan H11) |
-| npm | TODO(human): `@moizp/vega-media-kit@0.1.0` once published (H11) |
-| GitHub handle | TODO(human): confirm `moiz-lakkadkutta` and add teammates |
-| Upstream contribution | TODO(human): URL of the PR to an AmazonAppDev sample, or delete the row (runbook §1) |
-| How Described uses it | The Player screen plays through `KitPlayer` and `CueOverlay`. Planned: the pipeline validates its HLS output with the kit's `parseHlsMaster`, `audioTracksFromHls`, `textTracksFromHls` and `parseVtt` ([decision 0004](decisions/0004-vega-deferred.md) §Decision 3) — this lands with PR #16; TODO(human): state it as done once #16 merges, otherwise delete the sentence |
+| Release tag | [`v0.1.0`](https://github.com/moiz-lakkadkutta/vega-media-kit/releases/tag/v0.1.0) (GitHub release, 2026-10-14) |
+| npm | Not published on 2026-10-15 (`npm view @moizp/vega-media-kit` → 404). TODO(human): is `@moizp/vega-media-kit@0.1.0` on npm yet (H11)? |
+| GitHub handle | `moiz-lakkadkutta` (owner of both repositories) |
+| Upstream contribution | [AmazonAppDev/react-native-multi-tv-app-sample#136](https://github.com/AmazonAppDev/react-native-multi-tv-app-sample/pull/136) — "fix(expo): enable ExoPlayer HLS so .m3u8 sources play on Fire TV / Android TV" (opened 2026-10-14; open, not merged, on 2026-10-15) |
+| How Described uses it | The Player screen plays through `KitPlayer` and `CueOverlay`. The pipeline's `validate` step checks its HLS output with the kit's `parseHlsMaster`, `audioTracksFromHls`, `textTracksFromHls` and `parseVtt` (`packages/pipeline/src/validate.ts`; PR #16, merged 2026-10-04; [decision 0004](decisions/0004-vega-deferred.md) §Decision 3) |
 | Described itself | MIT, public: https://github.com/moiz-lakkadkutta/described |
 
 ## AWS Builder mini-challenge
@@ -161,16 +172,18 @@ Services and why each is load-bearing — the full table with costs is [docs/aws
 - **Amazon Bedrock — Nova Lite**: shortens descriptions to fit dialogue gaps; writes rich captions.
 - **Amazon Polly** (neural): the narration voice.
 - **Amazon Transcribe**: word timings for the speech map; captions.
-- **Amazon S3 + CloudFront**: sources, renditions and HLS delivery; CloudFront is configured to serve only `/published/*` (`infra/lib/media-stack.ts`). TODO(human): confirm after the media-stack deploy.
+- **Amazon S3 + CloudFront**: sources, renditions and HLS delivery; CloudFront serves only `/published/*` (`infra/lib/media-stack.ts`). Deployed and checked 2026-10-15: distribution
+  `E2P33RN2ZSRFN0` has one `/published/*` behaviour, the default behaviour runs the `DenyUnpublished` viewer-request function,
+  the bucket policy denies CloudFront `s3:GetObject` outside `published/*`, and any other path answers 403.
 - **AWS CDK**: the whole stack as code in `infra/`.
 
 Dev tooling listed in [docs/aws.md](aws.md): Claude Code.
 
 ## Feedback and friction
 
-- Product feedback (five required answers): [docs/feedback.md](feedback.md) — TODO(human): link once W2-C writes it.
+- Product feedback (five required answers): [docs/feedback.md](feedback.md) (PR #36).
 - Feature requests with priorities: [docs/feature-requests.md](feature-requests.md).
-- Friction logs: [docs/friction/](friction/) — 16 on 2026-10-04 (runbook target 8–12; §9 requires ≥ 8). TODO(human): recount at submission.
+- Friction logs: [docs/friction/](friction/) — 20 on 2026-10-15, not counting its README (runbook target 8–12; §9 requires ≥ 8).
 
 ## Definition-of-done check (runbook §9)
 
@@ -178,19 +191,19 @@ Dev tooling listed in [docs/aws.md](aws.md): Claude Code.
 |---|---|
 | Public repo, MIT at root, README ≤ 10 steps, architecture, "what's new since Aug 31" | README has all three; repo is public |
 | Runs on Fire OS; Vega documented as experimental | Fire OS; Vega in [0004](decisions/0004-vega-deferred.md) |
-| ≥ 3 Fire TV platform integrations, each with a screenshot or log in the README | **At risk — 2 implemented** (launch intents / deep links; MediaSession), **neither device-verified**; catalog integration is partner-only (draft feed only); Personalization is not feasible on Fire OS before the freeze ([fire-os-bindings](platform/fire-os-bindings.md)). The audio-track selector is not counted: it is HLS playback, not a platform integration. TODO: README evidence section (W2-C) |
-| Video < 3:00, public, on the device; Vega moment | [video-script.md](video-script.md); no Vega moment, by decision 0004. Runbook §9 says "public on YouTube/Vimeo": TODO(human) confirm an unlisted upload is accepted, or upload public |
+| ≥ 3 Fire TV platform integrations, each with a screenshot or log in the README | **At risk — 2 implemented** (launch intents / deep links; MediaSession). Deep links and media keys passed on the stick (device run 2026-10-10, checks 12–13); Alexa voice transport inconclusive (2026-10-14); catalog integration is partner-only (draft feed only); Personalization is not feasible on Fire OS before the freeze ([fire-os-bindings](platform/fire-os-bindings.md)). The audio-track selector is not counted: it is HLS playback, not a platform integration. The README has no evidence section yet. TODO(human): which photos or logcat lines from the device runs go in the README as evidence? |
+| Video < 3:00, public, on the device; Vega moment | [video-script.md](video-script.md); no Vega moment, by decision 0004. **Known risk:** runbook §9 says "public on YouTube/Vimeo"; our upload is unlisted |
 | Text: what, how, who, impact with a cited number | This file |
-| Tracks declared; Open Source section with repo, tag, handle, upstream PR | Above; tag, npm and PR are TODO(human) |
+| Tracks declared; Open Source section with repo, tag, handle, upstream PR | Above; tag `v0.1.0` and upstream PR #136 done; npm is TODO(human) |
 | `docs/aws.md` lists every call, purpose, cost | [docs/aws.md](aws.md) |
-| Feedback (5 answers), feature requests with priorities, ≥ 8 friction logs | Friction ✓ (16); feedback and requests in W2-C |
-| Tests pass in CI on the default branch; `pnpm i && pnpm dev` shows something | PR #10 adds the Expo dev script; TODO(human): verify both on the final commit |
+| Feedback (5 answers), feature requests with priorities, ≥ 8 friction logs | ✓ — friction 20, [feedback.md](feedback.md), [feature-requests.md](feature-requests.md) |
+| Tests pass in CI on the default branch; `pnpm i && pnpm dev` shows something | CI green on main at `b0adfe2` (2026-10-15, `gh run list --branch main`); `pnpm dev` runs `turbo run dev --parallel` (API `tsx watch`, Expo `expo start`; PR #10, merged 2026-10-04). TODO(human): on the final submission commit, do CI and `pnpm i && pnpm dev` (API and Expo start) both pass? |
 | All materials in English | ✓ |
 
 ## Sources
 
 Project (in this repo):
-- [0001 week-0 gates](decisions/0001-week0-gates.md) · [0003 Gate C](decisions/0003-gate-c.md) · [0004 Vega deferred](decisions/0004-vega-deferred.md) · [0005 direct Bedrock](decisions/0005-describe-direct-bedrock.md) · [docs/aws.md](aws.md) · [fire-os-bindings](platform/fire-os-bindings.md) · [DESC-007 device check](device-checks/DESC-007.md) · [README](../README.md)
+- [0001 week-0 gates](decisions/0001-week0-gates.md) · [0003 Gate C](decisions/0003-gate-c.md) · [0004 Vega deferred](decisions/0004-vega-deferred.md) · [0005 direct Bedrock](decisions/0005-describe-direct-bedrock.md) · [0009 Gate C fits](decisions/0009-gate-c-fits.md) · [0010 verify pass](decisions/0010-verify-pass.md) · [RUN-2026-10 device run](device-checks/RUN-2026-10.md) · [TASKS.md](../TASKS.md) · [docs/aws.md](aws.md) · [fire-os-bindings](platform/fire-os-bindings.md) · [DESC-007 device check](device-checks/DESC-007.md) · [README](../README.md)
 
 Internal notes (not public, not for the Devpost form): "runbook §n" and "PLAN §n" refer to the team's private planning
 documents linked from [docs/PLAN.md](PLAN.md); they are not sources.
