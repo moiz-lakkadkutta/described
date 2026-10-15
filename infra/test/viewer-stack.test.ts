@@ -23,6 +23,18 @@ describe('ViewerStack', () => {
     expect(db!.Properties).not.toHaveProperty('MaxAllocatedStorage')
   })
 
+  it('database secret: letters and digits that Secrets Manager can generate, attached to the instance', () => {
+    // Excluding every punctuation character by list, with RequireEachIncludedType left at its default (true), fails at
+    // deploy: "All characters of the desired type have been excluded". ExcludePunctuation drops the type instead.
+    t.resourceCountIs('AWS::SecretsManager::Secret', 1)
+    const [secret] = Object.values(t.findResources('AWS::SecretsManager::Secret'))
+    const gen = secret!.Properties.GenerateSecretString
+    expect(gen).toMatchObject({ ExcludePunctuation: true, IncludeSpace: false, GenerateStringKey: 'password', SecretStringTemplate: JSON.stringify({ username: 'described' }) })
+    expect(gen).not.toHaveProperty('ExcludeCharacters')
+    t.resourceCountIs('AWS::SecretsManager::SecretTargetAttachment', 1)
+    t.hasResourceProperties('AWS::SecretsManager::SecretTargetAttachment', { TargetType: 'AWS::RDS::DBInstance' })
+  })
+
   it('network: isolated subnets only, no NAT gateway or internet gateway', () => {
     t.resourceCountIs('AWS::EC2::NatGateway', 0)
     t.resourceCountIs('AWS::EC2::InternetGateway', 0)
