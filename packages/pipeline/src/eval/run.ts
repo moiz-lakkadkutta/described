@@ -31,7 +31,7 @@ export const DEFAULT_CAP_USD = 0.3
  * re-run). Never `cache/` (a cached describe reply would hide a prompt change), `frames/` (describe regenerates them), or any output
  * of describe and later.
  */
-export const BASE_INPUTS = ['probe.json', 'shots.json', 'gaps.json', 'words.json', 'transcript.json', 'transcript.src', 'mezz.mp4'] as const
+export const BASE_INPUTS = ['probe.json', 'shots.json', 'gaps.json', 'gaps.vad.json', 'words.json', 'transcript.json', 'transcript.src', 'mezz.mp4'] as const
 /** Needed by every evaluation step; the rest of BASE_INPUTS is copied when present. */
 const REQUIRED = new Set(['probe.json', 'shots.json', 'gaps.json', 'words.json', 'mezz.mp4'])
 /** Outputs of an earlier step that the first step reads (05b-edit starts from cues.fit.json). voice is never first (parseSteps). */

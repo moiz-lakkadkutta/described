@@ -41,7 +41,7 @@ pnpm gate-c score ~/gate-c/g10
   The S3 objects under `work/<slug>/` (the cut as `source.mp4`, the mezzanine 03-speech uploads, the Transcribe output) **stay**
   after the run; remove them when the clip is no longer needed:
   `aws s3 rm --recursive s3://$S3_BUCKET_MEDIA/work/<slug>/ --profile described-dev`
-- `run <sourceSlug> <evalSlug>` copies `probe.json shots.json gaps.json words.json transcript.json transcript.src mezz.mp4` (plus
+- `run <sourceSlug> <evalSlug>` copies `probe.json shots.json gaps.json gaps.vad.json words.json transcript.json transcript.src mezz.mp4` (plus
   `described.json` / `cues.fit.json` when `--steps` starts at scenes, fit or edit, and `scenes.json` when present for fit or edit)
   into `work/<evalSlug>/` — never `cache/`, `frames/` or any cue clip, and the source dir is only read. The steps run with the
   SOURCE slug's glossary (titles.json, else `docs/eval/gate-c-glossary.json`; DESC-029). `--steps` takes consecutive steps from
