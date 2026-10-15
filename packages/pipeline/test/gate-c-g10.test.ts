@@ -244,6 +244,25 @@ describe('3. no cue starts more than LATE_MS after its shot; placed cues never o
     // a 3-word placed cue cannot be shortened: the event pause is dropped (the old behaviour, last resort)
     expect((await runVoice([placed0('A woman runs.'), pause1('A man kneels.', { event: true })], (t) => (t === 'A woman runs.' ? 4200 : 1500))).map((c) => c.text)).toEqual(['A woman runs.'])
   })
+  it('voice: moving a pause earlier never lands on, or shortens, a later shot\'s clip', async () => {
+    const work = await mkdtemp(join(tmpdir(), 'later-'))
+    try {
+      await writeFile(`${work}/shots.json`, JSON.stringify([{ index: 0, startMs: 0, endMs: 3000 }, { index: 1, startMs: 3000, endMs: 4000 }, { index: 2, startMs: 4000, endMs: 9000 }]))
+      const long2 = 'A tall woman slowly crosses the old bridge, holding a lantern.'
+      const cues: FitCue[] = [
+        { startMs: 1000, endMs: 2500, text: 'A woman runs.', extended: false, wordCount: 3, shotIndex: 0, limitMs: 9000 },
+        { startMs: 2800, endMs: 5500, text: long2, extended: false, wordCount: 11, shotIndex: 2, limitMs: 9000 },
+        { startMs: 6150, endMs: 6250, text: 'A man kneels.', extended: true, wordCount: 3, shotIndex: 1, event: true },
+      ]
+      await writeFile(`${work}/cues.json`, JSON.stringify(cues))
+      const ms = (t: string) => (t === 'A woman runs.' ? 1500 : t === long2 ? 2700 : 1200)
+      await voice({ slug: 't', source: 's.mp4', language: 'en', voice: 'Joanna', work }, { synthesize: async (t) => new TextEncoder().encode(t), measureMs: async (f) => ms(await readFile(f, 'utf8')), measureSpeechMs: async (f) => ms(await readFile(f, 'utf8')) - 100 })
+      const out = JSON.parse(await readFile(`${work}/cues.json`, 'utf8')) as FitCue[]
+      // the earlier target (shot 1's start, 3000) is inside shot 2's clip (2800–5500): the pause does not hop past it, and shot 2's cue is
+      // never the blocker it shortens; the late event is dropped
+      expect(out.map((c) => c.text)).toEqual(['A woman runs.', long2])
+    } finally { await rm(work, { recursive: true, force: true }) }
+  })
   it('voice: a text-only pause is never dropped, late or not (DESC-017)', async () => {
     const out = await runVoice([placed0('A woman runs.'), pause1('Words appear: NORTH.')], (t) => (t === 'A woman runs.' ? 4200 : 1500))
     expect(out.map((c) => c.text)).toEqual(['A woman runs.', 'Words appear: NORTH.'])

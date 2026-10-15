@@ -310,14 +310,18 @@ export function withoutSaidText(text: string, said: readonly string[]): string {
 async function afterClips(work: string, cues: FitCue[], shots: { start: ReadonlyMap<number, number>; end: ReadonlyMap<number, number> } = { start: new Map(), end: new Map() }, reshorten?: (from: number, text: string) => Promise<Clip | undefined>, language: 'en' | 'de' = 'en'): Promise<FitCue[]> {
   const placed = cues.map((c, from) => ({ c, from })).filter((x) => !x.c.extended)
   /** The first start ≥ t at which no placed clip speaks. */
-  const free = (t: number) => { let at = t; for (let moved = true; moved;) { moved = false; for (const { c: p } of placed) if (p.startMs <= at && at < p.endMs) { at = p.endMs; moved = true } } return at }
+  /** The first start ≥ t at which no clip of an earlier shot than `shot` speaks. */
+  const free = (t: number, shot: number) => { let at = t; for (let moved = true; moved;) { moved = false; for (const { c: p } of placed) if (p.shotIndex < shot && p.startMs <= at && at < p.endMs) { at = p.endMs; moved = true } } return at }
+  /** Some clip of a later shot speaks at t. */
+  const laterSpeaks = (t: number, shot: number) => placed.some(({ c: p }) => p.shotIndex > shot && p.startMs <= t && t < p.endMs)
   const startOf = (c: FitCue) => {
     const later = Math.max(c.startMs, ...placed.filter(({ c: p }) => before(p, c)).map(({ c: p }) => p.endMs))
     const shotStart = shots.start.get(c.shotIndex), shotEnd = shots.end.get(c.shotIndex)
     if (textOnly(c) || shotStart === undefined || shotEnd === undefined || later <= shotEnd + LATE_MS) return later
     // late only because fit's estimate ran long: as early as its shot and the measured clips of earlier cues allow
     const earlier = placed.filter(({ c: p }) => p.shotIndex < c.shotIndex || (p.shotIndex === c.shotIndex && byStart(p, c) < 0)).map(({ c: p }) => p.endMs)
-    return free(Math.max(shotStart, ...earlier))
+    const at = free(Math.max(shotStart, ...earlier), c.shotIndex)
+    return laterSpeaks(at, c.shotIndex) ? later : at // never onto a later shot's clip: then it stays where it was (and is checked late)
   }
   let changed = false
   const all = cues.map((c, from) => {
@@ -331,7 +335,7 @@ async function afterClips(work: string, cues: FitCue[], shots: { start: Readonly
   for (const x of all) {
     const c = x.c, end = shots.end.get(c.shotIndex)
     if (!c.extended || textOnly(c) || end === undefined || c.startMs <= end + LATE_MS) continue
-    const block = placed.find(({ c: p }) => p.endMs === c.startMs)
+    const block = placed.find(({ c: p }) => p.endMs === c.startMs && p.shotIndex < c.shotIndex) // only an earlier shot's cue is shortened
     if (!c.event || !block || !reshorten) continue
     const deadline = end + LATE_MS, p = block.c
     const n = Math.floor((words(p.text) * (deadline - p.startMs)) / (p.endMs - p.startMs))

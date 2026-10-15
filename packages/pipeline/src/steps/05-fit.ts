@@ -92,7 +92,7 @@ export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, max
         const room = maxWords - (ownLead ? words(ownLead) : words(full) - words(rest))
         if (room < 2) return undefined
         const r = await fitted(rest, room)
-        // where the lead alone used to be voiced (0012): the shortest sentence of the rest that keeps its action, without the lead
+        // where the lead alone used to be voiced (0012): the first sentence of the rest that keeps its action and fits, without the lead
         if (r === undefined) return ownLead ? actionSentence(rest, maxWords, language) : undefined
         const t = ownLead ? `${ownLead} ${r}` : merge!(r)
         return t !== undefined && words(t) <= maxWords ? t : undefined
@@ -247,20 +247,19 @@ function keepsActionOf(text: string, short: string): boolean {
   return keepsVerb(a ? a.rest : text, a && b ? b.rest : short)
 }
 /**
- * fit's next-best shortening when the shortener's drops the action: the shortest sentence of the text that has a verb, whole or shortened
+ * fit's next-best shortening when the shortener's drops the action: the first sentence of the text that has a verb and fits, whole or shortened
  * deterministically to maxWords, that keeps its verb and reads as sentences against the whole text (g10 shot 27: "A small tan dragon
  * roars." in place of "A woman with red hair."). Plain text only; undefined when none fits.
  */
 function actionSentence(text: string, maxWords: number, language: 'en' | 'de'): string | undefined {
   if (textClauses(text)) return undefined
-  let best: string | undefined
   for (const u of sentences(text)) {
     const v = u.trim().replace(/^\p{Ll}/u, (c) => c.toUpperCase())
     if (keepsVerb(v, '')) continue // no verb found: not an action
     const cand = words(v) <= maxWords ? v : shortenDeterministic(v, maxWords)
-    if (words(cand) <= maxWords && keepsVerb(v, cand) && !readsAsSentences(text, cand, language) && (!best || words(cand) < words(best))) best = cand
+    if (words(cand) <= maxWords && keepsVerb(v, cand) && !readsAsSentences(text, cand, language)) return cand // the first that fits: the main action before a side detail
   }
-  return best
+  return undefined
 }
 const textOnly = (c: FitCue) => textClauses(c.text)?.rest === ''
 

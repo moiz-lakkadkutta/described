@@ -71,7 +71,9 @@ describe('fit with scenes (DESC-029)', () => {
     const scenes = [scene(0, [0], 0, 4000, 'tent interior')]
     const dropsPlace = () => 'Fire glows.'
     expect((await fit(quiet, [{ startMs: 0, endMs: room(3) }], dropsPlace, 'en', { scenes })).find((c) => !c.extended)!.text).toBe('Fire glows.') // was "Tent interior." (0012)
-    // review: where "Tent interior." alone was voiced, the shortest sentence of the rest with its action (not the full description)
+    // review round 2: the FIRST sentence with an action that fits, never a shorter side detail after it
+    expect((await fit([sh(0, 0, 4000, 'A man stirs a pot. Smoke rises.')], [{ startMs: 0, endMs: room(5) }], () => 'Pot.')).find((c) => !c.extended)?.text).toBe('A man stirs a pot.')
+    // review: where "Tent interior." alone was voiced, a sentence of the rest with its action (not the full description); here only the last fits
     const two = [sh(0, 0, 4000, 'Tent interior. A bearded old man in red robes slowly stirs a large pot over the fire. Smoke rises.')]
     expect((await fit(two, [{ startMs: 0, endMs: room(3) }], () => 'Tent interior.', 'en', { scenes })).find((c) => !c.extended)?.text).toBe('Smoke rises.')
     const event = [sh(0, 0, 4000, 'Tent interior. A woman kneels beside the fire.')]
