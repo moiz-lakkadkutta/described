@@ -19,7 +19,15 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
  * DESC-029 (docs/decisions/0012-characters-and-scenes.md): with a title glossary (`people`, glossary.ts peopleAndPlaces) the prompt
  * carries "People and places in this film" — looks always, names once revealed; never roles — and the stable-descriptor rule points at
  * it; `knownNames` is then the glossary's revealed names plus the dialogue's. Without a glossary (own videos) the prompt is unchanged.
+ * DESC-031 (docs/decisions/0013-legible-text.md): on-screen text is quoted only when every word is legible (ON_SCREEN_TEXT_RULE).
  */
+/**
+ * The on-screen text rule (DESC-031, docs/decisions/0013-legible-text.md): a quote only when every word is clearly legible; text that
+ * is partly hidden, cut off or blurred is described by its kind, never quoted in part or guessed. Its example is generic on purpose:
+ * no sentence from an evaluation clip.
+ */
+export const ON_SCREEN_TEXT_RULE = 'On-screen text (titles, captions, signs, headlines, screens): quote it only when every word is clearly legible in the frames; then quote it verbatim after "Words appear:" — always this label, never "headline:" or "a sign reads". If any part of the text is hidden, cut off or blurred, do not quote any of it: say what kind of text appears instead (e.g. "Handwritten words appear on a sign."). If no text is visible, do not mention text at all. Never invent or guess text.'
+
 export function describeSystemPrompt({ maxWords, knownNames, language, people = '' }: { maxWords: number; knownNames: string[]; language: 'en' | 'de'; people?: string }) {
   const known = knownNames.join(', ') || 'none'
   return [
@@ -29,7 +37,7 @@ export function describeSystemPrompt({ maxWords, knownNames, language, people = 
       ? `- Name a character only when the list below gives the name or the dialogue has said it; otherwise refer to a listed person by their look from the list, and to anyone else by one short visible descriptor. Known names so far: ${known}.`
       : `- Do not name a character until the dialogue has named them; until then use one stable visible descriptor (e.g. "the woman in the red coat"). Known names so far: ${known}.`,
     people ? '- Precise colours (olive, burgundy). Mention scene changes ("Night. A rooftop."); when the place is one of the listed places, use its words.' : '- Precise colours (olive, burgundy). Mention scene changes ("Night. A rooftop.").',
-    '- On-screen text (titles, captions, signs, headlines, screens): only if letters are clearly legible in the frames, quote them verbatim after "Words appear:" — always this label, never "headline:" or "a sign reads". If no legible text is visible, do not mention text at all. Never invent text.',
+    `- ${ON_SCREEN_TEXT_RULE}`,
     '- Write only "Darkness." when the frames are black and nothing can be made out. If anything is visible, even dimly, describe it and do not write "Darkness."; if the scene is visible but dim, say dim.',
     '- No interpretation, no film language ("the camera pans"), no "we see".',
     `- Output: one line, at most ${maxWords} words, no preamble, no quotes.`,

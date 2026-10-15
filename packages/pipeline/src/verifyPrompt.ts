@@ -7,7 +7,10 @@
  * so old cached replies stop matching; the version is also written to verify.json.
  * The detail classes are named as types only: an example pair from the film we evaluate on would teach that clip's answers.
  */
-export const VERIFY_PROMPT_VERSION = 3
+import { NEUTRAL_TEXT } from './textClause'
+
+/** 4: DESC-031 — on-screen text clauses are checked (kept verbatim or replaced by NEUTRAL_TEXT), text-only drafts are no longer skipped. */
+export const VERIFY_PROMPT_VERSION = 4
 
 /**
  * The only words a checked description may use that the draft did not have, per language (04b-verify's guards; exact lower-cased
@@ -47,7 +50,8 @@ export function verifySystemPrompt(language: 'en' | 'de', maxWords: number): str
     '- movement or change (something swirling, appearing, opening or closing) that the frames do not show.',
     `Delete every detail that is not clearly visible in the frames. If a word is wrong but the thing is there, you may replace it with one of these general words only: ${GENERAL[language].join(', ')}. Prefer deleting to guessing.`,
     'Never add a fact: no new colour, direction, body part, object, action or name. Use only the words of the draft, in the same form and in the same order, except the words named here. Keep every negation (not, no, never, without) and every word that says something is not quite real or not done: almost, tries, appears, seems, statue, toy, reflection, picture.',
-    'Keep every on-screen text clause (starting "Words appear:"; in German "Text erscheint:") exactly as written, word for word. Keep names exactly as the draft wrote them, and keep the order of the draft: who does what to whom stays as in the draft.',
+    `Check every on-screen text clause (starting "Words appear:"; in German "Text erscheint:") against the frames. Keep it exactly as written, word for word, only if every quoted word is fully legible in the frames and exactly right. If any part of the text is hidden, cut off, blurred or misread, replace the whole clause with exactly "${NEUTRAL_TEXT[language]}" and nothing else. Never write a corrected quote, and never add on-screen text.`,
+    'Keep names exactly as the draft wrote them, and keep the order of the draft: who does what to whom stays as in the draft.',
     `Write complete present-tense sentences with a verb, never a list of nouns. You may add these linking words, which add no fact: ${LINKING[language].join(', ')}; and "${COPULA[language][0]} ${VISIBLE[language]}" after the subject of a draft sentence.`,
     `Use at most ${maxWords} words. If every detail is visible, return the draft unchanged.`,
     'Reply with JSON only, no other text: {"text": "<the checked description>", "removed": ["<each detail you deleted or replaced, as the draft wrote it>"]}',

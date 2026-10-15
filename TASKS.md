@@ -142,3 +142,6 @@ checks 1–13 passed; check 14 (Alexa) failed for fast forward / rewind and was 
   - [x] done: code, tests, glossary for the five titles, decision 0012, baseline (0 / 0 names, no name voiced; 6 of 11 scenes state their place first; 4 of 7 changes signalled; 3 repeats)
   - [ ] pending: paid re-run of the five titles from describe (≈ $0.30) and the after-run of `pnpm eval-context --after …`; Gate C re-check with DESC-024's run
   - [ ] pending: Polly pronunciation of Proog / Celia / Amstelwijk (a lexicon), checked on the device
+- [ ] DESC-031 · follow-up · On-screen text is quoted only when fully legible (held-out Gate C g10 shot 4: a partly hidden handwritten quote, misread): describe prompt quotes only when every word is legible, else says what kind of text appears; verify checks text clauses instead of skipping them — kept verbatim or replaced whole by "Words appear." / "Text erscheint.", never a corrected quote (guard 2, `textRemoved` in verify.json); `VERIFY_PROMPT_VERSION` 4, `DESCRIBE_CACHE_VERSION` 2 (decision 0013)
+  - [x] done: code, tests (`test/legible-text.test.ts`), decision 0013, amendments to 0008 and 0010
+  - [ ] pending: Gate C re-run from describe on both clips (sintel-90-210 and the held-out Tears of Steel 6:30–8:30), 3 raters
