@@ -83,9 +83,16 @@ function onlyPlace(text: string, sources: readonly string[]): string | undefined
  * was shortened to "A woman with red hair." (no verb; check 3 failed open on the comma before "smiles"). The original's on-screen text
  * clauses are not action and the caller passes the rest. True when the original has no verb that verbIndexes finds (fails open). fit
  * only: 06-voice's overrun shortening is unchanged (tos-390-510-g10 shot 22 "Dark, rope-laced industrial shaft.", passed by its raters).
+ * Verbs are matched by Porter stem against the shot's own description, not by meaning: a shortener's synonym ("grabs" for "grips") does
+ * not count — the shortener may only remove words (preservesFacts), so a synonym was never a valid shortening anyway.
  */
+const PREPOSITIONS = new Set(['with', 'without', 'of', 'in', 'on', 'at', 'by', 'for', 'from', 'into', 'onto', 'under', 'over', 'behind', 'beside', 'near', 'between', 'among', 'through', 'across', 'toward', 'towards', 'above', 'below', 'beneath', 'around', 'along', 'against', 'inside', 'outside', 'beyond', 'within', 'upon', 'past', 'amid', 'atop'])
 export function keepsAction(original: string, shortened: string): boolean {
-  const ow = words(original), verbs = [...verbIndexes(ow)].map((i) => stem(ow[i]!.bare))
+  const ow = words(original), vi = verbIndexes(ow)
+  // an -s word right after "preposition + word", when its sentence already has a verb before it, is a compound noun, not a second verb
+  // ("swings on rope near organ pipes", "climbs on stone steps"; but "Man in glasses shouts" keeps its verb)
+  const compound = (i: number) => i >= 2 && PREPOSITIONS.has(ow[i - 2]!.bare) && !vi.has(i - 1) && !LINKING.has(ow[i]!.bare) && [...vi].some((j) => j < i - 2 && ow[j]!.sentence === ow[i]!.sentence)
+  const verbs = [...vi].filter((i) => !compound(i)).map((i) => stem(ow[i]!.bare))
   if (!verbs.length) return true
   const have = new Set(words(shortened).map((w) => stem(w.bare)))
   return verbs.some((v) => have.has(v))

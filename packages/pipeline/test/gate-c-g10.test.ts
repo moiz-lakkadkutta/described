@@ -85,6 +85,10 @@ describe('1. a shortened cue keeps the shot\'s action; a place is never the cue 
     expect(keepsAction(shot27, 'A woman with red hair.')).toBe(false)
     expect(keepsAction(shot27, 'A small tan dragon roars.')).toBe(true)
     expect(keepsAction('Snowy mountains under a grey sky.', 'Snowy mountains.')).toBe(true) // no verb found: fails open
+    // a plural noun after "preposition + noun" is not a verb (review: "Organ pipes." passed)
+    expect(keepsAction('A man in blue and yellow gear swings on rope near organ pipes.', 'Organ pipes.')).toBe(false)
+    expect(keepsAction('A man in blue and yellow gear swings on rope near organ pipes.', 'A man swings near organ pipes.')).toBe(true)
+    expect(keepsAction('She climbs on stone steps.', 'Stone steps.')).toBe(false)
   })
   it('a bare adjective is never a lead: "Dim." and "Towering." go, "Night." and "Darkness." stay', () => {
     expect(stripBareLead('Dim. A fire pit glows at the tent’s centre.')).toBe('A fire pit glows at the tent’s centre.')
@@ -124,6 +128,11 @@ describe('1. a shortened cue keeps the shot\'s action; a place is never the cue 
 })
 
 describe('2. a scene label is a place, never a light or condition word', () => {
+  it('tos shot 29: a label rejected only for naming no place stays an action pause ("Man in glasses shouts.")', async () => {
+    const x = tos()
+    expect(x.scenes.find((sc) => sc.shots.includes(29))).toMatchObject({ setting: '', action: 'Man in glasses shouts' })
+    expect((await fitRun(x)).find((c) => c.shotIndex === 29)).toMatchObject({ text: 'Man in glasses shouts.', extended: true })
+  })
   it('g10: shot 14\'s "darkness" is no label, and the two adjacent tent scenes are one', () => {
     const r = g10()
     expect(r.scenes.map((s) => s.setting)).not.toContain('darkness')

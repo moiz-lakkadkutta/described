@@ -33,6 +33,11 @@ export interface Scene {
   settingName?: string
   /** an earlier, not adjacent scene was in the same place: a cue may say "Back in …" */
   returning: boolean
+  /**
+   * The model's label when it was rejected only for naming no place but is grounded and states an action ("Man in glasses shouts"):
+   * fit may voice it as the pause of an unvoiced shot whose description it shortens (decision 0012 amendment, 2026-10-15, review).
+   */
+  action?: string
   evidence: SettingEvidence[]
 }
 export interface ScenesReport { source: 'model' | 'fallback'; model: string; cached: boolean; usage: { inputTokens: number; outputTokens: number }; reason?: string; labels: { scene: number; label: string; reason: string }[]; scenes: Scene[] }
@@ -186,31 +191,32 @@ export function finishScenes(groups: readonly Group[], shots: readonly Described
     let setting = x.setting
     const { bad } = groundLabel(setting, own, g)
     const notPlace = setting && !bad.length ? placeLabelProblem(setting, extra) : undefined
+    const action = notPlace?.startsWith('no place noun') ? x.setting : undefined
     if (bad.length || !setting || notPlace) {
       if (setting) labels.push({ scene: id, label: setting, reason: notPlace ?? `not in its descriptions or the glossary: ${bad.join(', ')}` })
       setting = fallbackLabel(own, g)
       if (!placeOk(setting)) setting = ''
     }
-    return { own, setting }
+    return { own, setting, action }
   })
   const key = (own: readonly Described[], setting: string) => {
     const named = matchSettings(`${setting} ${own.map(describedText).join(' ')}`, g)
     return (g.settings.find((s) => s.name.toLowerCase() === setting.toLowerCase())?.name ?? (setting && named.length === 1 ? named[0] : undefined) ?? setting).toLowerCase()
   }
-  const merged: Array<{ own: Described[]; setting: string }> = []
+  const merged: Array<{ own: Described[]; setting: string; action?: string }> = []
   for (const x of labelled) {
     const prev = merged.at(-1)
     if (prev && x.setting && key(prev.own, prev.setting) === key(x.own, x.setting) && !timeJump(describedText(x.own[0]!))) prev.own.push(...x.own)
-    else merged.push({ own: [...x.own], setting: x.setting })
+    else merged.push({ own: [...x.own], setting: x.setting, ...(x.action ? { action: x.action } : {}) })
   }
   const scenes: Scene[] = []
-  merged.forEach(({ own, setting }, id) => {
+  merged.forEach(({ own, setting, action }, id) => {
     const { evidence } = groundLabel(setting, own, g)
     const named = matchSettings(`${setting} ${own.map(describedText).join(' ')}`, g)
     const settingName = g.settings.find((s) => s.name.toLowerCase() === setting.toLowerCase())?.name ?? (named.length === 1 ? named[0] : undefined)
     const k = (settingName ?? setting).toLowerCase()
     const returning = !!k && scenes.slice(0, -1).some((p) => (p.settingName ?? p.setting).toLowerCase() === k) && (scenes.at(-1)?.settingName ?? scenes.at(-1)?.setting ?? '').toLowerCase() !== k
-    scenes.push({ id, shots: own.map((s) => s.index), startMs: own[0]!.startMs, endMs: own.at(-1)!.endMs, setting, ...(settingName ? { settingName } : {}), returning, evidence })
+    scenes.push({ id, shots: own.map((s) => s.index), startMs: own[0]!.startMs, endMs: own.at(-1)!.endMs, setting, ...(settingName ? { settingName } : {}), returning, evidence, ...(action && !setting ? { action } : {}) })
   })
   return scenes
 }

@@ -182,7 +182,7 @@ export function scenePauses(scenes: readonly Scene[], cues: readonly FitCue[], g
   const out = cues.map((c) => ({ ...c }))
   let last = -Infinity
   for (const sc of scenes) {
-    if (!sceneLine(sc)) continue
+    if (!sceneLine(sc)) { const a = actionPause(sc, out, shots, last); if (a) { last = a.startMs; out.push(a) } continue }
     const stems = sceneStems(sc, g)
     if (out.some((c) => sc.shots.includes(c.shotIndex) && statesPlace(c.text, stems))) continue
     const startMs = Math.max(sc.startMs, ...out.filter((x) => !x.extended && x.shotIndex < sc.shots[0]!).map((x) => x.endMs))
@@ -202,6 +202,22 @@ export function scenePauses(scenes: readonly Scene[], cues: readonly FitCue[], g
     out.push({ startMs, endMs: startMs + 100, text, extended: true, wordCount: words(text), shotIndex: under.index, scene: true })
   }
   return out
+}
+/**
+ * A scene with no place label but an action label (04c `action`: Nova Lite's "Man in glasses shouts", grounded, naming no place) keeps the
+ * pause it had before the decision 0012 amendment, as an action, not a place: at the scene's start (the same timing and spacing as a scene
+ * pause), when the shot under it is not voiced, the label keeps that shot's action (keepsAction) and reads as a shortening of its
+ * description. tos-390-510-g10 shot 29 ("Man in glasses shouts.", passed by its raters) was lost without it.
+ */
+function actionPause(sc: Scene, out: readonly FitCue[], shots: readonly Described[], last: number): FitCue | undefined {
+  if (!sc.action) return undefined
+  const startMs = Math.max(sc.startMs, ...out.filter((x) => !x.extended && x.shotIndex < sc.shots[0]!).map((x) => x.endMs))
+  if (startMs >= sc.endMs || startMs - last < SCENE_PAUSE_SPACING_MS) return undefined
+  const under = shots.find((x) => sc.shots.includes(x.index) && x.startMs <= startMs && startMs < x.endMs)
+  if (!under || under.sameAsPrev || !under.description || out.some((c) => c.shotIndex === under.index)) return undefined
+  const text = `${sc.action.trim().replace(/[.!?…]+$/u, '').replace(/^\p{Ll}/u, (c) => c.toUpperCase())}.`
+  if (keepsVerb(text, '') || !keepsVerb(under.description, text) || readsAsSentences(under.description, text)) return undefined
+  return { startMs, endMs: startMs + 100, text, extended: true, wordCount: words(text), shotIndex: under.index, scene: true }
 }
 /** The place merged into the action within EXTENDED_WORDS: whole, else the action shortened deterministically to the words left, its verb kept and still sentences. */
 function placedAction(sc: Pick<Scene, 'setting' | 'returning'>, action: string, names: readonly string[]): string | undefined {
