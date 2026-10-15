@@ -3,7 +3,7 @@ import { execa } from 'execa'
 import { readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { z } from 'zod'
 import type { Ctx } from './index'
-import { byStart, capExtended, introducesNew, LATE_MS, leadText, shortenDeterministic, shortenSentences, TAIL_SILENCE_MS, textClauses, type FitCue } from './05-fit'
+import { byStart, capExtended, introducesNew, LATE_MS, leadText, shortenDeterministic, shortenKeepingAction, TAIL_SILENCE_MS, textClauses, type FitCue } from './05-fit'
 import type { Shot } from './02-shots'
 import { cueAudioFile, probeDurationMs } from '../cues'
 import { meter, pollyUsd } from '../cost'
@@ -88,8 +88,8 @@ const words = (t: string) => t.trim().split(/\s+/).filter(Boolean).length
  * 2. A placed cue's limit is min(limitMs, start of the next placed cue in cues.json − NEXT_CUE_SPACING_MS): fit's start times are
  *    fixed by now, so a clip longer than fit's estimate must not run into the next cue of the same gap. A clip whose speech ends past
  *    the limit, or whose file ends past limit + OVERRUN_TOLERANCE_MS or the next placed cue's start (decision 0009; the speech from
- *    ffmpeg silencedetect, stored in the sidecar, else duration − TAIL_SILENCE_MS), is shortened deterministically (shortenSentences: unchanged when the shortening would be only a subject, end mid-phrase or become a
- *    noun list, DESC-028) to max(3, ⌊words × (limit − startMs) / durationMs⌋) words and
+ *    ffmpeg silencedetect, stored in the sidecar, else duration − TAIL_SILENCE_MS), is shortened deterministically (shortenKeepingAction: unchanged when the shortening would be only a subject, end mid-phrase, become a
+ *    noun list (DESC-028) or lose the action (g11: else the first sentence or clause with the action)) to max(3, ⌊words × (limit − startMs) / durationMs⌋) words and
  *    synthesized once more (the shortening keeps on-screen text only beside at least half of the action's words). Still over and the
  *    text has on-screen text beside other words (human, 2026-10-10): split — the rest, shortened to fit, stays in this slot, and the
  *    text clause becomes its own extended cue TEXT_LEAD_MS before it (fit's leadText: never before the shot start from shots.json —
@@ -191,7 +191,7 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
     const overruns = (start: number) => limit !== undefined && (start + speechMs > limit || start + durationMs > Math.min(limit + OVERRUN_TOLERANCE_MS, next ? next.startMs : Infinity))
     if (limit !== undefined && overruns(c.startMs)) {
       const maxWords = Math.max(3, Math.floor((words(text) * (limit - c.startMs)) / durationMs))
-      const shorter = shortenSentences(text, maxWords, 'voice', ctx.language) // DESC-028: a shortening that is not sentences is no shortening
+      const shorter = shortenKeepingAction(text, maxWords, 'voice', ctx.language) // DESC-028: a shortening that is not sentences is no shortening; g11: nor one that drops the action
       if (shorter !== text) { await setAside(i); aside = { text, durationMs, speechMs }; text = shorter; ({ durationMs, speechMs } = await synth(i, text)) }
       const tc = overruns(c.startMs) ? textClauses(text) : undefined
       if (tc?.rest) {
@@ -200,7 +200,7 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
         const clause = (await capExtended(tc.clause, shortenDeterministic, ctx.language))?.text ?? tc.clause // the clause is never cut: whole when capExtended gives no cue
         texts.push({ ...rest, endMs: c.startMs + 100, text: clause, extended: true, wordCount: words(clause) })
         console.log(`voice: cue ${i} at ${c.startMs} ms: on-screen text split into its own extended cue: ${JSON.stringify(clause)}`)
-        text = shortenSentences(tc.rest, fitWords, 'voice', ctx.language)
+        text = shortenKeepingAction(tc.rest, fitWords, 'voice', ctx.language)
         ;({ durationMs, speechMs } = await synth(i, text))
         const prevEnd = Math.max(shotStart.get(c.shotIndex) ?? c.startMs, ...kept.filter((k) => !k.extended).map((k) => k.endMs)) // every kept clip's measured end: one may run past this cue's start (within tolerance)
         const lead = leadText(c.startMs, prevEnd, (later) => !overruns(later))
@@ -302,7 +302,7 @@ export function withoutSaidText(text: string, said: readonly string[]): string {
  * — so it moves EARLIER when fit's estimate ran long (g10 shots 19 and 24, tos-390-510-g10 shot 13 were late only because of the
  * estimate). Other pauses keep their start or move later as before; a text cue keeps DESC-017's lead.
  * The on-time rule (LATE_MS after its shot's end, shots.json) is checked on every pause, moved or not: an event pause still late first
- * shortens the placed cue that blocks it (shortenSentences, voiced in a spare slot, then put in that cue's slot) — the plot event
+ * shortens the placed cue that blocks it (shortenKeepingAction, voiced in a spare slot, then put in that cue's slot) — the plot event
  * outranks the earlier cue's extra words (0007) — and is dropped only when that does not help. A pause that is only on-screen text is
  * never dropped (DESC-017: neither the text nor the action is dropped). The event cap holds after the moves: an event cue now within
  * EVENT_SPACING_MS of an earlier one (in start order) is dropped. Re-sorted (byStart) and the clips re-slotted. Pure apart from the clip
@@ -340,8 +340,8 @@ async function afterClips(work: string, cues: FitCue[], shots: { start: Readonly
     if (!c.event || !block || !reshorten) continue
     const deadline = end + LATE_MS, p = block.c
     const n = Math.floor((words(p.text) * (deadline - p.startMs)) / (p.endMs - p.startMs))
-    const shorter = n >= 3 ? shortenSentences(p.text, n, 'voice', language) : p.text
-    if (shorter === p.text) continue
+    const shorter = n >= 3 ? shortenKeepingAction(p.text, n, 'voice', language) : p.text
+    if (shorter === p.text) { console.log(`voice: no shortening of the cue at ${p.startMs} ms keeps its action in ${n} words; the event pause of shot ${c.shotIndex} stays late and is dropped: ${JSON.stringify(p.text)}`); continue }
     const clip = await reshorten(block.from, shorter)
     if (!clip) continue
     console.log(`voice: cue at ${p.startMs} ms shortened so the event pause of shot ${c.shotIndex} is on time: ${JSON.stringify(p.text)} → ${JSON.stringify(shorter)}`)

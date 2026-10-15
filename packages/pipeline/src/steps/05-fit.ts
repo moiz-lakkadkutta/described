@@ -7,7 +7,7 @@ import { eventSpaced, newWords, plotEvents } from '../plotEvent'
 import { keepsAction as keepsVerb, midPhrase, readsAsSentences } from '../sentenceGuard'
 import { normalizeQuotes } from '../contentWords'
 import { EMPTY_GLOSSARY, glossaryFor, type Glossary } from '../glossary'
-import { foreignPlaceStems, placeKnown, sceneLine, sceneStems, settingLead, statesPlace, withoutPlacePhrases, withPlace } from '../sceneSetting'
+import { foreignPlaceStems, placeKnown, sceneLine, sceneStems, settingLead, statesPlace, withoutPlacePhrases, withoutTrailingPlace, withPlace } from '../sceneSetting'
 import { freshScenes, sceneOf, type Scene } from './04c-scenes'
 
 /**
@@ -75,13 +75,13 @@ export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, max
           if (!left) continue
           s.description = left
         }
-        s.description = withoutPlacePhrases(s.description, stems, true)
+        s.description = withoutTrailingPlace(withoutPlacePhrases(s.description, stems, true), stems)
         if (!s.description) continue
       }
       const stems = opening ? sceneStems(opening, glossary) : undefined
       const ownLead = stems ? settingLead(s.description, stems) : undefined
       const rest = ownLead ? s.description.slice(s.description.indexOf(ownLead) + ownLead.length).trim() : s.description
-      const merge = !ownLead && opening && !statesPlace(s.description, stems!) && placeKnown(opening, s.index, shots) ? (action: string) => withPlace(opening, action, names) : undefined
+      const merge = !ownLead && opening && !statesPlace(s.description, stems!) && placeKnown(opening, s.index, shots) ? (action: string) => withPlace(opening, action, names, sceneTexts(opening, shots)) : undefined
       /** The text with the scene's place in maxWords: the shot's own setting sentence beside the rest, or the place merged into the action; the rest shortened to the words left, its action kept. Never the place alone. */
       const withLead = async (maxWords: number) => {
         if (!ownLead && !merge) return undefined
@@ -190,14 +190,14 @@ export function scenePauses(scenes: readonly Scene[], cues: readonly FitCue[], g
     if (startMs >= sc.endMs || startMs - last < SCENE_PAUSE_SPACING_MS) continue
     const same = out.find((c) => c.extended && !textOnly(c) && c.startMs === startMs && sc.shots.includes(c.shotIndex))
     if (same) {
-      const merged = (!shots.length || placeKnown(sc, same.shotIndex, shots)) ? withPlace(sc, same.text, g.characters.map((c) => c.name)) : undefined
+      const merged = (!shots.length || placeKnown(sc, same.shotIndex, shots)) ? withPlace(sc, same.text, g.characters.map((c) => c.name), sceneTexts(sc, shots)) : undefined
       if (merged && words(merged) <= EXTENDED_WORDS) { last = startMs; same.text = merged; same.wordCount = words(merged); same.scene = true }
       continue
     }
     const under = shots.find((x) => sc.shots.includes(x.index) && x.startMs <= startMs && startMs < x.endMs)
     if (!under || under.sameAsPrev || !under.description || out.some((c) => c.shotIndex === under.index) || !placeKnown(sc, under.index, shots)) continue
     const action = textClauses(under.description) ? undefined : under.description
-    const text = action && placedAction(sc, action, g.characters.map((c) => c.name))
+    const text = action && placedAction(sc, action, g.characters.map((c) => c.name), sceneTexts(sc, shots))
     if (!text) continue
     last = startMs
     out.push({ startMs, endMs: startMs + 100, text, extended: true, wordCount: words(text), shotIndex: under.index, scene: true })
@@ -221,16 +221,18 @@ function actionPause(sc: Scene, out: readonly FitCue[], shots: readonly Describe
   return { startMs, endMs: startMs + 100, text, extended: true, wordCount: words(text), shotIndex: under.index, scene: true }
 }
 /** The place merged into the action within EXTENDED_WORDS: whole, else the action shortened deterministically to the words left, its verb kept and still sentences. */
-function placedAction(sc: Pick<Scene, 'setting' | 'returning'>, action: string, names: readonly string[]): string | undefined {
-  const whole = withPlace(sc, action, names)
+function placedAction(sc: Pick<Scene, 'setting' | 'returning' | 'settingName'>, action: string, names: readonly string[], texts: readonly string[]): string | undefined {
+  const whole = withPlace(sc, action, names, texts)
   if (!whole) return undefined
   if (words(whole) <= EXTENDED_WORDS) return whole
   const room = EXTENDED_WORDS - (words(whole) - words(action))
   const short = shortenDeterministic(action, room)
   if (words(short) > room || !keepsVerb(action, short) || readsAsSentences(action, short)) return undefined
-  const t = withPlace(sc, short, names)
+  const t = withPlace(sc, short, names, texts)
   return t && words(t) <= EXTENDED_WORDS ? t : undefined
 }
+/** The descriptions of a scene's shots: how they write the label's words decides its case (placeLead). */
+const sceneTexts = (sc: Pick<Scene, 'shots'>, shots: readonly { index: number; description: string }[]) => shots.filter((x) => sc.shots.includes(x.index)).map((x) => x.description)
 /**
  * A description as fit and the edit pass read it (decision 0012 amendment, 2026-10-15): "Darkness." whole or absent (stripDarkness), no
  * bare light word as a lead (stripBareLead: g10 "Dim. A fire pit glows …"), and no place phrase naming another scene's place
@@ -247,13 +249,15 @@ function keepsActionOf(text: string, short: string): boolean {
   return keepsVerb(a ? a.rest : text, a && b ? b.rest : short)
 }
 /**
- * fit's next-best shortening when the shortener's drops the action: the first sentence of the text that has a verb and fits, whole or shortened
+ * fit's next-best shortening when the shortener's drops the action: the first sentence (or clause after a semicolon) of the text that has a verb and fits, whole or shortened
  * deterministically to maxWords, that keeps its verb and reads as sentences against the whole text (g10 shot 27: "A small tan dragon
  * roars." in place of "A woman with red hair."). Plain text only; undefined when none fits.
  */
 function actionSentence(text: string, maxWords: number, language: 'en' | 'de'): string | undefined {
   if (textClauses(text)) return undefined
-  for (const u of sentences(text)) {
+  // a clause after a semicolon stands as a sentence of its own (review round 3: tos-390-510-g11 shot 22 "Dark, rope-laced industrial shaft;
+  // man in black jacket adjusts device." → "Man in black jacket adjusts device.")
+  for (const u of sentences(text).flatMap((x) => x.trim().split(/(?<=;)\s+/u).map((y) => y.replace(/;$/u, '.')))) {
     const v = u.trim().replace(/^\p{Ll}/u, (c) => c.toUpperCase())
     if (keepsVerb(v, '')) continue // no verb found: not an action
     const cand = words(v) <= maxWords ? v : shortenDeterministic(v, maxWords)
@@ -425,6 +429,8 @@ function shortenPlain(text: string, maxWords: number): string {
     if (next === undefined || !/^\p{L}+$/u.test(x) || KEEP_BEFORE.has(prev) || (/^\p{Lu}/u.test(x) && !opensSentence)) return true
     const bare = x.toLowerCase()
     if (ADVERBS.has(bare)) return false
+    // an adjective that opens a clause right before its end stays ("…speaks, dim tent." is never "…speaks, tent."; Sintel g11 shot 12)
+    if (/[,;]$/.test(prev) && /[,;.!?]$/.test(next)) return true
     return !(ADJECTIVES.has(bare) && !((ARTICLES.has(prev) || opensSentence) && verbOrEnd(next)))
   })
   const idx = w.map((_, i) => i).filter((i) => keep[i])
@@ -486,6 +492,21 @@ export function shortenSentences(text: string, maxWords: number, step = 'voice',
   const why = d === text ? undefined : sentenceProblem(text, d, language)
   if (why) console.warn(`${step}: deterministic shortening rejected (${why}), keeping the text unshortened:`, JSON.stringify(text), '→', JSON.stringify(d))
   return why ? text : d
+}
+/**
+ * 06-voice's overrun shortening (decision 0012, review round 3 g11): shortenSentences when its shortening keeps the action (a verb of the
+ * text, keepsAction, as fit's); else fit's next-best, the first sentence or clause with an action that fits (actionSentence); else the text
+ * unchanged — 06-voice then makes it a pause or drops it, so it is never a setting-only cue. tos-390-510-g11 shot 22 was voiced as "Dark,
+ * rope-laced industrial shaft." from "Dark, rope-laced industrial shaft; man in black jacket adjusts device.".
+ */
+export function shortenKeepingAction(text: string, maxWords: number, step = 'voice', language: 'en' | 'de' = 'en'): string {
+  if (words(text) <= maxWords) return text
+  const d = shortenSentences(text, maxWords, step, language)
+  if (d !== text && keepsActionOf(text, d)) return d // maxWords is voice's estimate: a longer shortening is voiced and measured
+  if (d !== text) console.warn(`${step}: shortening drops the action, trying its sentences:`, JSON.stringify(text), '→', JSON.stringify(d))
+  const a = actionSentence(text, maxWords, language)
+  if (a === undefined) console.warn(`${step}: no shortening keeps the action in ${maxWords} words; the text stays whole (a pause or a drop follows):`, JSON.stringify(text))
+  return a ?? text
 }
 
 export async function fitDescriptions(ctx: Ctx) {

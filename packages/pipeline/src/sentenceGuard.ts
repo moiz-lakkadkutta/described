@@ -17,6 +17,8 @@ import { cutsNeutral } from './textClause'
  *    first verb ("A scaled creature with horns." from "A scaled creature with horns and bloodied wing stares as …"). Reason 'no verb'
  *    when that is the whole shortening, else 'verbless sentence: …'. It fails open: a word from a clause with no verb found, or from
  *    after a verb, makes the sentence acceptable ("Snowy mountains.", "Two hands hold a red bowl.").
+ * Checks 2b, 2c, 4 and 5–7 (English) follow below: ends mid-phrase, dangling clause, only a place, a verbless cut of a sentence with a verb,
+ * a bare noun after a comma, a dropped article (decision 0012 amendments).
  * German ('de'): checks 1 and 2 only — the verb heuristic is English (German -s words such as links, rechts, etwas, alles are not verbs).
  */
 export function readsAsSentences(original: string, shortened: string, language: 'en' | 'de' = 'en'): string | undefined {
@@ -29,7 +31,87 @@ export function readsAsSentences(original: string, shortened: string, language: 
   const joined = joinsSentences(orig, aligned)
   if (joined) return joined
   if (language === 'de') return undefined
-  return endsMidPhrase(orig, aligned) ?? danglingClause(orig, aligned) ?? onlySubjects(shortened, [original]) ?? onlyPlace(shortened, [original])
+  return endsMidPhrase(orig, aligned) ?? danglingClause(orig, aligned) ?? onlySubjects(shortened, [original]) ?? onlyPlace(shortened, [original]) ??
+    verblessCut(orig, aligned) ?? bareNounAfterComma(orig, aligned) ?? dropsArticle(orig, words(shortened))
+}
+
+/**
+ * Check 5 (decision 0012, review round 3 g11; English): a sentence of the shortening with no verb, cut from a sentence of the original that
+ * has one, is rejected — the cut kept the setting and lost the action ("Dark, rope-laced industrial shaft." from "Dark, rope-laced
+ * industrial shaft; man in black jacket adjusts device.", tos-390-510-g11 shot 22, voiced by 06-voice). A sentence the describer wrote
+ * without a verb ("Snowy mountains.") is still acceptable, kept or shortened. Verbs: verbIndexes, without keepsAction's compound nouns.
+ */
+function verblessCut(orig: readonly Word[], aligned: ReadonlyArray<Word & { at: number }>): string | undefined {
+  const ov = actionVerbs(orig), sv = verbIndexes(aligned)
+  const verbSentences = new Set([...ov].map((i) => orig[i]!.sentence))
+  for (const sent of sentencesOf(aligned.map((x, i) => ({ ...x, i })))) {
+    if (sent.some((x) => sv.has(x.i) || (x.at >= 0 && ov.has(x.at)))) continue
+    if (sent.some((x) => x.at >= 0 && verbSentences.has(orig[x.at]!.sentence))) return `verbless sentence cut from one with a verb: "${sent.map((x) => x.raw).join(' ')}"`
+  }
+  return undefined
+}
+
+/**
+ * Check 6 (review round 3 g11; English): a sentence of the shortening ends on a clause of one word, after a comma or semicolon, that was
+ * longer in the original — its modifier dropped, a bare noun left ("Man speaks, tent." from "Old man speaks, dim tent.", Sintel g11
+ * shot 12). A one-word clause the describer wrote is left alone ("A woman runs, leaps, climbs a wall.").
+ */
+function bareNounAfterComma(orig: readonly Word[], aligned: ReadonlyArray<Word & { at: number }>): string | undefined {
+  const ov = verbIndexes(orig)
+  for (const sent of sentencesOf(aligned)) {
+    if (sent.length < 2 || !/[,;]\W*$/.test(sent.at(-2)!.raw)) continue
+    const last = sent.at(-1)!
+    if (last.at < 0 || ov.has(last.at)) continue
+    let a = last.at, b = last.at
+    while (a > 0 && !/[,;:.!?…]["'”’)\]]*$/.test(orig[a - 1]!.raw)) a--
+    while (b < orig.length - 1 && !/[,;:.!?…]["'”’)\]]*$/.test(orig[b]!.raw)) b++
+    if (b > a) return `bare noun after a comma: "${last.bare}"`
+  }
+  return undefined
+}
+
+/**
+ * Check 7 (review round 3 g11; English): a shortening keeps "a" / "an" / "the" with its noun. An article of the original that the
+ * shortening leaves out, while it keeps a later word of the same phrase (no clause mark between), is rejected: "Dragon roars." from "A
+ * small tan dragon roars."; "Man sits" from "The man sits". Any article counts for any here ("An old bearded man" → "A bearded
+ * man", the shortener re-picks a / an; "The dragon lies …" for "A small tan dragon lies …"). Exempt (review): "the" before an unmodified
+ * noun right after a preposition ("walks through the rain." → "walks through rain.").
+ */
+function dropsArticle(orig: readonly Word[], short: readonly Word[]): string | undefined {
+  const norm = (w: string) => (w === 'an' || w === 'the' ? 'a' : w) // any article stands for any: "The dragon lies …" from "A small dragon lies …"
+  const isArticle = (w: string) => norm(w) === 'a'
+  const verbs = actionVerbs(orig)
+  // the other words first (exact, in order); then each article of the shortening to the nearest one of the original before the word it
+  // stands with ("A small tan dragon roars." from "a young woman … smiles. A small tan dragon roars." keeps the second "a")
+  const kept = new Set<number>(), at: number[] = []
+  let i = 0
+  for (const w of short) {
+    if (isArticle(w.bare)) { at.push(-1); continue }
+    const k = orig.findIndex((o, x) => x >= i && o.bare === w.bare)
+    at.push(k)
+    if (k >= 0) { kept.add(k); i = k + 1 }
+  }
+  let floor = 0
+  for (const [x, w] of short.entries()) {
+    if (at[x]! >= 0) { floor = at[x]! + 1; continue }
+    if (!isArticle(w.bare)) continue
+    const next = at.slice(x + 1).find((k) => k >= 0) ?? orig.length
+    for (let k = next - 1; k >= floor; k--) if (norm(orig[k]!.bare) === norm(w.bare) && !kept.has(k)) { kept.add(k); floor = k + 1; break }
+  }
+  for (const [a, w] of orig.entries()) {
+    if (!isArticle(w.bare) || kept.has(a)) continue
+    // "the" before a bare noun after a preposition may go: "through the rain" → "through rain" (review); not "the heavy rain"
+    const next = orig[a + 1], after = orig[a + 2]
+    const bareNoun = !!next && kept.has(a + 1) && (/[,;:.!?…]["'”’)\]]*$/.test(next.raw) || !after || PREPOSITIONS.has(after.bare) || JOINERS.has(after.bare) || verbs.has(a + 2))
+    if (w.bare === 'the' && a > 0 && PREPOSITIONS.has(orig[a - 1]!.bare) && bareNoun) continue
+    for (let j = a + 1; j < orig.length; j++) {
+      // the first word kept after it: a word of its phrase, unless that is a verb, preposition or joining word — then the whole phrase
+      // went ("The dragon lies …" from "A … dragon with a bleeding wing lies …")
+      if (kept.has(j)) { if (verbs.has(j) || PREPOSITIONS.has(orig[j]!.bare) || JOINERS.has(orig[j]!.bare)) break; return `drops an article: "${w.bare} … ${orig[j]!.bare}"` }
+      if (/[,;:.!?…]["'”’)\]]*$/.test(orig[j]!.raw)) break
+    }
+  }
+  return undefined
 }
 
 const CLAUSE_OPENERS = new Set(['while', 'as', 'who', 'which', 'whose', 'where'])
@@ -81,21 +163,29 @@ function onlyPlace(text: string, sources: readonly string[]): string | undefined
  * fit's action rule (decision 0012 amendment, 2026-10-15): a shortening keeps the shot's action — a verb of the original (by stem,
  * verbIndexes) — when the original has one. g10 shot 27 "a young woman …, in a grey tank top smiles slightly. A small tan dragon roars."
  * was shortened to "A woman with red hair." (no verb; check 3 failed open on the comma before "smiles"). The original's on-screen text
- * clauses are not action and the caller passes the rest. True when the original has no verb that verbIndexes finds (fails open). fit
- * only: 06-voice's overrun shortening is unchanged (tos-390-510-g10 shot 22 "Dark, rope-laced industrial shaft.", passed by its raters).
+ * clauses are not action and the caller passes the rest. True when the original has no verb that verbIndexes finds (fails open). fit,
+ * and since review round 3 (g11) 06-voice's overrun shortening too (05-fit shortenKeepingAction: tos-390-510-g11 shot 22 "Dark,
+ * rope-laced industrial shaft.").
  * Verbs are matched by Porter stem against the shot's own description, not by meaning: a shortener's synonym ("grabs" for "grips") does
  * not count — the shortener may only remove words (preservesFacts), so a synonym was never a valid shortening anyway.
  */
 const PREPOSITIONS = new Set(['with', 'without', 'of', 'in', 'on', 'at', 'by', 'for', 'from', 'into', 'onto', 'under', 'over', 'behind', 'beside', 'near', 'between', 'among', 'through', 'across', 'toward', 'towards', 'above', 'below', 'beneath', 'around', 'along', 'against', 'inside', 'outside', 'beyond', 'within', 'upon', 'past', 'amid', 'atop'])
 export function keepsAction(original: string, shortened: string): boolean {
-  const ow = words(original), vi = verbIndexes(ow)
-  // an -s word right after "preposition + word", when its sentence already has a verb before it, is a compound noun, not a second verb
-  // ("swings on rope near organ pipes", "climbs on stone steps"; but "Man in glasses shouts" keeps its verb)
-  const compound = (i: number) => i >= 2 && PREPOSITIONS.has(ow[i - 2]!.bare) && !vi.has(i - 1) && !LINKING.has(ow[i]!.bare) && [...vi].some((j) => j < i - 2 && ow[j]!.sentence === ow[i]!.sentence)
-  const verbs = [...vi].filter((i) => !compound(i)).map((i) => stem(ow[i]!.bare))
+  const ow = words(original)
+  const verbs = [...actionVerbs(ow)].map((i) => stem(ow[i]!.bare))
   if (!verbs.length) return true
   const have = new Set(words(shortened).map((w) => stem(w.bare)))
   return verbs.some((v) => have.has(v))
+}
+
+/**
+ * verbIndexes without compound nouns: an -s word right after "preposition + word", when its sentence already has a verb before it, is a
+ * compound noun, not a second verb ("swings on rope near organ pipes", "climbs on stone steps"; but "Man in glasses shouts" keeps its verb).
+ */
+function actionVerbs(ow: readonly Word[]): Set<number> {
+  const vi = verbIndexes(ow)
+  const compound = (i: number) => i >= 2 && PREPOSITIONS.has(ow[i - 2]!.bare) && !vi.has(i - 1) && !LINKING.has(ow[i]!.bare) && [...vi].some((j) => j < i - 2 && ow[j]!.sentence === ow[i]!.sentence)
+  return new Set([...vi].filter((i) => !compound(i)))
 }
 
 const SUBJECT_PRONOUNS = new Set(['he', 'she', 'it', 'they', 'er', 'sie', 'es'])
@@ -157,12 +247,14 @@ function endsMidPhrase(orig: readonly Word[], aligned: ReadonlyArray<Word & { at
  * 2. not only a subject (English only), as readsAsSentences check 3, against the sources.
  */
 export function editReadsAsSentences(original: string, edited: string, sources: readonly string[], language: 'en' | 'de' = 'en'): string | undefined {
-  const ws = words(edited), src = sources.map(words)
+  const ws = words(edited), src = sources.map(words), verbs = verbIndexes(ws)
   const commaIn = new Set(src.flatMap((w) => w.filter((x) => /[,;:]\W*$/.test(x.raw)).map((x) => x.bare)))
   for (const [k, w] of ws.entries()) {
     if (!/[,;]\W*$/.test(w.raw) || commaIn.has(w.bare)) continue
     const next = ws[k + 1]?.bare ?? ''
-    if (!JOINERS.has(next) && !/ing$/.test(next)) return `new list comma after "${w.bare}"`
+    // a comma right before the verb closes a phrase set off by an earlier comma ("A young woman with short red hair, in a grey tank top
+    // and brown trousers, climbs a rooftop.", Sintel g11 cue 13), not a list
+    if (!JOINERS.has(next) && !/ing$/.test(next) && !(verbs.has(k + 1) && ws.slice(0, k).some((x) => /,\W*$/.test(x.raw)))) return `new list comma after "${w.bare}"`
   }
   return language === 'de' ? undefined : onlySubjects(edited, [original, ...sources]) ?? onlyPlace(edited, [original, ...sources])
 }

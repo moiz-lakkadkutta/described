@@ -1,0 +1,225 @@
+[
+  {
+    "startMs": 0,
+    "endMs": 100,
+    "text": "A man with dark hair has a gray robotic hand pressed against his face, fingers near his eye, outdoors.",
+    "extended": true,
+    "wordCount": 19,
+    "shotIndex": 0
+  },
+  {
+    "startMs": 2549,
+    "endMs": 5624,
+    "text": "Woman grimaces as robot scans her face.",
+    "extended": false,
+    "wordCount": 7,
+    "shotIndex": 1,
+    "limitMs": 6890
+  },
+  {
+    "startMs": 7700,
+    "endMs": 11150,
+    "text": "A man's face pressed against a mechanical device.",
+    "extended": false,
+    "wordCount": 8,
+    "shotIndex": 2,
+    "limitMs": 17029
+  },
+  {
+    "startMs": 11300,
+    "endMs": 15500,
+    "text": "Man with cybernetic eye looks up; woman in uniform watches.",
+    "extended": false,
+    "wordCount": 10,
+    "shotIndex": 3,
+    "limitMs": 17029
+  },
+  {
+    "startMs": 15500,
+    "endMs": 15600,
+    "text": "Words appear: \"CULP, I LOVE YOUR HAND\"",
+    "extended": true,
+    "wordCount": 7,
+    "shotIndex": 4
+  },
+  {
+    "startMs": 21320,
+    "endMs": 24020,
+    "text": "Man with eyepiece gestures, woman watches.",
+    "extended": false,
+    "wordCount": 6,
+    "shotIndex": 5,
+    "limitMs": 29019
+  },
+  {
+    "startMs": 24170,
+    "endMs": 27620,
+    "text": "Woman touches man’s face. Shapes overlay the scene.",
+    "extended": false,
+    "wordCount": 8,
+    "shotIndex": 6,
+    "limitMs": 29019
+  },
+  {
+    "startMs": 27620,
+    "endMs": 27720,
+    "text": "Boy faces robot.",
+    "extended": true,
+    "wordCount": 3,
+    "shotIndex": 7,
+    "scene": true
+  },
+  {
+    "startMs": 33158,
+    "endMs": 36233,
+    "text": "Man in glasses stares at glowing screens.",
+    "extended": false,
+    "wordCount": 7,
+    "shotIndex": 8,
+    "limitMs": 38209
+  },
+  {
+    "startMs": 41580,
+    "endMs": 43155,
+    "text": "Man aims rifle.",
+    "extended": false,
+    "wordCount": 3,
+    "shotIndex": 11,
+    "limitMs": 43400
+  },
+  {
+    "startMs": 47450,
+    "endMs": 49775,
+    "text": "Soldier aims rifle at robot.",
+    "extended": false,
+    "wordCount": 5,
+    "shotIndex": 12,
+    "limitMs": 102700
+  },
+  {
+    "startMs": 49925,
+    "endMs": 53375,
+    "text": "Ornate clock tower with golden dials, debris flying.",
+    "extended": false,
+    "wordCount": 8,
+    "shotIndex": 13,
+    "limitMs": 102700
+  },
+  {
+    "startMs": 53525,
+    "endMs": 57350,
+    "text": "Gloved hands lift clear lid off metallic cylindrical device.",
+    "extended": false,
+    "wordCount": 9,
+    "shotIndex": 14,
+    "limitMs": 102700
+  },
+  {
+    "startMs": 57500,
+    "endMs": 62825,
+    "text": "Young man in white hoodie holds white and black robot, dim industrial background.",
+    "extended": false,
+    "wordCount": 13,
+    "shotIndex": 15,
+    "limitMs": 102700
+  },
+  {
+    "startMs": 66153,
+    "endMs": 71478,
+    "text": "The young man turns, revealing the robot’s back; another man in glasses watches.",
+    "extended": false,
+    "wordCount": 13,
+    "shotIndex": 17,
+    "limitMs": 102700
+  },
+  {
+    "startMs": 71792,
+    "endMs": 75992,
+    "text": "Four figures kneel amid ruins, sunlight streaming through broken glass.",
+    "extended": false,
+    "wordCount": 10,
+    "shotIndex": 18,
+    "limitMs": 102700
+  },
+  {
+    "startMs": 76142,
+    "endMs": 80717,
+    "text": "A large gray robot with orange stripes steps forward, crushing debris.",
+    "extended": false,
+    "wordCount": 11,
+    "shotIndex": 19,
+    "limitMs": 102700
+  },
+  {
+    "startMs": 80867,
+    "endMs": 84692,
+    "text": "Giant robots clash amid crumbling stone pillars and dust.",
+    "extended": false,
+    "wordCount": 9,
+    "shotIndex": 20,
+    "limitMs": 102700
+  },
+  {
+    "startMs": 84842,
+    "endMs": 92417,
+    "text": "Four figures in white suits kneel, firing weapons at two large robots advancing through a sunlit, overgrown industrial hall.",
+    "extended": false,
+    "wordCount": 19,
+    "shotIndex": 21,
+    "limitMs": 102700
+  },
+  {
+    "startMs": 92567,
+    "endMs": 96767,
+    "text": "Dark, rope-laced industrial shaft; man in black jacket adjusts device.",
+    "extended": false,
+    "wordCount": 10,
+    "shotIndex": 22,
+    "limitMs": 102700
+  },
+  {
+    "startMs": 96917,
+    "endMs": 101117,
+    "text": "Dark industrial shaft; figure swings on rope, then climbs upward.",
+    "extended": false,
+    "wordCount": 10,
+    "shotIndex": 24,
+    "limitMs": 102700
+  },
+  {
+    "startMs": 103600,
+    "endMs": 107050,
+    "text": "Man in blue jacket fires weapon near organ.",
+    "extended": false,
+    "wordCount": 8,
+    "shotIndex": 25,
+    "limitMs": 112550
+  },
+  {
+    "startMs": 107200,
+    "endMs": 109900,
+    "text": "Giant robots crash through cathedral ruins.",
+    "extended": false,
+    "wordCount": 6,
+    "shotIndex": 27,
+    "limitMs": 112550
+  },
+  {
+    "startMs": 110050,
+    "endMs": 112375,
+    "text": "Man climbs rope. Organ explodes.",
+    "extended": false,
+    "wordCount": 5,
+    "shotIndex": 28,
+    "limitMs": 112550
+  },
+  {
+    "startMs": 113708,
+    "endMs": 113808,
+    "text": "In the Cluttered tech lab, man with glasses shouts, then looks up, surrounded by glowing green and purple displays in a cluttered tech lab.",
+    "extended": true,
+    "wordCount": 24,
+    "shotIndex": 29,
+    "scene": true
+  }
+]
