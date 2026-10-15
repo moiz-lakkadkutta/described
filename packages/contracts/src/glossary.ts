@@ -12,6 +12,11 @@ import { z } from 'zod'
  * from the first shot; the name only once `revealedAtS` has passed (never when it is null), and only for a figure matching the look;
  * `role` is never voiced.
  */
+/** A time range (segment seconds, fromS < toS, both inclusive) in which a character's name must not be used, and why. */
+export const NameWindow = z.object({ fromS: z.number(), toS: z.number(), reason: z.string().min(1) })
+  .refine((w) => w.fromS < w.toS, { message: 'unnamedIn: fromS must be before toS' })
+export type NameWindow = z.infer<typeof NameWindow>
+
 export const Character = z.object({
   /** The name the film gives (dialogue, on-screen text or credits). Never voiced before revealedAtS, never when that is null. */
   name: z.string().min(1),
@@ -25,6 +30,12 @@ export const Character = z.object({
   revealedAtS: z.number().nullable(),
   /** Where the name comes from: the line, the subtitle file and its time, the credit or title card. */
   nameEvidence: z.string().min(1),
+  /**
+   * Segment-second ranges in which this name is never used, whatever the look match or the dialogue (decision 0012, amendment
+   * 2026-10-15 "Name windows"): shots where another figure looks like this one (full-length Sintel: the horned dragon's swoop and
+   * the baby dragon in the lair are "small tan dragons" too, but are not Scales). Optional; `reason` says what is on screen there.
+   */
+  unnamedIn: z.array(NameWindow).optional(),
 })
 export type Character = z.infer<typeof Character>
 
@@ -43,3 +54,10 @@ export type Glossary = z.infer<typeof Glossary>
 
 /** A character's name may be voiced at segment time `atMs` (revealedAtS not null and ≤ atMs / 1000). */
 export const nameRevealed = (c: Pick<Character, 'revealedAtS'>, atMs: number) => c.revealedAtS !== null && c.revealedAtS * 1000 <= atMs
+
+/**
+ * The name may not be used at `atMs` (or anywhere in `atMs`–`endMs`, a shot's span): the time is inside one of the character's
+ * unnamedIn ranges. Overrides every other evidence: the reveal, the look binding, the describer's own use of the name, the dialogue.
+ */
+export const nameWithheld = (c: Pick<Character, 'unnamedIn'>, atMs: number, endMs = atMs) =>
+  !!c.unnamedIn?.some((w) => w.fromS * 1000 <= endMs && atMs <= w.toS * 1000)

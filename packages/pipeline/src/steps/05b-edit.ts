@@ -10,7 +10,7 @@ import { contentWords, stem } from '../contentWords'
 import { editReadsAsSentences } from '../sentenceGuard'
 import { editRequest, editModelId, shortenEditWithNovaLite, stripFence, type EditConverse, type EditCueInput, bedrockEditSend } from '../prompts'
 import { meter } from '../cost'
-import { allowedNames, EMPTY_GLOSSARY, glossaryFor, glossarySettingStems, isEmpty, isProperName, matchedCharacters, nameEvidence, nameRevealed, placeStems, shortOf, withoutName, type Glossary, type NameSource } from '../glossary'
+import { allowedNames, EMPTY_GLOSSARY, glossaryFor, glossarySettingStems, isEmpty, isProperName, matchedCharacters, nameEvidence, nameRevealed, placeStems, shortOf, withoutName, withoutWithheldNames, type Glossary, type NameSource } from '../glossary'
 import { foreignPlaceStems, sceneStems, statesPlace } from '../sceneSetting'
 import { knownNames } from './04-describe'
 import { readScenes, sceneOf, type Scene } from './04c-scenes'
@@ -115,8 +115,9 @@ const prevActionIndex = (cues: readonly FitCue[], i: number) => { for (let k = i
  * round 5: 17 words into 11), and the shortened text goes through the same guards; it is dropped when it still does not fit.
  */
 export async function editScene(cues: FitCue[], shots: Described[], words: Word[], language: 'en' | 'de', send: EditConverse, signal?: AbortSignal, shorten: Shorten = (t, n, keep, must) => shortenEditWithNovaLite(t, n, keep, must, language), context: EditContext = {}): Promise<EditReport> {
-  // as fit read them (groundedDescription): "Darkness." never comes back through an edit, nor a bare "Dim." lead, nor another scene's place
-  shots = shots.map((s) => ({ ...s, description: groundedDescription(s, context.scenes, context.glossary ?? EMPTY_GLOSSARY) }))
+  // as fit read them (groundedDescription): "Darkness." never comes back through an edit, nor a bare "Dim." lead, nor another scene's place;
+  // and no name withheld in the shot (unnamedIn, decision 0012 "Name windows"), so the model is never shown one there (a missed shot's text)
+  shots = shots.map((s) => ({ ...s, description: withoutWithheldNames(groundedDescription(s, context.scenes, context.glossary ?? EMPTY_GLOSSARY), context.glossary ?? EMPTY_GLOSSARY, s.startMs, s.endMs) }))
   const model = editModelId()
   const report: EditReport = { cues: cues.map((c) => ({ ...c })), applied: [], rejected: [], model, usage: { inputTokens: 0, outputTokens: 0 }, shorteningCalls: 0, evidence: [] }
   if (!cues.length) return report
@@ -190,10 +191,12 @@ export async function editScene(cues: FitCue[], shots: Described[], words: Word[
   })
   // DESC-029 grounding guard, on every final cue (the model's edits and fit's own text alike): a glossary name not yet revealed is
   // replaced by the character's short look; each cue records where its names and place words come from (edit.json `evidence`).
+  // A name withheld at the cue's start (unnamedIn, decision 0012 "Name windows") is replaced by the neutral reference ("the dragon"),
+  // with its appositive look phrase: whoever wrote it, the describer included, and whatever the dialogue said.
   report.cues.forEach((c, i) => {
     if (isTextCue(c)) return
     const check = nameEvidence(c.text, c.startMs, glossary, guard.spoken, cueShotTexts(cues, shots, i))
-    const text = [...check.premature, ...check.unbound].reduce((t, n) => withoutName(t, n, glossary), c.text)
+    const text = check.withheld.reduce((t, n) => withoutName(t, n, glossary, { withheld: true }), [...check.premature, ...check.unbound].reduce((t, n) => withoutName(t, n, glossary), c.text))
     if (text !== c.text) { report.applied.push({ i, from: c.text, to: text, by: 'name' }); report.cues[i] = { ...c, text, wordCount: wordCount(text) } }
     report.evidence.push(cueEvidence(i, report.cues[i]!, shots, guard, cueShotTexts(cues, shots, i)))
   })
@@ -226,7 +229,7 @@ export function cueEvidence(i: number, c: FitCue, shots: readonly Described[], g
   const extra = new Set([...glossarySettingStems(guard.glossary), ...(sc ? sceneStems(sc, guard.glossary) : [])])
   const placeWords = [...new Set(contentWords(c.text).filter((w) => placeStems(w, extra).length))]
   const setting: CueEvidence['setting'] = { ...(sc ? { scene: sc.id } : {}), words: [] }
-  const unbacked = [...check.invented, ...check.premature, ...check.unbound]
+  const unbacked = [...check.invented, ...check.premature, ...check.unbound, ...check.withheld]
   for (const w of placeWords) {
     const st = stem(w)
     const shot = sceneShots.find((s) => contentWords(s.description).some((x) => stem(x) === st))
@@ -442,9 +445,9 @@ export function applyEdits(cues: readonly FitCue[], shots: readonly Described[],
       // revealed by the cue's start and shown by look in these shots (binding: "Thom" never on the sniper's shot).
       const grounded = new Set(own.flatMap((d) => nameEvidence(d, c.startMs, guard.glossary, guard.spoken).invented))
       const before = nameEvidence(c.text, c.startMs, guard.glossary, guard.spoken, own), after = nameEvidence(text, c.startMs, guard.glossary, guard.spoken, own)
-      const had = [...before.premature, ...before.invented, ...before.unbound]
-      const wrong = [...after.premature, ...after.invented.filter((n) => !grounded.has(n)), ...after.unbound].filter((n) => !had.includes(n))
-      if (wrong.length) { reject(`name not revealed, not shown in its shots, or in no glossary or dialogue: ${wrong.join(', ')}`); continue }
+      const had = [...before.premature, ...before.invented, ...before.unbound, ...before.withheld]
+      const wrong = [...after.premature, ...after.invented.filter((n) => !grounded.has(n)), ...after.unbound, ...after.withheld].filter((n) => !had.includes(n))
+      if (wrong.length) { reject(`name not revealed, not shown in its shots, withheld here, or in no glossary or dialogue: ${wrong.join(', ')}`); continue }
     }
     const heard = (k: number) => (k >= window[0] ? out[k]! : (guard?.current?.[k] ?? cues[k]!))
     const firstOfScene = !!sc && !cues.slice(0, i).some((x) => !isTextCue(x) && sc.shots.includes(x.shotIndex))

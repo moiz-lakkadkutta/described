@@ -6,7 +6,7 @@ import { clauseText, sentences, stripBareLead, stripDarkness, textSpans, without
 import { eventSpaced, newWords, plotEvents } from '../plotEvent'
 import { keepsAction as keepsVerb, midPhrase, readsAsSentences } from '../sentenceGuard'
 import { normalizeQuotes } from '../contentWords'
-import { EMPTY_GLOSSARY, glossaryFor, type Glossary } from '../glossary'
+import { EMPTY_GLOSSARY, glossaryFor, withoutWithheldNames, type Glossary } from '../glossary'
 import { foreignPlaceStems, placeKnown, sceneLine, sceneStems, settingLead, statesPlace, withoutPlacePhrases, withoutTrailingPlace, withPlace } from '../sceneSetting'
 import { freshScenes, sceneOf, type Scene } from './04c-scenes'
 
@@ -159,11 +159,26 @@ export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, max
       if (capped) events.push({ cue: { ...pause(), ...capped, event: true }, verbs: verbs.length, fresh: newWords(s.description, previous) })
     }
     const all = [...out, ...capEvents(events)]
-    return (opts.scenes && opts.scenePauses !== false ? scenePauses(opts.scenes, all, glossary, shots.map((x) => ({ ...x, description: groundedDescription(x, opts.scenes, glossary) }))) : all).sort(byStart)
+    return withoutWithheld((opts.scenes && opts.scenePauses !== false ? scenePauses(opts.scenes, all, glossary, shots.map((x) => ({ ...x, description: groundedDescription(x, opts.scenes, glossary) }))) : all).sort(byStart), shots, glossary)
   }
   return work()
 }
 
+/**
+ * fit's last step (decision 0012, "Name windows"): no cue says a name withheld anywhere in its shot or at its start (a character's
+ * unnamedIn range) — the describer's "The small tan dragon, Scales, soars …" over the horned dragon's swoop becomes "The dragon soars …"
+ * (withoutWithheldNames). After placement, on purpose: the cue keeps the slot and estimated end the describer's text was placed with, so
+ * no other cue moves (placing the shorter text let a later shot of full-length Sintel take a slot and moved five cues). 06-voice measures
+ * the shorter clip.
+ */
+export function withoutWithheld(cues: FitCue[], shots: readonly Pick<Described, 'index' | 'startMs' | 'endMs'>[], g: Glossary): FitCue[] {
+  if (!g.characters.some((c) => c.unnamedIn?.length)) return cues
+  return cues.map((c) => {
+    const s = shots.find((x) => x.index === c.shotIndex)
+    const text = withoutWithheldNames(c.text, g, Math.min(s?.startMs ?? c.startMs, c.startMs), Math.max(s?.endMs ?? c.startMs, c.startMs))
+    return text === c.text ? c : { ...c, text, wordCount: words(text) }
+  })
+}
 /** fit's scene inputs (DESC-029): the scene step's scenes (04c-scenes, scenes.json) and the title's glossary; scenePauses: false skips the scene pauses. */
 export interface FitOptions { scenes?: readonly Scene[]; glossary?: Glossary; scenePauses?: boolean }
 /** Scene pauses are at least this far apart: at most one per title-minute (Extended mode only, so the plain AD track is unchanged). */

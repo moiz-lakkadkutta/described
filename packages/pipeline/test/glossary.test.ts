@@ -85,13 +85,13 @@ describe('glossary (DESC-029)', () => {
     expect(nameEvidence('The young man in the leather jacket, Thom, aims a rifle.', 45_000, tos, [], [SNIPER])).toMatchObject({ unbound: ['Thom'] }) // the cue's own words do not bind
   })
   it('nameEvidence: glossary names once revealed, dialogue names once heard, premature and invented names reported', () => {
-    expect(nameEvidence('Emo blinks, turns his head.', 30_000, ED)).toEqual({ names: [{ name: 'Emo', source: 'glossary', revealedAtS: 25.1, evidence: expect.stringContaining('c3') }], premature: [], invented: [], unbound: [] })
+    expect(nameEvidence('Emo blinks, turns his head.', 30_000, ED)).toEqual({ names: [{ name: 'Emo', source: 'glossary', revealedAtS: 25.1, evidence: expect.stringContaining('c3') }], premature: [], invented: [], unbound: [], withheld: [] })
     expect(nameEvidence('Emo blinks.', 20_000, ED)).toMatchObject({ names: [], premature: ['Emo'] })
     expect(nameEvidence('The old man, Proog, points left.', 50_000, ED)).toMatchObject({ names: [], premature: ['Proog'] })
     expect(nameEvidence('The old man, Proog, points left.', 50_000, ED, [{ name: 'Proog', at: 45 }])).toMatchObject({ names: [{ name: 'Proog', source: 'dialogue', at: 45 }], premature: [] })
     expect(nameEvidence('A man named Jack waves.', 50_000, ED)).toMatchObject({ invented: ['Jack'] })
-    expect(nameEvidence('Words appear: "Dr Amstelwijk ROBOTICIST CREATES KILLER ROBOTS"', 41_000, tos)).toEqual({ names: [], premature: [], invented: [], unbound: [] }) // on-screen text is not checked
-    expect(nameEvidence('Cables around glowing panels. Two figures lie on platform.', 33_000, ED)).toEqual({ names: [], premature: [], invented: [], unbound: [] })
+    expect(nameEvidence('Words appear: "Dr Amstelwijk ROBOTICIST CREATES KILLER ROBOTS"', 41_000, tos)).toEqual({ names: [], premature: [], invented: [], unbound: [], withheld: [] }) // on-screen text is not checked
+    expect(nameEvidence('Cables around glowing panels. Two figures lie on platform.', 33_000, ED)).toEqual({ names: [], premature: [], invented: [], unbound: [], withheld: [] })
   })
   it('withoutName puts the short reference in place of a name, never inside on-screen text', () => {
     expect(withoutName('Emo blinks. The old man turns to Emo.', 'Emo', ED)).toBe('The thin young man blinks. The old man turns to the thin young man.')

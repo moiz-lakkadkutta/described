@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs'
 import { z } from 'zod'
-import { Glossary, nameRevealed, type Character, type Setting } from '@described/contracts'
+import { Glossary, nameRevealed, nameWithheld, type Character, type Setting } from '@described/contracts'
 import { contentWords, normalizeQuotes, stem } from './contentWords'
 import { textSpans } from './textClause'
 
-export { Glossary, nameRevealed, type Character, type Setting } from '@described/contracts'
+export { Glossary, nameRevealed, nameWithheld, type Character, type NameWindow, type Setting } from '@described/contracts'
 
 /**
  * A title's people and places (DESC-029, docs/decisions/0012-characters-and-scenes.md), as the pipeline uses them: the describe
@@ -60,10 +60,14 @@ export const isEmpty = (g: Glossary) => !g.characters.length && !g.settings.leng
 /** A character whose name is a proper name (capitalised: "Emo", "Big Buck Bunny"), not a label like "the sniper". */
 export const isProperName = (c: Pick<Character, 'name'>) => /^\p{Lu}/u.test(c.name)
 
-/** Names a cue or shot at `atMs` may use: the glossary's proper names revealed by then, and names heard in the dialogue (knownNames). */
-export function allowedNames(g: Glossary, atMs: number, spoken: readonly string[] = []): string[] {
-  const out = g.characters.filter((c) => isProperName(c) && nameRevealed(c, atMs)).map((c) => c.name)
-  for (const n of spoken) if (!out.includes(n)) out.push(n)
+/**
+ * Names a cue or shot at `atMs` (a shot: `atMs`–`endMs`) may use: the glossary's proper names revealed by then, and names heard in the
+ * dialogue (knownNames); never a name withheld there (a character's unnamedIn range), even one the dialogue has said.
+ */
+export function allowedNames(g: Glossary, atMs: number, spoken: readonly string[] = [], endMs = atMs): string[] {
+  const withheld = new Set(g.characters.filter((c) => nameWithheld(c, atMs, endMs)).map((c) => c.name))
+  const out = g.characters.filter((c) => isProperName(c) && nameRevealed(c, atMs) && !withheld.has(c.name)).map((c) => c.name)
+  for (const n of spoken) if (!out.includes(n) && !withheld.has(n)) out.push(n)
   return out
 }
 
@@ -81,6 +85,15 @@ export const shortOf = (c: Pick<Character, 'look'> & { short?: string }) => c.sh
 /** Nouns of a person or animal a description refers to someone by. Plural phrases ("two figures") are not one character. */
 export const KIND = new Set(['man', 'woman', 'girl', 'boy', 'figure', 'person', 'soldier', 'scientist', 'technician', 'llama', 'rabbit', 'bunny', 'bird', 'fox', 'creature', 'animal', 'sniper', 'dragon'])
 const GENERIC = new Set(['figure', 'person', 'creature', 'animal'])
+/**
+ * What a cue says in place of a name inside one of the character's unnamedIn ranges: "the" and the kind noun of the look ("the
+ * dragon"), not `short`. The range exists because another figure there matches the look ("the small tan dragon" was the horned
+ * dragon in the swoop), so the look words are as unsafe as the name; the kind noun is true of whichever figure it is.
+ */
+export const neutralOf = (c: Pick<Character, 'look'> & { short?: string }) => {
+  const kind = contentWords(c.look).find((w) => KIND.has(w))
+  return kind ? `the ${kind}` : shortOf(c)
+}
 const SAME_KIND: Record<string, string[]> = { woman: ['woman', 'girl'], girl: ['woman', 'girl'], man: ['man', 'boy', 'soldier', 'scientist', 'technician', 'sniper'], soldier: ['man', 'soldier', 'sniper'], rabbit: ['rabbit', 'bunny'], bunny: ['rabbit', 'bunny'] }
 const DETERMINERS = new Set(['a', 'an', 'the', 'another', 'other', 'same', 'one'])
 const PLURAL_COUNT = /^(?:two|three|four|several|many|some)$/
@@ -147,11 +160,13 @@ export function matchedCharacters(texts: readonly string[], g: Glossary): Set<st
  * Thom" only for a figure matching Thom's look, never for another man in a dark jacket. No roles (they are story, not what is seen).
  * Places by name and look. Phrased "when one of them is visible" so a listed look is not given to an unlisted extra. '' when empty.
  */
-export function peopleAndPlaces(g: Glossary, atMs: number): string {
+export function peopleAndPlaces(g: Glossary, atMs: number, endMs = atMs): string {
   if (isEmpty(g)) return ''
   const lines = ['People and places in this film. Use these words when one of them is visible; never give a listed look or name to anyone or anything else:']
   for (const c of g.characters) {
-    if (isProperName(c) && nameRevealed(c, atMs)) lines.push(`- ${c.look}: only if the person visible matches this look, call them ${c.name} (the first time: "${shortOf(c)}, ${c.name}"); never give this name to anyone else.`)
+    // unnamedIn (decision 0012, "Name windows"): the shot is in a range where this name is never used, so the name is not offered
+    if (isProperName(c) && nameWithheld(c, atMs, endMs)) lines.push(`- ${c.look} (not named in this shot: describe by what is visible, never by a name, even one the dialogue has said)`)
+    else if (isProperName(c) && nameRevealed(c, atMs)) lines.push(`- ${c.look}: only if the person visible matches this look, call them ${c.name} (the first time: "${shortOf(c)}, ${c.name}"); never give this name to anyone else.`)
     else lines.push(`- ${c.look} (not named yet: describe by this look, never by a name)`)
   }
   for (const s of g.settings) lines.push(`- Place: ${s.name}, ${s.look}`)
@@ -185,7 +200,11 @@ export function placeStems(text: string, extra: ReadonlySet<string> = new Set())
 
 /** Where a name in a cue comes from (edit.json evidence, like the SDH speaker evidence of #39 / decision 0008). */
 export type NameSource = { name: string; source: 'glossary'; revealedAtS: number; evidence: string } | { name: string; source: 'dialogue'; at: number }
-export interface NameCheck { names: NameSource[]; premature: string[]; invented: string[]; /** revealed glossary names whose character the shot descriptions do not show (binding) */ unbound: string[] }
+export interface NameCheck {
+  names: NameSource[]; premature: string[]; invented: string[]; /** revealed glossary names whose character the shot descriptions do not show (binding) */ unbound: string[]
+  /** glossary names inside one of their character's unnamedIn ranges at atMs: never used there, whatever the look, the describer or the dialogue */
+  withheld: string[]
+}
 /** Capitalised words that are not names in a description (sentence openers are skipped anyway; these appear mid-sentence). */
 const NOT_A_NAME = new Set(['I', 'TV', 'OK'])
 
@@ -196,9 +215,10 @@ const NOT_A_NAME = new Set(['I', 'TV', 'OK'])
  * On-screen text is never checked: "Words appear: SINTEL." shows the film's name, it does not name a figure.
  * Binding (`shots`: the descriptions of the cue's shots): a revealed glossary name counts only when those descriptions show that
  * character by look (matchedCharacters) or the cue itself does; otherwise it is `unbound` ("Thom" on the sniper's shot).
+ * A name inside one of its character's unnamedIn ranges at `atMs` is `withheld`, whatever the binding, the describer or the dialogue.
  */
 export function nameEvidence(text: string, atMs: number, g: Glossary, spoken: readonly { name: string; at: number }[] = [], shots?: readonly string[]): NameCheck {
-  const out: NameCheck = { names: [], premature: [], invented: [], unbound: [] }
+  const out: NameCheck = { names: [], premature: [], invented: [], unbound: [], withheld: [] }
   const shown = shots ? matchedCharacters(shots, g) : undefined // the shots' looks only: a cue's own added words never bind
   let plain = textSpans(text).reduceRight((t, s) => t.slice(0, s.start) + ' '.repeat(s.end - s.start) + t.slice(s.end), text)
   const said = (n: string) => spoken.find((s) => s.name === n)
@@ -207,6 +227,9 @@ export function nameEvidence(text: string, atMs: number, g: Glossary, spoken: re
     const re = new RegExp(`(?<![\\p{L}])${c.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}])`, 'gu')
     if (!re.test(plain)) continue
     plain = plain.replace(re, (m) => ' '.repeat(m.length))
+    // unnamedIn: withheld at this time, before any other evidence — the look match, the describer's own use of the name (the
+    // full-length Sintel swoop: "The small tan dragon, Scales, soars…" over the horned dragon) and the dialogue alike
+    if (nameWithheld(c, atMs)) { if (!out.withheld.includes(c.name)) out.withheld.push(c.name); continue }
     const heard = said(c.name)
     // Bound when the shots show the character by look, or when the describer itself wrote the name in one of the shot descriptions
     // (it saw the frames and the look-bound list); a name only fit or edit added must match the look. A name the dialogue has said by
@@ -230,19 +253,45 @@ export function nameEvidence(text: string, atMs: number, g: Glossary, spoken: re
   return out
 }
 
+/** Words that end a look phrase going back from its noun (a verb or a preposition before it): "sees the dragon", not "sees". */
+const APPOSITIVE_STOP = new Set(['and', 'with', 'of', 'in', 'on', 'at', 'to', 'from', 'by', 'as', 'while', 'then', 'near', 'toward', 'towards'])
 /**
  * Replaces a name the cue may not use with the character's short reference ("Emo blinks." → "The thin young man blinks."), or with
  * "someone" for a name that is in no glossary. Capitalised at a sentence start. Never inside on-screen text: "Words appear: Big Buck
  * Bunny." is quoted verbatim (decision 0008).
+ * `withheld` (a name inside its character's unnamedIn range): the neutral reference instead (neutralOf, "the dragon"), and a look
+ * phrase in apposition goes with the name — "The small tan dragon, Scales, soars" → "The dragon soars", never "The small tan dragon,
+ * the dragon, soars".
  */
-export function withoutName(text: string, name: string, g: Glossary): string {
+export function withoutName(text: string, name: string, g: Glossary, opts: { withheld?: boolean } = {}): string {
   const c = g.characters.find((x) => x.name === name)
-  const by = c ? shortOf(c) : 'someone'
-  const re = new RegExp(`(^|[.!?]\\s+|\\s|[("“])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}])`, 'gu')
+  const by = c ? (opts.withheld ? neutralOf(c) : shortOf(c)) : 'someone'
+  const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  // "<the|a|an> <up to three modifiers> <kind noun>, Name[,]": the appositive look phrase and the name become the one reference
+  const appositive = new RegExp(`((?:[\\p{L}'-]+\\s+){0,4}[\\p{L}'-]+),\\s+${esc}(?![\\p{L}])(,)?`, 'gu')
+  const merge = (piece: string) => (!opts.withheld ? piece : piece.replace(appositive, (m, before: string) => {
+    const ws = before.split(/\s+/u), noun = ws.at(-1)!.toLowerCase()
+    if (!KIND.has(noun)) return m
+    let k = ws.length - 2
+    while (k >= 0 && ws.length - 1 - k <= 4 && !/^(?:the|an?)$/iu.test(ws[k]!) && /^\p{Ll}[\p{Ll}'-]*$/u.test(ws[k]!) && !APPOSITIVE_STOP.has(ws[k]!)) k--
+    if (k < 0 || !/^(?:the|an?)$/iu.test(ws[k]!)) return m
+    const ref = /^\p{Lu}/u.test(ws[k]!) ? by[0]!.toUpperCase() + by.slice(1) : by
+    return [...ws.slice(0, k), ref].join(' ')
+  }))
+  const re = new RegExp(`(^|[.!?]\\s+|\\s|[("“])${esc}(?![\\p{L}])`, 'gu')
   const swap = (piece: string, opensSentence: boolean) => piece.replace(re, (_, pre: string, off: number) => pre + ((off === 0 && /^\s*$/u.test(pre) && opensSentence) || /[.!?]\s+$/u.test(pre) ? by[0]!.toUpperCase() + by.slice(1) : by))
   const spans = textSpans(text)
   const ends = (k: number) => /[.!?…]["'”’)\]]*\s*$/u.test(text.slice(0, k)) // the text before position k ends a sentence
   let out = '', at = 0
-  for (const sp of spans) { out += swap(text.slice(at, sp.start), at === 0 || ends(at)) + text.slice(sp.start, sp.end); at = sp.end }
-  return out + swap(text.slice(at), at === 0 || ends(at))
+  for (const sp of spans) { out += swap(merge(text.slice(at, sp.start)), at === 0 || ends(at)) + text.slice(sp.start, sp.end); at = sp.end }
+  return out + swap(merge(text.slice(at)), at === 0 || ends(at))
+}
+
+/**
+ * A text with every glossary name withheld anywhere in `atMs`–`endMs` (unnamedIn) replaced by its neutral reference (withoutName
+ * withheld): what fit and the edit pass read for a shot in such a range (05-fit groundedDescription), so a name the describer wrote
+ * there never reaches a cue and never binds one.
+ */
+export function withoutWithheldNames(text: string, g: Glossary, atMs: number, endMs = atMs): string {
+  return g.characters.filter((c) => isProperName(c) && nameWithheld(c, atMs, endMs)).reduce((t, c) => withoutName(t, c.name, g, { withheld: true }), text)
 }

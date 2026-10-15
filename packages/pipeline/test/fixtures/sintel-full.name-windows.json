@@ -1,0 +1,536 @@
+{
+ "_source": "packages/pipeline/work/sintel (full-length Sintel, DESC-036 run 2026-10-15): described.json shots 60-80, 119-128, 166-170 and the cues.fit.json cues of those shots; published = cues.json text of the five cues that say Scales; words = the dialogue words naming Scales (words.json)",
+ "shots": [
+  {
+   "index": 60,
+   "startMs": 273250,
+   "endMs": 275625,
+   "description": "The small tan dragon, Scales, balances on a wooden beam.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 61,
+   "startMs": 275625,
+   "endMs": 278833,
+   "description": "A young woman with short red hair is visible.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 62,
+   "startMs": 278833,
+   "endMs": 283500,
+   "description": "The small tan dragon, Scales, perches on a wooden beam, watching birds fly across the sky.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 63,
+   "startMs": 283500,
+   "endMs": 287542,
+   "description": "A young woman with short red hair runs up stone steps.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 64,
+   "startMs": 287542,
+   "endMs": 289375,
+   "description": "A young woman with short red hair looks down at a ruined town.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 65,
+   "startMs": 289375,
+   "endMs": 297250,
+   "description": "A young woman with short red hair runs across a ruined stone fortress at sunset as red-winged creatures fly overhead.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 66,
+   "startMs": 297250,
+   "endMs": 302750,
+   "description": "A young woman with short red hair stands on a rocky ledge, shielding her eyes from the setting sun.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 67,
+   "startMs": 302750,
+   "endMs": 306333,
+   "description": "A young woman with short red hair runs across rooftops at sunset.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 68,
+   "startMs": 306333,
+   "endMs": 308917,
+   "description": "A young woman with short red hair stands before a brick ruin at sunset, her hands clasped, then raised, then mouth open in surprise.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 69,
+   "startMs": 308917,
+   "endMs": 312625,
+   "description": "A young woman with short red hair smiles.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 70,
+   "startMs": 312625,
+   "endMs": 315583,
+   "description": "A young woman with short red hair looks up as dragons fly past at sunset.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 71,
+   "startMs": 315583,
+   "endMs": 319000,
+   "description": "The small tan dragon, Scales, flies near a huge tan-brown dragon.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 72,
+   "startMs": 319000,
+   "endMs": 323708,
+   "description": "The small tan dragon, Scales, soars through pink clouds toward a ruined town where a young woman stands.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 73,
+   "startMs": 323708,
+   "endMs": 326167,
+   "description": "A young woman with short red hair reaches toward a small tan dragon flying away at sunset.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 74,
+   "startMs": 326167,
+   "endMs": 328167,
+   "description": "A young woman with short red hair stares wide-eyed, mouth open, against a dusky sky.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 75,
+   "startMs": 328167,
+   "endMs": 330375,
+   "description": "The small tan dragon, Scales, flies toward a reaching hand.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 76,
+   "startMs": 330375,
+   "endMs": 332833,
+   "description": "A young woman with short red hair gasps as a creature lifts her into the air.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 77,
+   "startMs": 332833,
+   "endMs": 335333,
+   "description": "A young woman with red hair lies prone as a huge dragon looms overhead, then leaps away over broken stone under a dusky sky.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 78,
+   "startMs": 335333,
+   "endMs": 337458,
+   "description": "A huge dragon soars over ruins at sunset.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 79,
+   "startMs": 337458,
+   "endMs": 339333,
+   "description": "A young woman with short red hair stands amid ruins, eyes wide, mouth open.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 80,
+   "startMs": 339333,
+   "endMs": 342292,
+   "description": "A young woman with short red hair stands on a ruined rooftop at sunset, watching a creature fly toward a distant tower.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 119,
+   "startMs": 516458,
+   "endMs": 523417,
+   "description": "The red-haired young woman, Sintel, runs across a massive root bridge in a dark cave.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 120,
+   "startMs": 523417,
+   "endMs": 526583,
+   "description": "The red-haired young woman, Sintel, leaps down a dark cave with her staff.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 121,
+   "startMs": 526583,
+   "endMs": 533625,
+   "description": "The red-haired young woman, Sintel, walks toward a small pale dragon curled up asleep in the dark cave.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 122,
+   "startMs": 533625,
+   "endMs": 536333,
+   "description": "The red-haired young woman, Sintel, crouches in dim cave light.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 123,
+   "startMs": 536333,
+   "endMs": 539333,
+   "description": "The small pale dragon stirs, opens its eyes, and lifts its head.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 124,
+   "startMs": 539333,
+   "endMs": 541083,
+   "description": "The red-haired young woman, Sintel, stares wide-eyed in dim cave.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 125,
+   "startMs": 541083,
+   "endMs": 543625,
+   "description": "Sintel stabs the dragon. Fire erupts from its chest. She walks toward the cave mouth.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 126,
+   "startMs": 543625,
+   "endMs": 547083,
+   "description": "The red-haired young woman, Sintel, climbs a dark cave wall, gripping a sword.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 127,
+   "startMs": 547083,
+   "endMs": 549125,
+   "description": "The small tan dragon, Scales, walks across the cave floor.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 128,
+   "startMs": 549125,
+   "endMs": 554958,
+   "description": "The red-haired young woman, Sintel, touches glowing crystals on a cave wall. She turns, wielding a large blade. A huge dark grey dragon lunges. She dodges, swings her blade at its wing. The dragon rears back, roaring.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 166,
+   "startMs": 710750,
+   "endMs": 717417,
+   "description": "The red-haired young woman, Sintel, stands on a rocky slope, gazing at distant snow-capped mountains under a hazy sky.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 167,
+   "startMs": 717417,
+   "endMs": 724083,
+   "description": "Sintel walks away from the camera toward the misty mountains, white flowers nearby.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 168,
+   "startMs": 724083,
+   "endMs": 730750,
+   "description": "Sintel continues walking away, her figure shrinking against the vast, hazy mountains, white flowers nearby.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 169,
+   "startMs": 730750,
+   "endMs": 737416,
+   "description": "The small tan dragon, Scales, lies on the rocky ground, its wing bleeding, as Sintel walks farther away.",
+   "sameAsPrev": false
+  },
+  {
+   "index": 170,
+   "startMs": 737416,
+   "endMs": 744083,
+   "description": "Scales lies still on the rocky ground as Sintel walks farther away into the hazy distance.",
+   "sameAsPrev": false
+  }
+ ],
+ "fitCues": [
+  {
+   "startMs": 279370,
+   "endMs": 283195,
+   "text": "A young woman with short red hair is visible.",
+   "extended": false,
+   "wordCount": 9,
+   "shotIndex": 61,
+   "limitMs": 308000
+  },
+  {
+   "startMs": 283345,
+   "endMs": 289795,
+   "text": "The small tan dragon, Scales, perches on a wooden beam, watching birds fly across the sky.",
+   "extended": false,
+   "wordCount": 16,
+   "shotIndex": 62,
+   "limitMs": 308000
+  },
+  {
+   "startMs": 289795,
+   "endMs": 289895,
+   "text": "A young woman with short red hair runs up stone steps.",
+   "extended": true,
+   "wordCount": 11,
+   "shotIndex": 63,
+   "event": true
+  },
+  {
+   "startMs": 289945,
+   "endMs": 295270,
+   "text": "A young woman with short red hair looks down at a ruined town.",
+   "extended": false,
+   "wordCount": 13,
+   "shotIndex": 64,
+   "limitMs": 308000
+  },
+  {
+   "startMs": 295420,
+   "endMs": 303370,
+   "text": "A young woman with short red hair runs across a ruined stone fortress at sunset as red-winged creatures fly overhead.",
+   "extended": false,
+   "wordCount": 20,
+   "shotIndex": 65,
+   "limitMs": 308000
+  },
+  {
+   "startMs": 303520,
+   "endMs": 306595,
+   "text": "A woman stands on a rocky ledge.",
+   "extended": false,
+   "wordCount": 7,
+   "shotIndex": 66,
+   "limitMs": 308000
+  },
+  {
+   "startMs": 309300,
+   "endMs": 312750,
+   "text": "A young woman with short red hair smiles.",
+   "extended": false,
+   "wordCount": 8,
+   "shotIndex": 69,
+   "limitMs": 313850
+  },
+  {
+   "startMs": 316050,
+   "endMs": 322125,
+   "text": "A young woman with short red hair looks up as dragons fly past at sunset.",
+   "extended": false,
+   "wordCount": 15,
+   "shotIndex": 70,
+   "limitMs": 335000
+  },
+  {
+   "startMs": 322275,
+   "endMs": 329475,
+   "text": "The small tan dragon, Scales, soars through pink clouds toward a ruined town where a young woman stands.",
+   "extended": false,
+   "wordCount": 18,
+   "shotIndex": 72,
+   "limitMs": 335000
+  },
+  {
+   "startMs": 329625,
+   "endMs": 333825,
+   "text": "The small tan dragon, Scales, flies toward a reaching hand.",
+   "extended": false,
+   "wordCount": 10,
+   "shotIndex": 75,
+   "limitMs": 335000
+  },
+  {
+   "startMs": 333825,
+   "endMs": 333925,
+   "text": "A young woman with red hair lies prone as a huge dragon looms overhead, then leaps away over broken stone under a dusky sky.",
+   "extended": true,
+   "wordCount": 24,
+   "shotIndex": 77,
+   "event": true
+  },
+  {
+   "startMs": 338909,
+   "endMs": 344609,
+   "text": "A young woman with short red hair stands amid ruins, eyes wide, mouth open.",
+   "extended": false,
+   "wordCount": 14,
+   "shotIndex": 79,
+   "limitMs": 387050
+  },
+  {
+   "startMs": 344609,
+   "endMs": 344709,
+   "text": "A young woman with short red hair stands on a ruined rooftop at sunset, watching a creature fly toward a distant tower.",
+   "extended": true,
+   "wordCount": 22,
+   "shotIndex": 80
+  },
+  {
+   "startMs": 520800,
+   "endMs": 526875,
+   "text": "The red-haired young woman, Sintel, runs across a massive root bridge in a dark cave.",
+   "extended": false,
+   "wordCount": 15,
+   "shotIndex": 119,
+   "limitMs": 538100
+  },
+  {
+   "startMs": 527025,
+   "endMs": 532350,
+   "text": "The red-haired young woman, Sintel, leaps down a dark cave with her staff.",
+   "extended": false,
+   "wordCount": 13,
+   "shotIndex": 120,
+   "limitMs": 538100
+  },
+  {
+   "startMs": 532500,
+   "endMs": 534825,
+   "text": "Sintel walks toward a dragon.",
+   "extended": false,
+   "wordCount": 5,
+   "shotIndex": 121,
+   "limitMs": 538100
+  },
+  {
+   "startMs": 534975,
+   "endMs": 537300,
+   "text": "Sintel crouches in dim light.",
+   "extended": false,
+   "wordCount": 5,
+   "shotIndex": 122,
+   "limitMs": 538100
+  },
+  {
+   "startMs": 540100,
+   "endMs": 541675,
+   "text": "Sintel stares wide-eyed.",
+   "extended": false,
+   "wordCount": 3,
+   "shotIndex": 124,
+   "limitMs": 541750
+  },
+  {
+   "startMs": 546250,
+   "endMs": 549700,
+   "text": "Sintel climbs a cave wall, gripping a sword.",
+   "extended": false,
+   "wordCount": 8,
+   "shotIndex": 126,
+   "limitMs": 550150
+  },
+  {
+   "startMs": 549700,
+   "endMs": 549800,
+   "text": "The red-haired woman, Sintel, touches glowing crystals on a cave wall. She turns, wielding a blade. A dark grey dragon lunges. She dodges.",
+   "extended": true,
+   "wordCount": 23,
+   "shotIndex": 128,
+   "event": true
+  },
+  {
+   "startMs": 711574,
+   "endMs": 717649,
+   "text": "The red-haired young woman, Sintel, stands on a rocky slope, gazing under a hazy sky.",
+   "extended": false,
+   "wordCount": 15,
+   "shotIndex": 166,
+   "limitMs": 748650
+  },
+  {
+   "startMs": 717799,
+   "endMs": 723124,
+   "text": "Sintel walks away from the camera toward the misty mountains, white flowers nearby.",
+   "extended": false,
+   "wordCount": 13,
+   "shotIndex": 167,
+   "limitMs": 748650
+  },
+  {
+   "startMs": 724083,
+   "endMs": 730158,
+   "text": "Sintel continues walking away, her figure shrinking against the vast, hazy mountains, white flowers nearby.",
+   "extended": false,
+   "wordCount": 15,
+   "shotIndex": 168,
+   "limitMs": 748650
+  },
+  {
+   "startMs": 730750,
+   "endMs": 737950,
+   "text": "The small tan dragon, Scales, lies on the rocky ground, its wing bleeding, as Sintel walks farther away.",
+   "extended": false,
+   "wordCount": 18,
+   "shotIndex": 169,
+   "limitMs": 748650
+  },
+  {
+   "startMs": 738100,
+   "endMs": 746425,
+   "text": "Back in the snowy mountains, Scales lies still on the rocky ground as Sintel walks farther away into the hazy distance.",
+   "extended": false,
+   "wordCount": 21,
+   "shotIndex": 170,
+   "limitMs": 748650
+  }
+ ],
+ "published": [
+  {
+   "startMs": 283345,
+   "shotIndex": 62,
+   "text": "The tan dragon, Scales, perches on a beam."
+  },
+  {
+   "startMs": 322275,
+   "shotIndex": 72,
+   "text": "The small tan dragon, Scales, soars through pink clouds toward a ruined town where a young woman stands."
+  },
+  {
+   "startMs": 329625,
+   "shotIndex": 75,
+   "text": "The small tan dragon, Scales, flies toward a reaching hand."
+  },
+  {
+   "startMs": 730750,
+   "shotIndex": 169,
+   "text": "The small tan dragon, Scales, lies on the rocky ground, its wing bleeding, as Sintel walks farther away."
+  },
+  {
+   "startMs": 738100,
+   "shotIndex": 170,
+   "text": "Back in the snowy mountains, Scales lies still on the rocky ground as Sintel walks farther away into the hazy distance."
+  }
+ ],
+ "words": [
+  {
+   "start": 250.46,
+   "end": 250.86,
+   "text": "Scales,",
+   "speaker": "spk_0"
+  },
+  {
+   "start": 264.79,
+   "end": 265.589,
+   "text": "Scales.",
+   "speaker": "spk_0"
+  },
+  {
+   "start": 621.25,
+   "end": 622.109,
+   "text": "Scales.",
+   "speaker": "spk_0"
+  },
+  {
+   "start": 625.58,
+   "end": 626.419,
+   "text": "Scales.",
+   "speaker": "spk_0"
+  }
+ ]
+}

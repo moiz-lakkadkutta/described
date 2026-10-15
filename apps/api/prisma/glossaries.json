@@ -24,7 +24,12 @@
         "short": "the small tan dragon",
         "role": "the baby dragon she finds wounded on a rooftop and nurses back to health",
         "revealedAtS": 228.3,
-        "nameEvidence": "Official subtitles (sintel_en.srt, cue 15, 00:03:48,250): she says \"Good night, Scales.\" to the small dragon at film 3:48.3, the first time the name is said (speech at 227.8–228.8 s on the 1080p centre channel); then \"Get him, Scales! Come on!\" at 4:10.4."
+        "nameEvidence": "Official subtitles (sintel_en.srt, cue 15, 00:03:48,250): she says \"Good night, Scales.\" to the small dragon at film 3:48.3, the first time the name is said (speech at 227.8–228.8 s on the 1080p centre channel); then \"Get him, Scales! Come on!\" at 4:10.4.",
+        "unnamedIn": [
+          { "fromS": 315, "toS": 331, "reason": "The horned dragon's swoop at sunset (film 5:15–5:31, shots 71–75): the grown horned dragon dives through the clouds over the ruins and seizes the small dragon above her reaching hand. Both are tan dragons, so the look cannot tell them apart; the describer called the horned dragon \"the small tan dragon, Scales\" (shot 72, voiced 5:22.3) and the clutched pair \"Scales\" (shot 75, voiced 5:29.6)." },
+          { "fromS": 483.7, "toS": 684.4, "reason": "The cave (film 8:04–11:24, from its mouth to the ledge): the only dragons there are the baby dragon in the lair (8:46–9:09; shot 127 at 9:07.1 was described as \"The small tan dragon, Scales\") and the grey dragon she calls \"Scales?\" (10:21.6) and \"Scales...\" (10:26.2), both labels under decision 0012." },
+          { "fromS": 724, "toS": 745, "reason": "The ending (film 12:04–12:25, shots 168–170, up to the credits): the baby dragon from the lair lies on the rocks behind her as she walks away; described as \"The small tan dragon, Scales\" (voiced 12:10.8) and \"Scales\" (voiced 12:18.1)." }
+        ]
       },
       {
         "name": "the bald man",

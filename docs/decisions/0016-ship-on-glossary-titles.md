@@ -60,6 +60,9 @@ improvement" still read as before. A later run that passes the held-out clip mak
   seconds. A `pnpm describe --start …` run restarts times at 0 (`packages/pipeline/src/own.ts` `clipSeconds` / `cutArgs`), so it
   would reveal names early; such a run needs times offset by its start, or offset handling in the loader (no code change yet).
 
+- **Scales on unnamed dragons (full-length `sintel`)**: four published cues name the horned dragon (5:22.3, 5:29.6) and the baby
+  dragon (12:10.8, 12:18.1) Scales. Fixed by name windows (`unnamedIn`, decision 0012 amendment "Name windows"); the published title
+  changes only after a `--from edit` re-run of `sintel` on the machine that has its work dir.
 - **`score.ts` plot-event range parse**: "Shots 7–8" is read as shot 7 only, so g12's shot 8 counted once; read by hand Sintel g12
   lost 6 plot events, not 5. Parse ranges in the plot-events column.
 - **Shot-16 skip consistency**: `tos-390-510` shot 16 was same-as-previous (skipped) in g10 / g11 and rated in g12, which moved the

@@ -41,9 +41,10 @@ export async function describeShots(ctx: Ctx, send: Converse = bedrockConverse(c
   const verified = newVerifyReport(verifyModelId(modelId)) // DESC-027: each reply checked against its own frames (04b-verify)
   const glossary = glossaryFor(ctx) // DESC-029: "People and places in this film" (../glossary)
   const replies = await describeInParts(shots, describeConcurrency(), async (s, said) => {
-    // DESC-029: the title glossary's revealed names join the dialogue's, so verify (guard 3) keeps them too
-    const maxWords = wordBudget(s, gaps), names = allowedNames(glossary, s.startMs, knownNames(words, s.startMs, ctx.language))
-    const system = describeSystemPrompt({ maxWords, knownNames: names, language: ctx.language, people: peopleAndPlaces(glossary, s.startMs) })
+    // DESC-029: the title glossary's revealed names join the dialogue's, so verify (guard 3) keeps them too; a name withheld anywhere
+    // in the shot (unnamedIn, decision 0012 "Name windows") is neither offered nor kept, even one the dialogue has said
+    const maxWords = wordBudget(s, gaps), names = allowedNames(glossary, s.startMs, knownNames(words, s.startMs, ctx.language), s.endMs)
+    const system = describeSystemPrompt({ maxWords, knownNames: names, language: ctx.language, people: peopleAndPlaces(glossary, s.startMs, s.endMs) })
     return describeAndVerify(ctx.work, modelId, system, await keyframes(ctx.work, s, videoMs), send, said, verified, { index: s.index, language: ctx.language, maxWords, names })
   }, ctx.signal)
   await writeVerifyReport(ctx.work, verified)
