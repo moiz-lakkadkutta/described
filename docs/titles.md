@@ -55,6 +55,70 @@ master's CHARACTERISTICS for Rich captions), not from the API's Rendition and Te
 Title screen's sample cue and Extended badge come from those rows too. So Sintel without rows still played with captions and
 AD, but had no Extended mode pauses, no sample cue and an empty `tracks` in `GET /titles/:slug`.
 
+## Published state, 2026-10-15
+
+What is live now for the six published titles. Checked read-only against the local API (`GET /catalog`, `GET /titles/<slug>`),
+the local database (Title, DescriptionCue and TextTrack rows), the run logs and the work dirs. The sections below this one are the
+history; where they disagree with this table, this table is current.
+
+| Title | Version live | Description cues (extended) | Text tracks (cues) | Badges |
+|---|---|---|---|---|
+| sintel-90-150-r2 | 2026-10-14, restored | 11 (2) | Captions 11, Rich captions 12, Description text 11 | `ad sdh extended` |
+| tears-of-steel-40-100 | 2026-10-14, restored | 15 (5) | Captions 4, Description text 15 | `ad extended` |
+| big-buck-bunny-0-60 | 2026-10-15 re-run | 9 (0) | Captions 1, Description text 9 | `ad` |
+| elephants-dream-0-60 | 2026-10-15 re-run | 6 (0) | Captions 12, Description text 6 | `ad` |
+| caminandes-35-95 | 2026-10-15 re-run after #68 | 12 (1) | Description text 12 (no speech, so no Captions) | `ad extended` |
+| sintel (full length) | DESC-025 run, 2026-10-15 | 127 (17) | Captions 37, Description text 127 | `ad extended` |
+
+**The 2026-10-15 re-run.** The five 60 s titles were re-run from describe with the DESC-029 glossary and scene build-up and with
+#61 (complete sentences). On Sintel and Tears of Steel the result was worse than what it replaced, so both were restored.
+
+**sintel-90-150-r2 and tears-of-steel-40-100: restored.** Both were republished from their backed-up 2026-10-14 work dirs with
+`--from publish`, so no model was called ($0). Their DescriptionCue rows now match the 2026-10-14 backup exactly (all 26 rows: times,
+text, extended flag and clip key). Why they were restored:
+- The re-run lost plot events. Sintel went from 11 cues to 8: the "SINTEL" title card, the broth pour and the girl taking the bowl
+  were gone (the bowl is now "A woman kneels with a bowl."). Tears of Steel went from 15 cues to 11: the bridge scene that opens the segment was gone, and the headline name read
+  "Dr Amstelveldt".
+- The re-run lost Sintel's Rich captions. Nova Lite answered with sights tagged as sounds ("[fire pit] glows", "[staff] holds",
+  "[bowl] kneels"). The evidence rules rejected all five, so `sdh.json` was `{"degraded":true}` and the track was left out.
+
+**big-buck-bunny-0-60 and elephants-dream-0-60: on the re-run.** Known issues:
+- Big Buck Bunny: three cues in a row open with "The meadow" (5.5 s, 10.9 s, 16.4 s). The last cue drops its articles: "Huge,
+  round grey rabbit stretches, yawns, lifts head."
+- Elephants Dream (7 cues before, 6 now): Proog's run across the chamber is only "The man runs." (27.0 s). Emo waking up (shot
+  50.0–55.0 s) is lost, so Emo is never named. Verify did **not** drop the name. Verify tried to remove "Emo", but a guard kept the
+  draft ("name dropped: Emo"). Fit then dropped the cue: its shortening was rejected (a sentence with no verb, "The man, Emo."), and
+  the 18-word line did not fit the 3.0 s gap at 49.0–51.9 s. The edit pass also rejected two edits that named Proog (not revealed
+  inside the segment).
+- Their earlier versions cannot be restored. No work dirs were kept, the S3 objects were overwritten, and the bucket has no
+  versioning.
+
+**caminandes-35-95: re-run after #68** (Koro's glossary look corrected to an orange llama; there is no fox). It went from 13 cues
+to 12, and the 41–52 s cues now say "orange" instead of "tan-and-white". Known issues:
+- "Creature" in 3 cues: "The orange creature with ginger fur …" at 41.9 s and 48.5 s, and the extended cue "Creature leaps
+  through electric fence at night." (58.5 s, the sample cue), which also drops its articles.
+- "High plain" in 6 of 12 cues.
+- Two cues land after their shots end: "An orange llama blinks slowly" (shot 1.7–5.7 s, voiced at 5.9 s, during the gate shot)
+  and "… leaps over a fence, then sits, then walks away" (shot 12.3–18.6 s, voiced at 18.6 s).
+- The gate shot (5.7–7.5 s, "The high plain with a metal gate.") and the blue flash where Koro vanishes are not voiced.
+- `eval-context` reports "Earth" (53.9 s, "… as the moon moves near Earth.") as an invented name, because it is capitalised and
+  not in the glossary. It is a planet, not a person.
+
+**sintel (full length).** Published by another session (DESC-025 run, $1.1043). The glossary comes from
+`apps/api/prisma/glossaries.json`. Rich captions were left out: Nova Lite answered the SDH window with `ModelErrorException`
+twice, so only plain Captions are offered. Known issue: Scales is named on the wrong dragons in **4** cues: 5:22.3 and 5:29.6
+(the horned dragon's swoop) and 12:10.8 and 12:18.1 (the baby dragon in the lair). The DESC-036 notes below list three; the
+5:29.6 cue is "The small tan dragon, Scales, flies toward a reaching hand." A fix is in progress.
+
+**Cost.** The 2026-10-15 re-run cost $0.3366 for the five titles (Big Buck Bunny $0.0760, Elephants Dream $0.0733, Sintel $0.0480,
+Tears of Steel $0.0543, Caminandes $0.0850). The Caminandes re-run after #68 cost $0.0582 more. That makes **$0.3948** against
+the approved $0.50 cap. The two restores cost $0. The full-length Sintel run is counted separately (DESC-036, below).
+
+**S3 leftovers.** The re-run's cue MP3s that no row names are still in S3: 8 under `published/sintel-90-150-r2/cues/` and 10
+under `published/tears-of-steel-40-100/cues/`. Each folder also holds 15 older unnamed clips. Those are the older stale objects
+listed below (previous runs' `cue_*.<hash>.mp3` and Tears of Steel `descriptions/16.vtt`), and other folders have stale objects
+too. Nothing points at them, so no player requests them.
+
 ## Measured cost per title (2026-10-14)
 
 From the CLI meter (`src/cost.ts` list prices, unverified — each still marked `TODO(price): verify`), printed per step by the CLI.
