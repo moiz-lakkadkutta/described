@@ -7,6 +7,7 @@ import * as ec2 from 'aws-cdk-lib/aws-ec2'
 import * as lambda from 'aws-cdk-lib/aws-lambda'
 import * as logs from 'aws-cdk-lib/aws-logs'
 import * as rds from 'aws-cdk-lib/aws-rds'
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager'
 import * as sns from 'aws-cdk-lib/aws-sns'
 import * as subs from 'aws-cdk-lib/aws-sns-subscriptions'
 import type { Construct } from 'constructs'
@@ -51,8 +52,20 @@ export class ViewerStack extends Stack {
     const dbSg = new ec2.SecurityGroup(this, 'DbSg', { vpc, description: 'Described hosted database', allowAllOutbound: false })
     dbSg.addIngressRule(fnSg, ec2.Port.tcp(5432), 'PostgreSQL from the API function only')
 
-    // Letters and digits only, so the password sits in a connection URL without escaping.
-    const credentials = rds.Credentials.fromGeneratedSecret('described', { excludeCharacters: ' !"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~' })
+    // Letters and digits only, so the password sits in a connection URL without escaping. ExcludePunctuation, not an
+    // ExcludeCharacters list of every punctuation mark: RequireEachIncludedType defaults to true, so excluding all of a
+    // type by list fails at deploy ("All characters of the desired type have been excluded"). DatabaseInstance attaches
+    // the secret (SecretTargetAttachment), so db.secret still carries host and port.
+    // https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_GetRandomPassword.html (ExcludePunctuation, RequireEachIncludedType)
+    // https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-properties-secretsmanager-secret-generatesecretstring.html
+    const dbSecret = new secretsmanager.Secret(this, 'DbSecret', {
+      description: 'Described hosted database: master user',
+      generateSecretString: {
+        secretStringTemplate: JSON.stringify({ username: 'described' }), generateStringKey: 'password',
+        excludePunctuation: true, includeSpace: false, passwordLength: 32,
+      },
+    })
+    const credentials = rds.Credentials.fromSecret(dbSecret)
     const db = new rds.DatabaseInstance(this, 'Db', {
       engine: rds.DatabaseInstanceEngine.postgres({ version: rds.PostgresEngineVersion.VER_17 }),
       instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.MICRO),
