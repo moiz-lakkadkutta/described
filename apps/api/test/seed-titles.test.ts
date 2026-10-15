@@ -1,3 +1,6 @@
+import { readFile } from 'node:fs/promises'
+import { z } from 'zod'
+import { Glossary } from '@described/contracts'
 import { TITLES_FILE, TitleSeed, loadTitles, seedTitles, titleUpsert } from '../prisma/seed-titles'
 
 const sintel: TitleSeed = {
@@ -71,5 +74,33 @@ describe('seedTitles', () => {
     upsert.mockClear()
     await expect(seedTitles({ title: { upsert } }, [sintel, sintel], 'eu-central-1')).rejects.toThrow(/appears twice/)
     expect(upsert).not.toHaveBeenCalled()
+  })
+})
+
+// Glossaries of titles the seeder must not create (decision 0016): full-length `sintel` gets its Title row from `pnpm describe --slug
+// sintel` (DESC-025), which refuses an existing slug; the pipeline reads its people and places from prisma/glossaries.json.
+describe('prisma/glossaries.json (glossary-only titles, not seeded)', () => {
+  const GLOSSARIES_FILE = new URL('../prisma/glossaries.json', import.meta.url)
+  const load = async () => z.array(z.object({ slug: z.string().regex(/^[a-z0-9-]{1,64}$/) }).merge(Glossary).strict()).parse(JSON.parse(await readFile(GLOSSARIES_FILE, 'utf8')))
+  it('has the full-length sintel glossary, each name with its evidence and a film time', async () => {
+    const entries = await load()
+    const sintelFull = entries.find((e) => e.slug === 'sintel')!
+    expect(sintelFull.characters.length).toBeGreaterThan(0)
+    expect(sintelFull.settings.length).toBeGreaterThan(0)
+    for (const c of sintelFull.characters) {
+      expect(c.nameEvidence.length, c.name).toBeGreaterThan(10)
+      if (c.revealedAtS !== null) expect(c.nameEvidence, c.name).toMatch(/\d/)
+      expect(c.look, c.name).not.toContain(c.name)
+    }
+    for (const s of sintelFull.settings) if (s.firstAtS !== undefined) expect(s.firstAtS).toBeLessThan(888) // the film is 14:48
+  })
+  it('lists no title that titles.json has, and seeding creates no row for its slugs', async () => {
+    const [entries, titles] = await Promise.all([load(), loadTitles(TITLES_FILE)])
+    const seeded = titles.map((t) => t.slug)
+    for (const e of entries) expect(seeded, e.slug).not.toContain(e.slug)
+    const upsert = vi.fn<(args: ReturnType<typeof titleUpsert>) => Promise<unknown>>(async () => ({}))
+    await seedTitles({ title: { upsert } }, titles, 'eu-central-1')
+    expect(upsert.mock.calls.map(([a]) => a.where.slug)).not.toContain('sintel')
+    expect(upsert).toHaveBeenCalledTimes(titles.length)
   })
 })
