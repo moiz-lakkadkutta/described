@@ -181,11 +181,11 @@ describe('2. a scene label is a place, never a light or condition word', () => {
 
 /**
  * fit's cues voiced with the recorded clip lengths (the run's cue_N.json sidecars: text → duration, speech); a text the run did not voice
- * gets 300 ms a word + 300 ms. Polly is faked (the clip's bytes are its text). No AWS call.
+ * gets 282 ms a word + 781 ms (a line fitted to the 48 recorded clips of both runs). Polly is faked (the clip's bytes are its text). No AWS call.
  */
 async function voiceRun(name: string, x: Run, cues: FitCue[]): Promise<FitCue[]> {
   const clips = new Map(fixture<{ text: string; durationMs: number; speechMs?: number }[]>(`${name}.clips.json`).map((c) => [c.text, c]))
-  const est = (t: string) => t.split(/\s+/).length * 300 + 300
+  const est = (t: string) => t.split(/\s+/).length * 282 + 781
   const work = await mkdtemp(join(tmpdir(), 'replay-'))
   try {
     await writeFile(`${work}/shots.json`, JSON.stringify(x.shots.map((s) => ({ index: s.index, startMs: s.startMs, endMs: s.endMs }))))
