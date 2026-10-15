@@ -1,6 +1,6 @@
 # 0010 — Visual verify pass after describe
 
-Status: accepted 2026-10-14 (human chose this after the Gate C re-run failed) — on by default; **to be evaluated** on sintel-90-210
+Status: accepted 2026-10-14 (human chose this after the Gate C re-run failed); amended by 0013 (2026-10-15: text clauses are checked, kept verbatim or replaced by "Words appear.") — on by default; **to be evaluated** on sintel-90-210
 Ticket: DESC-027 · Follows: 0003 (Gate C), 0005 (direct Converse calls, cost rule), 0006 (edit pass guards), 0008 (on-screen text)
 
 ## Problem
@@ -44,7 +44,8 @@ chose for the edit pass's repeat guard (#44): **exact words, only a tiny allow-l
 (`tokens`): the description without its on-screen text clauses, lower-cased, cut into words — no shared stop list, no stemming.
 So "Words appear: DRAGON." never licenses "a dragon sign", "pours" ≠ "pouring", "fires" ≠ "fire", "attacked" ≠ "attacks".
 1. empty after `parseDescription`'s cleaning (quotes, a SAME reply);
-2. on-screen text changed — the text clauses (`src/textClause.ts`) must equal the draft's, in order;
+2. on-screen text changed — the text clauses (`src/textClause.ts`) must equal the draft's, in order (since 0013: or a quoted clause
+   replaced whole by "Words appear." / "Text erscheint.", never by a corrected quote);
 3. name dropped — a known name (`knownNames` for the shot) that the draft said is missing;
 4. negation or protected word dropped — fewer of any negation word than the draft (not, n't, no, never, nobody, nothing, none,
    cannot, without; nicht, nie, niemand, nichts, ohne, kein…): "does not hold" → "holds", "No one is in the room" → "One is …",
@@ -71,8 +72,8 @@ So "Words appear: DRAGON." never licenses "a dragon sign", "pours" ≠ "pouring"
    sentence), within the shot's describe word budget (`wordBudget`, passed from `describeShots`) — but never below the draft's own
    length, so a draft that already ran over its budget can still be cut down.
 
-The pass can only **delete**, **generalise** one word in place, or **add linking words**. Not called for SAME, empty or
-on-screen-text-only drafts. The checked text replaces the reply before `dedupe`, so a later part of a split shot is told what the
+The pass can only **delete**, **generalise** one word in place, or **add linking words**. Not called for SAME or empty
+drafts (since 0013, on-screen-text-only drafts are checked). The checked text replaces the reply before `dedupe`, so a later part of a split shot is told what the
 checked earlier part said (`describeAndVerify`, tested).
 
 **What exact matching now rejects among the g9 fixes.** One of the eleven g9 corrections in the tests had to change:

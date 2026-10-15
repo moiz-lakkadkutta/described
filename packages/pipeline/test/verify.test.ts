@@ -285,10 +285,10 @@ describe('verifyReply', () => {
     expect(report.shots.map((s) => [s.index, s.applied, s.reason])).toEqual([[24, false, 'new words: dragon'], [7, false, 'unreadable reply']])
     expect(report.shots[0]).toMatchObject({ text: G9.bat, reply: 'Woman kneels beside wounded dragon on cobblestones.' })
   })
-  it('does not call Bedrock for SAME, empty or on-screen-text-only drafts', async () => {
+  it('does not call Bedrock for SAME, empty or neutral-only ("Words appear.") drafts; on-screen-text-only drafts are checked (DESC-031)', async () => {
     const send = vi.fn<Converse>(async () => reply(json('x')))
     const report = newVerifyReport(MODEL)
-    for (const t of ['SAME', '', 'Words appear: "SINTEL".']) expect((await verifyReply(await tmp(), frames, raw(t), send, report, shot(0))).text).toBe(t)
+    for (const t of ['SAME', '', 'Words appear.']) expect((await verifyReply(await tmp(), frames, raw(t), send, report, shot(0))).text).toBe(t)
     expect(send).not.toHaveBeenCalled()
     expect(report.shots).toEqual([])
   })
