@@ -1,0 +1,393 @@
+{
+  "model": "amazon.nova-lite-v1:0",
+  "applied": [
+    {
+      "i": 8,
+      "from": "Old man speaks softly.",
+      "to": "Man speaks softly."
+    },
+    {
+      "i": 17,
+      "from": "A small tan dragon with a bleeding wing lies on stone tiles.",
+      "to": "The dragon lies on stone tiles."
+    },
+    {
+      "i": 18,
+      "from": "A young woman kneels near a bleeding creature in the town.",
+      "to": "The woman kneels near a bleeding creature in the town."
+    },
+    {
+      "i": 21,
+      "from": "A woman with red hair.",
+      "to": "The woman with red hair."
+    }
+  ],
+  "rejected": [
+    {
+      "i": 2,
+      "text": "Dim. A fire pit glows at the tent's centre.",
+      "reason": "drops a fact: s"
+    },
+    {
+      "i": 4,
+      "text": "A young woman with short red hair, in a grey tank top, blinks slowly in dim light, her face lit from below.",
+      "reason": "not in any shot description: blinks, slowly, light, her, lit, below"
+    },
+    {
+      "i": 6,
+      "text": "A young woman with short red hair, in a grey tank top, blinks slowly in dim light, her face lit from below.",
+      "reason": "not in any shot description: blinks, slowly, light, her, face, lit, below"
+    },
+    {
+      "i": 9,
+      "text": "A young woman looks down, then a small tan dragon with a bleeding wing flies by.",
+      "reason": "not in any shot description: tan, dragon, bleeding, wing, flies"
+    },
+    {
+      "i": 7,
+      "text": "Tent, two figures.",
+      "reason": "over budget (3 > 2 words) (after shortening)"
+    },
+    {
+      "i": 10,
+      "text": "Darkness. In the darkness, a young woman looks down.",
+      "reason": "not a sentence: new list comma after \"darkness\""
+    },
+    {
+      "i": 12,
+      "text": "She takes an apple from a large dark sleeve.",
+      "reason": "not in any shot description: she"
+    },
+    {
+      "i": 14,
+      "text": "She runs, leaps, and climbs a wall in the town.",
+      "reason": "drops a fact: woman, red, hair"
+    },
+    {
+      "i": 15,
+      "text": "She, in a grey tank top and brown trousers, climbs a rooftop.",
+      "reason": "not in any shot description: she"
+    }
+  ],
+  "usage": {
+    "inputTokens": 9992,
+    "outputTokens": 741
+  },
+  "shorteningCalls": 4,
+  "evidence": [
+    {
+      "i": 0,
+      "names": [],
+      "setting": {
+        "scene": 0,
+        "words": [
+          {
+            "word": "snowy",
+            "source": "description",
+            "shot": 0
+          },
+          {
+            "word": "mountains",
+            "source": "description",
+            "shot": 0
+          }
+        ]
+      }
+    },
+    {
+      "i": 1,
+      "names": [],
+      "setting": {
+        "scene": 0,
+        "words": [
+          {
+            "word": "snow",
+            "source": "description",
+            "shot": 1
+          }
+        ]
+      }
+    },
+    {
+      "i": 2,
+      "names": [],
+      "setting": {
+        "scene": 1,
+        "words": [
+          {
+            "word": "fire",
+            "source": "description",
+            "shot": 2
+          },
+          {
+            "word": "pit",
+            "source": "description",
+            "shot": 2
+          },
+          {
+            "word": "tent",
+            "source": "description",
+            "shot": 2
+          }
+        ]
+      }
+    },
+    {
+      "i": 3,
+      "names": [],
+      "setting": {
+        "scene": 1,
+        "words": [
+          {
+            "word": "tent",
+            "source": "description",
+            "shot": 2
+          }
+        ]
+      }
+    },
+    {
+      "i": 4,
+      "names": [],
+      "setting": {
+        "scene": 1,
+        "words": [
+          {
+            "word": "tent",
+            "source": "description",
+            "shot": 2
+          }
+        ]
+      }
+    },
+    {
+      "i": 5,
+      "names": [],
+      "setting": {
+        "scene": 1,
+        "words": [
+          {
+            "word": "tent",
+            "source": "description",
+            "shot": 2
+          }
+        ]
+      }
+    },
+    {
+      "i": 6,
+      "names": [],
+      "setting": {
+        "scene": 1,
+        "words": [
+          {
+            "word": "tent",
+            "source": "description",
+            "shot": 2
+          }
+        ]
+      }
+    },
+    {
+      "i": 7,
+      "names": [],
+      "setting": {
+        "scene": 2,
+        "words": [
+          {
+            "word": "tent",
+            "source": "scene",
+            "setting": "the tent"
+          }
+        ]
+      }
+    },
+    {
+      "i": 8,
+      "names": [],
+      "setting": {
+        "scene": 2,
+        "words": []
+      }
+    },
+    {
+      "i": 9,
+      "names": [],
+      "setting": {
+        "scene": 2,
+        "words": []
+      }
+    },
+    {
+      "i": 10,
+      "names": [],
+      "setting": {
+        "scene": 3,
+        "words": [
+          {
+            "word": "darkness",
+            "source": "description",
+            "shot": 14
+          }
+        ]
+      }
+    },
+    {
+      "i": 11,
+      "names": [],
+      "setting": {
+        "scene": 4,
+        "words": [
+          {
+            "word": "town",
+            "source": "description",
+            "shot": 15
+          }
+        ]
+      }
+    },
+    {
+      "i": 12,
+      "names": [],
+      "setting": {
+        "scene": 4,
+        "words": [
+          {
+            "word": "town",
+            "source": "description",
+            "shot": 15
+          }
+        ]
+      }
+    },
+    {
+      "i": 13,
+      "names": [],
+      "setting": {
+        "scene": 4,
+        "words": []
+      }
+    },
+    {
+      "i": 14,
+      "names": [],
+      "setting": {
+        "scene": 4,
+        "words": [
+          {
+            "word": "town",
+            "source": "description",
+            "shot": 15
+          }
+        ]
+      }
+    },
+    {
+      "i": 15,
+      "names": [],
+      "setting": {
+        "scene": 4,
+        "words": [
+          {
+            "word": "rooftop",
+            "source": "description",
+            "shot": 19
+          }
+        ]
+      }
+    },
+    {
+      "i": 16,
+      "names": [],
+      "setting": {
+        "scene": 4,
+        "words": [
+          {
+            "word": "tiled",
+            "source": "description",
+            "shot": 20
+          },
+          {
+            "word": "rooftop",
+            "source": "description",
+            "shot": 19
+          }
+        ]
+      }
+    },
+    {
+      "i": 17,
+      "names": [],
+      "setting": {
+        "scene": 4,
+        "words": [
+          {
+            "word": "stone",
+            "source": "description",
+            "shot": 22
+          },
+          {
+            "word": "tiles",
+            "source": "description",
+            "shot": 20
+          }
+        ]
+      }
+    },
+    {
+      "i": 18,
+      "names": [],
+      "setting": {
+        "scene": 4,
+        "words": [
+          {
+            "word": "town",
+            "source": "description",
+            "shot": 15
+          }
+        ]
+      }
+    },
+    {
+      "i": 19,
+      "names": [],
+      "setting": {
+        "scene": 4,
+        "words": [
+          {
+            "word": "rooftop",
+            "source": "description",
+            "shot": 19
+          }
+        ]
+      }
+    },
+    {
+      "i": 20,
+      "names": [],
+      "setting": {
+        "scene": 4,
+        "words": [
+          {
+            "word": "stone",
+            "source": "description",
+            "shot": 22
+          },
+          {
+            "word": "rooftop",
+            "source": "description",
+            "shot": 19
+          }
+        ]
+      }
+    },
+    {
+      "i": 21,
+      "names": [],
+      "setting": {
+        "scene": 4,
+        "words": []
+      }
+    }
+  ]
+}

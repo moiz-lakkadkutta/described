@@ -8,7 +8,7 @@ import type { Shot } from './02-shots'
 import type { Gap, Word } from './03-speech'
 import { describeSystemPrompt, wordBudget } from '../prompts'
 import { meter } from '../cost'
-import { collapseNeutral, sentences, stripDarkness, TEXT_LABEL, textSpans } from '../textClause'
+import { collapseNeutral, sentences, stripBareLead, stripDarkness, TEXT_LABEL, textSpans } from '../textClause'
 import { allowedNames, glossaryFor, peopleAndPlaces } from '../glossary'
 import { newVerifyReport, verifyModelId, verifyReply, writeVerifyReport, type VerifyReport, type VerifyShotInput } from './04b-verify'
 
@@ -51,9 +51,35 @@ export async function describeShots(ctx: Ctx, send: Converse = bedrockConverse(c
   await writeFile(`${ctx.work}/described.json`, JSON.stringify(dedupe(shots, replies), null, 2))
 }
 
-/** One shot's reply: described (cachedDescribe), then checked against the same frames (04b-verify), so `said` for a later part is checked text. */
-export async function describeAndVerify(work: string, modelId: string, system: string, frames: Uint8Array[], send: Converse, said: string | undefined, report: VerifyReport, shot: VerifyShotInput): Promise<RawReply> {
-  return verifyReply(work, frames, await cachedDescribe(work, modelId, system, frames, send, said), send, report, shot)
+/**
+ * One shot's reply: described (cachedDescribe), then checked against the same frames (04b-verify), so `said` for a later part is checked text.
+ * Darkness check (decision 0012 amendment, 2026-10-15): a reply that is only "Darkness." while some key frames are not dark (mean luma ≥
+ * VISIBLE_LUMA, ffmpeg signalstats) is asked once more with those frames only, and that reply (and its verify) is used when it is not
+ * "Darkness." again. g10 shot 14 — a fade from black into a sunlit walled town, frames YAVG 0, 0, 107, 152, 139, 126 — was "Darkness.",
+ * which all three raters failed; Nova Lite then made "darkness" its scene's label.
+ */
+export async function describeAndVerify(work: string, modelId: string, system: string, frames: Uint8Array[], send: Converse, said: string | undefined, report: VerifyReport, shot: VerifyShotInput, opts: { luma?: (frame: Uint8Array) => Promise<number | undefined> } = {}): Promise<RawReply> {
+  let raw = await cachedDescribe(work, modelId, system, frames, send, said), used = frames
+  if (isDarkness(raw.text) && frames.length > 1) {
+    const luma = opts.luma ?? frameLuma
+    const lit: Uint8Array[] = []
+    for (const f of frames) { const y = await luma(f).catch(() => undefined); if (y !== undefined && y >= VISIBLE_LUMA) lit.push(f) }
+    if (lit.length && lit.length < frames.length) {
+      const again = await cachedDescribe(work, modelId, system, lit, send, said)
+      console.log(`describe: shot ${shot.index} said "Darkness." but ${lit.length} of ${frames.length} key frames are not dark; asked again with those: ${JSON.stringify(again.text)}`)
+      if (!isDarkness(again.text)) { raw = { ...again, usage: { inputTokens: raw.usage.inputTokens + again.usage.inputTokens, outputTokens: raw.usage.outputTokens + again.usage.outputTokens } }; used = lit }
+    }
+  }
+  return verifyReply(work, used, raw, send, report, shot)
+}
+/** Mean luma (0–255) at or above which a key frame is not dark: g10's black fade frames measure 0, its dim tent frames 19–35. */
+export const VISIBLE_LUMA = 40
+const isDarkness = (t: string) => /^(?:darkness|dunkelheit)(?:\.\.\.|…|[.!])?$/iu.test(t.trim())
+/** A JPEG's mean luma (YAVG) by ffmpeg signalstats — https://ffmpeg.org/ffmpeg-filters.html#signalstats; undefined when ffmpeg cannot read it. */
+export async function frameLuma(frame: Uint8Array): Promise<number | undefined> {
+  const { stdout } = await execa('ffmpeg', ['-v', 'error', '-f', 'image2pipe', '-i', '-', '-vf', 'signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-', '-f', 'null', '-'], { input: Buffer.from(frame), reject: false })
+  const m = /YAVG=([\d.]+)/.exec(stdout)
+  return m ? Number(m[1]) : undefined
 }
 
 /** Converse via the SDK, aborted with the job's signal; tests inject their own. */
@@ -364,7 +390,7 @@ export function parseDescription(raw: string, prev: string): { description: stri
     console.warn('describe: dropped on-screen text longer than 8 words:', text.slice(span.start, span.end))
     text = text.slice(0, span.start) + text.slice(span.end).replace(/^\s+/, '')
   }
-  text = collapseNeutral(stripDarkness(text.replace(new RegExp(`\\s*${TEXT_LABEL.source}\\s*$`, 'iu'), '').trim())) // "Darkness." is the whole description or absent (../textClause)
+  text = stripBareLead(collapseNeutral(stripDarkness(text.replace(new RegExp(`\\s*${TEXT_LABEL.source}\\s*$`, 'iu'), '').trim()))) // "Darkness." is the whole description or absent (../textClause)
   const a = normalize(text), b = normalize(prev)
   return { description: text, sameAsPrev: !!a && !!b && (a === b || jaccard(a, b) >= 0.8) }
 }

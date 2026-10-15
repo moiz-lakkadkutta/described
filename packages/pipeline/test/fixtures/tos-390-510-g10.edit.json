@@ -1,0 +1,523 @@
+{
+  "model": "amazon.nova-lite-v1:0",
+  "applied": [
+    {
+      "i": 1,
+      "from": "Woman grimaces as robot scans her face.",
+      "to": "A woman grimaces as a robot scans her face."
+    },
+    {
+      "i": 10,
+      "from": "Towering. Man in black tactical gear aims rifle.",
+      "to": "Towering man in black tactical gear aims rifle."
+    },
+    {
+      "i": 14,
+      "from": "The young man in the white hoodie holds a white and black robot, dim industrial background.",
+      "to": "The young man in the white hoodie holds a white and black robot."
+    },
+    {
+      "i": 22,
+      "from": "A man in blue and yellow gear swings on rope near organ pipes.",
+      "to": "Man in blue and yellow gear swings near organ pipes."
+    }
+  ],
+  "rejected": [
+    {
+      "i": 2,
+      "text": "The man with dark hair, eyes closed, has a mechanical device near his face.",
+      "reason": "not in any shot description: his"
+    },
+    {
+      "i": 5,
+      "text": "The man adjusts his eyepiece, the woman watches.",
+      "reason": "not in any shot description: his"
+    },
+    {
+      "i": 6,
+      "text": "The woman in the black-blue jacket touches the man's face; translucent wireframe overlays appear.",
+      "reason": "drops a fact: s"
+    },
+    {
+      "i": 3,
+      "text": "Cybernetic-eyed man stares upward; uniformed woman watches.",
+      "reason": "not in any shot description: cybernetic-eyed (after shortening)"
+    },
+    {
+      "i": 8,
+      "text": "In a dim, smoky chamber, the man in glasses stares at glowing screens.",
+      "reason": "not in any shot description: dim, smoky, chamber"
+    },
+    {
+      "i": 12,
+      "text": "Ornate clock tower, golden dials, debris flies past.",
+      "reason": "not a sentence: new list comma after \"tower\" (after shortening)"
+    },
+    {
+      "i": 21,
+      "text": "Dark, rope-laced industrial shaft; a man in a dark jacket moves his arm, a red light glows. A figure swings on a rope, then climbs upward.",
+      "reason": "not in any shot description: his"
+    },
+    {
+      "i": 24,
+      "text": "A man in a dark jacket climbs a rope. The organ explodes.",
+      "reason": "not in any shot description: dark"
+    },
+    {
+      "i": 25,
+      "text": "Glasses-wearing man shouts.",
+      "reason": "not in any shot description: glasses-wearing (after shortening)"
+    }
+  ],
+  "usage": {
+    "inputTokens": 18646,
+    "outputTokens": 865
+  },
+  "shorteningCalls": 7,
+  "evidence": [
+    {
+      "i": 0,
+      "names": [],
+      "setting": {
+        "scene": 0,
+        "words": [
+          {
+            "word": "outdoors",
+            "source": "description",
+            "shot": 0
+          },
+          {
+            "word": "trees",
+            "source": "description",
+            "shot": 0
+          }
+        ]
+      }
+    },
+    {
+      "i": 1,
+      "names": [],
+      "setting": {
+        "scene": 0,
+        "words": []
+      }
+    },
+    {
+      "i": 2,
+      "names": [],
+      "setting": {
+        "scene": 0,
+        "words": []
+      }
+    },
+    {
+      "i": 3,
+      "names": [],
+      "setting": {
+        "scene": 1,
+        "words": [
+          {
+            "word": "man",
+            "source": "description",
+            "shot": 3
+          },
+          {
+            "word": "cybernetic",
+            "source": "description",
+            "shot": 3
+          },
+          {
+            "word": "eye",
+            "source": "description",
+            "shot": 3
+          }
+        ]
+      }
+    },
+    {
+      "i": 5,
+      "names": [],
+      "setting": {
+        "scene": 1,
+        "words": [
+          {
+            "word": "man",
+            "source": "description",
+            "shot": 3
+          }
+        ]
+      }
+    },
+    {
+      "i": 6,
+      "names": [],
+      "setting": {
+        "scene": 1,
+        "words": [
+          {
+            "word": "man",
+            "source": "description",
+            "shot": 3
+          }
+        ]
+      }
+    },
+    {
+      "i": 7,
+      "names": [],
+      "setting": {
+        "scene": 2,
+        "words": [
+          {
+            "word": "boy",
+            "source": "description",
+            "shot": 7
+          },
+          {
+            "word": "faces",
+            "source": "description",
+            "shot": 7
+          },
+          {
+            "word": "giant",
+            "source": "description",
+            "shot": 7
+          },
+          {
+            "word": "robot",
+            "source": "description",
+            "shot": 7
+          }
+        ]
+      }
+    },
+    {
+      "i": 8,
+      "names": [],
+      "setting": {
+        "scene": 3,
+        "words": [
+          {
+            "word": "man",
+            "source": "description",
+            "shot": 8
+          },
+          {
+            "word": "glasses",
+            "source": "description",
+            "shot": 8
+          },
+          {
+            "word": "stares",
+            "source": "description",
+            "shot": 8
+          }
+        ]
+      }
+    },
+    {
+      "i": 9,
+      "names": [],
+      "setting": {
+        "scene": 3,
+        "words": [
+          {
+            "word": "man",
+            "source": "description",
+            "shot": 8
+          }
+        ]
+      }
+    },
+    {
+      "i": 10,
+      "names": [],
+      "setting": {
+        "scene": 4,
+        "words": [
+          {
+            "word": "towering",
+            "source": "description",
+            "shot": 12
+          }
+        ]
+      }
+    },
+    {
+      "i": 11,
+      "names": [],
+      "setting": {
+        "scene": 4,
+        "words": [
+          {
+            "word": "towering",
+            "source": "description",
+            "shot": 12
+          }
+        ]
+      }
+    },
+    {
+      "i": 12,
+      "names": [],
+      "setting": {
+        "scene": 4,
+        "words": [
+          {
+            "word": "tower",
+            "source": "description",
+            "shot": 12
+          }
+        ]
+      }
+    },
+    {
+      "i": 13,
+      "names": [],
+      "setting": {
+        "scene": 5,
+        "words": [
+          {
+            "word": "industrial",
+            "source": "description",
+            "shot": 15
+          },
+          {
+            "word": "background",
+            "source": "description",
+            "shot": 15
+          }
+        ]
+      }
+    },
+    {
+      "i": 14,
+      "names": [],
+      "setting": {
+        "scene": 5,
+        "words": []
+      }
+    },
+    {
+      "i": 15,
+      "names": [],
+      "setting": {
+        "scene": 6,
+        "words": [
+          {
+            "word": "young",
+            "source": "description",
+            "shot": 17
+          },
+          {
+            "word": "man",
+            "source": "description",
+            "shot": 17
+          },
+          {
+            "word": "turns",
+            "source": "description",
+            "shot": 17
+          }
+        ]
+      }
+    },
+    {
+      "i": 16,
+      "names": [],
+      "setting": {
+        "scene": 7,
+        "words": [
+          {
+            "word": "four",
+            "source": "description",
+            "shot": 18
+          },
+          {
+            "word": "figures",
+            "source": "description",
+            "shot": 18
+          },
+          {
+            "word": "kneel",
+            "source": "description",
+            "shot": 18
+          },
+          {
+            "word": "amid",
+            "source": "description",
+            "shot": 18
+          },
+          {
+            "word": "ruins",
+            "source": "description",
+            "shot": 18
+          },
+          {
+            "word": "streaming",
+            "source": "description",
+            "shot": 18
+          }
+        ]
+      }
+    },
+    {
+      "i": 17,
+      "names": [],
+      "setting": {
+        "scene": 7,
+        "words": []
+      }
+    },
+    {
+      "i": 18,
+      "names": [],
+      "setting": {
+        "scene": 8,
+        "words": [
+          {
+            "word": "massive",
+            "source": "description",
+            "shot": 20
+          },
+          {
+            "word": "robots",
+            "source": "description",
+            "shot": 20
+          },
+          {
+            "word": "clash",
+            "source": "description",
+            "shot": 20
+          }
+        ]
+      }
+    },
+    {
+      "i": 19,
+      "names": [],
+      "setting": {
+        "scene": 8,
+        "words": [
+          {
+            "word": "robots",
+            "source": "description",
+            "shot": 20
+          },
+          {
+            "word": "hall",
+            "source": "description",
+            "shot": 21
+          }
+        ]
+      }
+    },
+    {
+      "i": 20,
+      "names": [],
+      "setting": {
+        "scene": 9,
+        "words": [
+          {
+            "word": "industrial",
+            "source": "description",
+            "shot": 22
+          },
+          {
+            "word": "shaft",
+            "source": "description",
+            "shot": 22
+          }
+        ]
+      }
+    },
+    {
+      "i": 21,
+      "names": [],
+      "setting": {
+        "scene": 9,
+        "words": [
+          {
+            "word": "industrial",
+            "source": "description",
+            "shot": 22
+          },
+          {
+            "word": "shaft",
+            "source": "description",
+            "shot": 22
+          }
+        ]
+      }
+    },
+    {
+      "i": 22,
+      "names": [],
+      "setting": {
+        "scene": 9,
+        "words": []
+      }
+    },
+    {
+      "i": 23,
+      "names": [],
+      "setting": {
+        "scene": 10,
+        "words": [
+          {
+            "word": "giant",
+            "source": "description",
+            "shot": 27
+          },
+          {
+            "word": "robot",
+            "source": "description",
+            "shot": 27
+          },
+          {
+            "word": "collapses",
+            "source": "description",
+            "shot": 27
+          },
+          {
+            "word": "church",
+            "source": "description",
+            "shot": 27
+          }
+        ]
+      }
+    },
+    {
+      "i": 24,
+      "names": [],
+      "setting": {
+        "scene": 10,
+        "words": []
+      }
+    },
+    {
+      "i": 25,
+      "names": [],
+      "setting": {
+        "scene": 11,
+        "words": [
+          {
+            "word": "man",
+            "source": "description",
+            "shot": 29
+          },
+          {
+            "word": "glasses",
+            "source": "description",
+            "shot": 29
+          },
+          {
+            "word": "shouts",
+            "source": "description",
+            "shot": 29
+          }
+        ]
+      }
+    }
+  ]
+}

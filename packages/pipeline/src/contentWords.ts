@@ -17,8 +17,14 @@ export const STOP = new Set([
   // German
   'der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einen', 'einem', 'einer', 'und', 'oder', 'aber', 'dann', 'als', 'während', 'mit', 'von', 'vom', 'im', 'an', 'am', 'auf', 'zu', 'zum', 'zur', 'aus', 'bei', 'ist', 'sind', 'hat', 'haben', 'es', 'dieser', 'diese', 'dieses', 'auch',
 ])
+/**
+ * Typographic apostrophes and quotes as their ASCII forms (decision 0012 amendment, 2026-10-15): every guard that tokenises (05b-edit,
+ * sentenceGuard, fit, glossary) compares words after this, so "tent’s" and "tent's" are one word. g10 cue 2: an edit that only
+ * straightened the apostrophe was rejected with "drops a fact: s" — the curly ’ was stripped as punctuation, leaving "tent" and "s".
+ */
+export const normalizeQuotes = (t: string) => t.replace(/[’‘ʼ‛′]/g, "'").replace(/[“”„‟«»″]/g, '"')
 /** Lower-cased words of `t` with punctuation stripped, possessive 's removed and STOP words left out, in order. */
-export const contentWords = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}\s'-]/gu, ' ').split(/\s+/).map((w) => w.replace(/^['-]+|['-]+$/g, '').replace(/'s$/, '')).filter((w) => w && !STOP.has(w))
+export const contentWords = (t: string) => normalizeQuotes(t).toLowerCase().replace(/[^\p{L}\p{N}\s'-]/gu, ' ').split(/\s+/).map((w) => w.replace(/^['-]+|['-]+$/g, '').replace(/'s$/, '')).filter((w) => w && !STOP.has(w))
 
 /**
  * One canonical stem per word: Porter (the `stemmer` package, MIT, no dependencies — a hand-rolled candidate-set stemmer matched

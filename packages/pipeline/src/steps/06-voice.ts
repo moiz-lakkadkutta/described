@@ -3,7 +3,7 @@ import { execa } from 'execa'
 import { readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { z } from 'zod'
 import type { Ctx } from './index'
-import { byStart, capExtended, introducesNew, leadText, shortenDeterministic, shortenSentences, TAIL_SILENCE_MS, textClauses, type FitCue } from './05-fit'
+import { byStart, capExtended, introducesNew, LATE_MS, leadText, shortenDeterministic, shortenSentences, TAIL_SILENCE_MS, textClauses, type FitCue } from './05-fit'
 import type { Shot } from './02-shots'
 import { cueAudioFile, probeDurationMs } from '../cues'
 import { meter, pollyUsd } from '../cost'
@@ -139,7 +139,9 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
   const language = ctx.language
   await removeCueFilesFrom(ctx.work, cues.length)
   for (const f of await readdir(ctx.work)) if (f.startsWith(MOVING)) await rm(`${ctx.work}/${f}`, { force: true }) // left by a crash in withTextCues
-  const shotStart = new Map((JSON.parse(await readFile(`${ctx.work}/shots.json`, 'utf8').catch(() => '[]')) as Shot[]).map((x) => [x.index, x.startMs]))
+  const shotList = JSON.parse(await readFile(`${ctx.work}/shots.json`, 'utf8').catch(() => '[]')) as Shot[]
+  const shotStart = new Map(shotList.map((x) => [x.index, x.startMs]))
+  const shotEnd = new Map(shotList.map((x) => [x.index, x.endMs]))
   /** Synthesizes text into slot i (overwriting it) and returns the clip's duration and speech length. */
   const synth = async (i: number, text: string): Promise<Clip> => {
     const file = `${ctx.work}/${cueAudioFile(i)}`
@@ -244,7 +246,7 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
     kept.push({ ...cue, startMs, text, endMs: startMs + durationMs, wordCount: words(text) })
   }
   if (texts.length) kept = await withTextCues(ctx.work, kept, texts, synth, reuse)
-  kept = await afterClips(ctx.work, kept)
+  kept = await afterClips(ctx.work, kept, shotEnd)
   kept = await dropPastEnd(ctx.work, kept, filmMs)
   await removeCueFilesFrom(ctx.work, kept.length)
   warnOverlaps(kept)
@@ -286,10 +288,11 @@ export function withoutSaidText(text: string, said: readonly string[]): string {
  * A pause must not start while a clip still speaks: every extended cue (on-screen text, event, introducesNew) starts at or after the
  * measured end of every placed cue before it (`before`: an earlier shot's, or one that starts earlier) — fit's starts were estimates (a text cue TEXT_LEAD_MS before its action; an event cue at the
  * shot start, which can be inside the previous clip). Keeps its clip length. The cap holds after the move: an event cue that now starts
- * within EVENT_SPACING_MS of an earlier event cue (in start order) is dropped, deterministically. Re-sorted (byStart) and the clips
+ * within EVENT_SPACING_MS of an earlier event cue (in start order) is dropped, deterministically, and so is a pause the move takes more than
+ * LATE_MS past its shot's end (shots.json; decision 0012 amendment, 2026-10-15: the rubric's on-time rule holds for extended cues too). Re-sorted (byStart) and the clips
  * re-slotted when anything moved. Pure apart from the clip files (tested through voice).
  */
-async function afterClips(work: string, cues: FitCue[]): Promise<FitCue[]> {
+async function afterClips(work: string, cues: FitCue[], shotEnd: ReadonlyMap<number, number> = new Map()): Promise<FitCue[]> {
   let moved = false
   const all = cues.map((c, from) => {
     if (!c.extended) return { c, from }
@@ -303,6 +306,8 @@ async function afterClips(work: string, cues: FitCue[]): Promise<FitCue[]> {
   let lastEvent = -Infinity
   const dropped: number[] = []
   const out = all.filter(({ c, from }) => {
+    const end = shotEnd.get(c.shotIndex)
+    if (c.extended && end !== undefined && c.startMs > end + LATE_MS) { console.log(`voice: pause moved to ${c.startMs} ms starts ${c.startMs - end} ms after its shot ends (> ${LATE_MS}); dropped: ${JSON.stringify(c.text)}`); dropped.push(from); return false }
     if (!c.event) return true
     if (c.startMs - lastEvent < EVENT_SPACING_MS) { console.log(`voice: event cue moved to ${c.startMs} ms is within ${EVENT_SPACING_MS} ms of the one at ${lastEvent} ms; dropped: ${JSON.stringify(c.text)}`); dropped.push(from); return false }
     lastEvent = c.startMs

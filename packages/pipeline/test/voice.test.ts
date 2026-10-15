@@ -112,13 +112,14 @@ describe('voice', () => {
     expect((await readCues()).map((c) => [c.startMs, c.endMs, c.text, c.extended])).toEqual([[1000, 2900, SHORT, false], [3500, 4700, 'Smoke rises.', false], [9000, 10700, 'Words appear: North.', true]])
   })
   it('a second overrun becomes extended when the text introduces something new', async () => {
-    // 10000 + 5000 > 12200 → maxWords = floor(12 × 2000 / 5000) = 4 → NIGHT_SHORT; 10000 + 2500 still > 12200
+    // 10000 + 5000 > 12200 → maxWords = floor(12 × 2000 / 5000) = 4 → NIGHT_SHORT would be a place alone, rejected since the decision 0012
+    // amendment (2026-10-15): the text stays whole, still overruns, and becomes extended (it introduces a place) without another Polly call
     await writeCues([cue(10000, NIGHT, 12000)])
     const f = fakes()
     await voice(ctx(), f)
-    expect(f.synthesize).toHaveBeenCalledTimes(2)
+    expect(f.synthesize).toHaveBeenCalledTimes(1)
     const [c] = await readCues()
-    expect(c).toEqual({ startMs: 10000, endMs: 12500, text: NIGHT_SHORT, extended: true, wordCount: 3, shotIndex: 0 })
+    expect(c).toEqual({ startMs: 10000, endMs: 15000, text: NIGHT, extended: true, wordCount: 12, shotIndex: 0 })
     expect(c).not.toHaveProperty('limitMs')
   })
   it('an overrun turned extended and capped re-voices once more and bills all three calls', async () => {

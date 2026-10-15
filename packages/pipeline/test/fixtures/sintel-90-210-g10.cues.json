@@ -1,0 +1,198 @@
+[
+  {
+    "startMs": 0,
+    "endMs": 5952,
+    "text": "Words appear: SINTEL. A lone figure carrying a spear walks across the snowy mountains.",
+    "extended": false,
+    "wordCount": 14,
+    "shotIndex": 0,
+    "limitMs": 16720
+  },
+  {
+    "startMs": 6225,
+    "endMs": 9561,
+    "text": "The figure falls face down in the snow, motionless.",
+    "extended": false,
+    "wordCount": 9,
+    "shotIndex": 1,
+    "limitMs": 16720
+  },
+  {
+    "startMs": 11208,
+    "endMs": 14592,
+    "text": "Dim. A fire pit glows at the tent’s centre.",
+    "extended": false,
+    "wordCount": 9,
+    "shotIndex": 2,
+    "limitMs": 16720
+  },
+  {
+    "startMs": 19509,
+    "endMs": 20589,
+    "text": "In the tent.",
+    "extended": false,
+    "wordCount": 3,
+    "shotIndex": 4,
+    "limitMs": 21209
+  },
+  {
+    "startMs": 25833,
+    "endMs": 26913,
+    "text": "In the tent.",
+    "extended": false,
+    "wordCount": 3,
+    "shotIndex": 5,
+    "limitMs": 27470
+  },
+  {
+    "startMs": 33170,
+    "endMs": 34250,
+    "text": "In the tent.",
+    "extended": false,
+    "wordCount": 3,
+    "shotIndex": 7,
+    "limitMs": 34820
+  },
+  {
+    "startMs": 37240,
+    "endMs": 38320,
+    "text": "In the tent.",
+    "extended": false,
+    "wordCount": 3,
+    "shotIndex": 8,
+    "limitMs": 38989
+  },
+  {
+    "startMs": 41000,
+    "endMs": 41936,
+    "text": "The tent.",
+    "extended": true,
+    "wordCount": 2,
+    "shotIndex": 10,
+    "scene": true
+  },
+  {
+    "startMs": 50869,
+    "endMs": 52549,
+    "text": "Man speaks softly.",
+    "extended": false,
+    "wordCount": 3,
+    "shotIndex": 12,
+    "limitMs": 52950
+  },
+  {
+    "startMs": 54229,
+    "endMs": 56029,
+    "text": "A young woman looks down.",
+    "extended": false,
+    "wordCount": 5,
+    "shotIndex": 13,
+    "limitMs": 58669
+  },
+  {
+    "startMs": 61119,
+    "endMs": 62175,
+    "text": "Darkness.",
+    "extended": false,
+    "wordCount": 1,
+    "shotIndex": 14,
+    "limitMs": 62829
+  },
+  {
+    "startMs": 65833,
+    "endMs": 70465,
+    "text": "In the town, a young woman with short red hair lifts a wooden plank amid rubble.",
+    "extended": false,
+    "wordCount": 16,
+    "shotIndex": 15,
+    "limitMs": 83079
+  },
+  {
+    "startMs": 72433,
+    "endMs": 77449,
+    "text": "In the town, a young woman with short red hair takes an apple from a large dark sleeve.",
+    "extended": false,
+    "wordCount": 18,
+    "shotIndex": 16,
+    "limitMs": 83079
+  },
+  {
+    "startMs": 79813,
+    "endMs": 82693,
+    "text": "She turns, holding a spiky green fruit.",
+    "extended": false,
+    "wordCount": 7,
+    "shotIndex": 17,
+    "limitMs": 83079
+  },
+  {
+    "startMs": 87542,
+    "endMs": 92174,
+    "text": "A young woman with short red hair runs, leaps, climbs a wall in the town.",
+    "extended": false,
+    "wordCount": 15,
+    "shotIndex": 18,
+    "limitMs": 116139
+  },
+  {
+    "startMs": 93617,
+    "endMs": 99425,
+    "text": "A young woman with short red hair, in a grey tank top, in brown trousers, climbs a rooftop.",
+    "extended": true,
+    "wordCount": 18,
+    "shotIndex": 19
+  },
+  {
+    "startMs": 93767,
+    "endMs": 98783,
+    "text": "A small tan dragon with a bleeding wing sits on a tiled rooftop, blood pooling beneath it.",
+    "extended": false,
+    "wordCount": 17,
+    "shotIndex": 20,
+    "limitMs": 116139
+  },
+  {
+    "startMs": 100742,
+    "endMs": 103046,
+    "text": "The dragon lies on stone tiles.",
+    "extended": false,
+    "wordCount": 6,
+    "shotIndex": 22,
+    "limitMs": 116139
+  },
+  {
+    "startMs": 105692,
+    "endMs": 108500,
+    "text": "The woman kneels near a bleeding creature in the town.",
+    "extended": true,
+    "wordCount": 10,
+    "shotIndex": 24,
+    "event": true
+  },
+  {
+    "startMs": 105842,
+    "endMs": 110714,
+    "text": "A small dragon with a bleeding wing sits on a rooftop. A hand reaches toward it.",
+    "extended": false,
+    "wordCount": 16,
+    "shotIndex": 25,
+    "limitMs": 116139
+  },
+  {
+    "startMs": 112292,
+    "endMs": 117548,
+    "text": "A small tan dragon with a bleeding wing sits on a stone rooftop as a gloved hand reaches toward it.",
+    "extended": true,
+    "wordCount": 20,
+    "shotIndex": 26
+  },
+  {
+    "startMs": 113125,
+    "endMs": 114685,
+    "text": "The woman with red hair.",
+    "extended": false,
+    "wordCount": 5,
+    "shotIndex": 27,
+    "limitMs": 116139
+  }
+]

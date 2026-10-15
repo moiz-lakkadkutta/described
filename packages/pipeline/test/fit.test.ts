@@ -54,7 +54,7 @@ describe('gaps', () => {
 describe('fit', () => {
   const gaps = [{ startMs: 0, endMs: 3000 }, { startMs: 8000, endMs: 9500 }]
   it('places a description in the first gap at/after the shot and never over dialogue', async () => {
-    const cues = await fit([{ index: 0, startMs: 0, endMs: 4000, description: 'A woman in a red coat crosses a bridge.', sameAsPrev: false, tokens: 0, outputTokens: 0 }], gaps, shorten)
+    const cues = await fit([{ index: 0, startMs: 0, endMs: 4000, description: 'A woman crosses a red bridge in a coat.', sameAsPrev: false, tokens: 0, outputTokens: 0 }], gaps, shorten) // the cut keeps the verb (decision 0012 amendment: a shortening keeps the action)
     expect(cues).toHaveLength(1)
     expect(cues[0]!.startMs).toBe(0)
     expect(cues[0]!.endMs).toBeLessThanOrEqual(3000)
@@ -62,7 +62,11 @@ describe('fit', () => {
   })
   it('shortens to fit', async () => {
     const long = 'Night. A rooftop. A tall man in an olive coat and a burgundy scarf leans over the railing and looks down at the empty street below.'
-    const cues = await fit([{ index: 0, startMs: 8000, endMs: 12000, description: long, sameAsPrev: false, tokens: 0, outputTokens: 0 }], [{ startMs: 8000, endMs: 9950 }], shorten)
+    const cues = await fit([{ index: 0, startMs: 8000, endMs: 12000, description: long, sameAsPrev: false, tokens: 0, outputTokens: 0 }], [{ startMs: 8000, endMs: 9950 }], () => 'Man leans over railing.')
+    expect(cues[0]).toMatchObject({ text: 'Man leans over railing.', extended: false })
+    // the word cut "Night. A rooftop. A" keeps no verb (decision 0012 amendment): no 4-word shortening keeps the action, so the shot,
+    // which introduces a place, becomes an extended cue
+    expect((await fit([{ index: 0, startMs: 8000, endMs: 12000, description: long, sameAsPrev: false, tokens: 0, outputTokens: 0 }], [{ startMs: 8000, endMs: 9950 }], shorten))[0]).toMatchObject({ extended: true })
     expect(cues[0]!.wordCount).toBeLessThanOrEqual(4) // 1.95 s gap − CLIP_OVERHEAD_MS → 4 words
   })
   it('marks extended when there is no gap and the shot introduces new information', async () => {
@@ -109,7 +113,10 @@ describe('fit', () => {
     for (const c of placed) { const s = described.find((d) => d.index === c.shotIndex)!; expect(c.startMs).toBeGreaterThanOrEqual(s.startMs); expect(c.startMs).toBeLessThanOrEqual(s.endMs + LATE_MS) }
     // planner's fit-replay (Gate C plan D1): first placed cue per shot
     const first = (i: number) => placed.find((c) => c.shotIndex === i)?.startMs
-    expect([0, 1, 2, 3, 4, 8, 9].map(first)).toEqual([0, 8000, 12725, 19509, 33170, 50869, 56125]) // 12725: shot 1's estimate carries CLIP_OVERHEAD_MS (decision 0009), 150 ms more than the plan's 300
+    // 12725: shot 1's estimate carries CLIP_OVERHEAD_MS (decision 0009), 150 ms more than the plan's 300. Shot 8: this test's word cut
+    // ("Woman with red") drops the verb, so since the decision 0012 amendment the whole line takes the next room (54229), and shot 9's text
+    // has no room left beside it: an extended cue.
+    expect([0, 1, 2, 3, 4, 8, 9].map(first)).toEqual([0, 8000, 12725, 19509, 33170, 54229, undefined])
   })
   it('allows a start exactly LATE_MS after the shot ends', async () => {
     expect((await fit([shot(0, 0, 1000, 'Snow falls on the hills.')], [{ startMs: 2000, endMs: 5000 }], shorten)).map((c) => c.startMs)).toEqual([2000])
@@ -309,9 +316,10 @@ describe('on-screen text clause', () => {
     const gaps2 = [{ startMs: 0, endMs: 1950 }, { startMs: 3000, endMs: 6000 }]
     const two = await fit([shot(SHOT0), shot('Smoke rises.', 1, 3000)], gaps2, (t, n) => safeShorten(t, n, () => 'Figure walks left.'))
     expect(two.map((c) => [c.startMs, c.extended, c.text])).toEqual([[0, true, 'Words appear: SINTEL.'], [0, false, 'Figure walks left.'], [3000, false, 'Smoke rises.']])
-    // a verbless first sentence of the original is still a shortening (the verb checks fail open, PR #52 review)
+    // "Snowy mountains." alone drops the action (decision 0012 amendment, 2026-10-15): the action takes the next room in the window (shot
+    // end + LATE_MS), the text leads it, and "Smoke rises." has no room left
     const verbless = await fit([shot(SHOT0), shot('Smoke rises.', 1, 3000)], gaps2, (t, n) => safeShorten(t, n, () => 'Mountains walk.'))
-    expect(verbless.map((c) => [c.startMs, c.extended, c.text])).toEqual([[0, true, 'Words appear: SINTEL.'], [400, false, 'Snowy mountains.'], [3000, false, 'Smoke rises.']])
+    expect(verbless.map((c) => [c.startMs, c.extended, c.text])).toEqual([[2600, true, 'Words appear: SINTEL.'], [3000, false, 'A lone figure walks left.']])
   })
   // PR #25 round 2, M2 (reviewer's repro)
   it('places the whole text in a later gap of the shot window before splitting it', async () => {

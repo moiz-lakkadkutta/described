@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { z } from 'zod'
 import { Glossary, nameRevealed, type Character, type Setting } from '@described/contracts'
-import { contentWords, stem } from './contentWords'
+import { contentWords, normalizeQuotes, stem } from './contentWords'
 import { textSpans } from './textClause'
 
 export { Glossary, nameRevealed, type Character, type Setting } from '@described/contracts'
@@ -73,7 +73,7 @@ const PLURAL_COUNT = /^(?:two|three|four|several|many|some)$/
 export interface Mention { phrase: string; clause: string }
 /** The person/animal noun phrases of a text, on-screen text left out; plural phrases skipped. */
 export function mentionsIn(text: string): Mention[] {
-  const plain = textSpans(text).reduceRight((t, s) => t.slice(0, s.start) + ' ' + t.slice(s.end), text).toLowerCase()
+  const plain = normalizeQuotes(textSpans(text).reduceRight((t, s) => t.slice(0, s.start) + ' ' + t.slice(s.end), text)).toLowerCase()
   return plain.split(/[.!?;,…]+/u).flatMap((clause) => {
     const ws = clause.replace(/[^\p{L}\s'-]/gu, ' ').split(/\s+/).filter(Boolean)
     const out: Mention[] = []
@@ -149,6 +149,8 @@ export const PLACE_NOUNS = new Set(['room', 'tent', 'hut', 'interior', 'house', 
   'street', 'alley', 'city', 'cityscape', 'town', 'village', 'rooftop', 'roof', 'bridge', 'canal', 'river', 'stream', 'lake', 'sea', 'beach', 'shore', 'sky', 'lab', 'laboratory', 'office', 'kitchen',
   'church', 'tower', 'balcony', 'deck', 'ship', 'platform', 'station', 'market', 'courtyard', 'garden', 'plain', 'valley', 'cliff', 'ridge', 'snow', 'burrow', 'hole', 'fence', 'camp', 'pit',
   'raum', 'zimmer', 'zelt', 'wald', 'berg', 'berge', 'stadt', 'straße', 'brücke', 'wüste', 'feld'].map(stem))
+/** -ing nouns that are places. */
+const ING_PLACE_NOUNS = new Set(['building', 'clearing', 'landing', 'crossing'])
 /** Time words a scene change may carry ("Night.", "40 YEARS LATER"). */
 export const TIME_WORDS = new Set(['night', 'day', 'dawn', 'dusk', 'morning', 'evening', 'later', 'years', 'nacht', 'tag', 'später'].map(stem))
 
@@ -161,7 +163,8 @@ export const glossarySettingStems = (g: Glossary) => new Set(g.settings.flatMap(
 /** Stems of the place words in `text` (PLACE_NOUNS, plus the glossary's setting words when given), on-screen text left out. */
 export function placeStems(text: string, extra: ReadonlySet<string> = new Set()): string[] {
   const plain = textSpans(text).reduceRight((t, s) => t.slice(0, s.start) + ' ' + t.slice(s.end), text)
-  return [...new Set(contentWords(plain).map(stem).filter((w) => PLACE_NOUNS.has(w) || extra.has(w)))]
+  // an -ing / -ed form is a verb or a modifier, not a place, though its stem may be one ("towering" → tower: tos-390-510-g10's label)
+  return [...new Set(contentWords(plain).filter((w) => !/(?:ing|ed)$/.test(w) || ING_PLACE_NOUNS.has(w)).map(stem).filter((w) => PLACE_NOUNS.has(w) || extra.has(w)))]
 }
 
 /** Where a name in a cue comes from (edit.json evidence, like the SDH speaker evidence of #39 / decision 0008). */
