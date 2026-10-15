@@ -50,10 +50,15 @@ improvement" still read as before. A later run that passes the held-out clip mak
 - **The edit pass removing articles**: held-out shot 24, "A man climbs a rope in a sunlit industrial ruin." → "Man climbs rope in
   sunlit industrial ruin."
 - **"Dark." as a one-word cue** over a lit shaft (held-out shot 22).
-- **Faithfulness misses**: details the frames do not show (Sintel shots 3, 6, 10, 16, 21; held-out 5, 20, 21, 24), plus verbless
-  lines on Sintel extended cue 9 and shot 14 and a setting said twice on shot 0.
+- **Faithfulness misses**: details the frames do not show (Sintel shots 3, 6, 10, 16, 21; held-out 5, 20, 21, 24).
+- **Other clean problems**: verbless lines (Sintel extended cue 9 and shot 14; held-out shot 9, the place-only "Dim, smoky
+  chamber with glowing lines.") and a setting said twice (Sintel shot 0).
 
 ## Follow-ups (not quality tuning)
+
+- **Full-film glossary times**: `apps/api/prisma/glossaries.json` reveal times (`revealedAtS`, `firstAtS`) are in full-film
+  seconds. A `pnpm describe --start …` run restarts times at 0 (`packages/pipeline/src/own.ts` `clipSeconds` / `cutArgs`), so it
+  would reveal names early; such a run needs times offset by its start, or offset handling in the loader (no code change yet).
 
 - **`score.ts` plot-event range parse**: "Shots 7–8" is read as shot 7 only, so g12's shot 8 counted once; read by hand Sintel g12
   lost 6 plot events, not 5. Parse ranges in the plot-events column.

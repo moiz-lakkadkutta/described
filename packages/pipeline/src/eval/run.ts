@@ -220,7 +220,7 @@ const glossaryFiles = (): (string | URL)[] => [...catalogueGlossaryFiles(), EVAL
 /** The source slug's glossary: its titles.json (or glossaries.json) entry, else its entry in EVAL_GLOSSARY_FILE (a warning when neither has one). */
 export function evalGlossary(sourceSlug: string, files: readonly (string | URL)[] = glossaryFiles()): Glossary {
   for (const f of files) { const g = loadGlossary(sourceSlug, f, { warn: false }); if (!isEmpty(g)) return g }
-  return loadGlossary(sourceSlug, files[0]!)
+  return loadGlossary(sourceSlug, files) // the warning names every file searched (titles.json, glossaries.json, the eval file)
 }
 /** For the dry run: which file has the source slug's glossary, or none. Never warns. */
 export function glossaryStatus(sourceSlug: string, files: readonly (string | URL)[] = glossaryFiles()): string {
