@@ -1,0 +1,324 @@
+[
+  {
+    "index": 0,
+    "startMs": 0,
+    "endMs": 167,
+    "description": "A man with dark hair has a gray robotic hand pressed to his face, fingers near his eye, outdoors with green trees blurred behind.",
+    "sameAsPrev": false,
+    "tokens": 3350,
+    "outputTokens": 68,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 1,
+    "startMs": 167,
+    "endMs": 2500,
+    "description": "Woman grimaces as robot scans her face.",
+    "sameAsPrev": false,
+    "tokens": 3330,
+    "outputTokens": 32,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 2,
+    "startMs": 2500,
+    "endMs": 10417,
+    "description": "Man with dark hair, eyes closed, mechanical device near face.",
+    "sameAsPrev": false,
+    "tokens": 5844,
+    "outputTokens": 40,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 3,
+    "startMs": 10417,
+    "endMs": 14042,
+    "description": "Man with cybernetic eye stares upward; woman in uniform watches.",
+    "sameAsPrev": false,
+    "tokens": 4173,
+    "outputTokens": 42,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 4,
+    "startMs": 14042,
+    "endMs": 19083,
+    "description": "Words appear: COLA I LOVE YOUR HAND",
+    "sameAsPrev": false,
+    "tokens": 2387,
+    "outputTokens": 10,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 5,
+    "startMs": 19083,
+    "endMs": 21875,
+    "description": "Man adjusts eyepiece, woman watches.",
+    "sameAsPrev": false,
+    "tokens": 3330,
+    "outputTokens": 32,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 6,
+    "startMs": 21875,
+    "endMs": 26792,
+    "description": "Woman in black-blue jacket touches man’s face; translucent wireframe overlays appear.",
+    "sameAsPrev": false,
+    "tokens": 5011,
+    "outputTokens": 46,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 7,
+    "startMs": 26792,
+    "endMs": 28792,
+    "description": "Boy faces giant robot.",
+    "sameAsPrev": false,
+    "tokens": 3326,
+    "outputTokens": 24,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 8,
+    "startMs": 28792,
+    "endMs": 35500,
+    "description": "Man in glasses stares at glowing screens.",
+    "sameAsPrev": false,
+    "tokens": 5837,
+    "outputTokens": 27,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 9,
+    "startMs": 35500,
+    "endMs": 37792,
+    "description": "Dim, smoky chamber with glowing lines.",
+    "sameAsPrev": false,
+    "tokens": 3330,
+    "outputTokens": 32,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 10,
+    "startMs": 37792,
+    "endMs": 41458,
+    "description": "Man with eyepiece aims device.",
+    "sameAsPrev": false,
+    "tokens": 4165,
+    "outputTokens": 30,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 11,
+    "startMs": 41458,
+    "endMs": 44167,
+    "description": "Man in black tactical gear aims rifle.",
+    "sameAsPrev": false,
+    "tokens": 3329,
+    "outputTokens": 30,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 12,
+    "startMs": 44167,
+    "endMs": 48625,
+    "description": "A soldier in dark gear aims a weapon at a towering robot.",
+    "sameAsPrev": false,
+    "tokens": 4172,
+    "outputTokens": 40,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 13,
+    "startMs": 48625,
+    "endMs": 51208,
+    "description": "Ornate clock tower with golden dials, debris flies past.",
+    "sameAsPrev": false,
+    "tokens": 3335,
+    "outputTokens": 42,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 14,
+    "startMs": 51208,
+    "endMs": 54875,
+    "description": "Gloved hands lift a clear lid from a metallic device.",
+    "sameAsPrev": false,
+    "tokens": 4172,
+    "outputTokens": 40,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 15,
+    "startMs": 54875,
+    "endMs": 60514,
+    "part": {
+      "of": 3,
+      "i": 0
+    },
+    "description": "The young man in the white hoodie holds a white and black robot, dim industrial background.",
+    "sameAsPrev": false,
+    "tokens": 5849,
+    "outputTokens": 50,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 16,
+    "startMs": 60514,
+    "endMs": 66153,
+    "part": {
+      "of": 3,
+      "i": 1
+    },
+    "description": "",
+    "sameAsPrev": true,
+    "tokens": 2854,
+    "outputTokens": 2,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 17,
+    "startMs": 66153,
+    "endMs": 71792,
+    "part": {
+      "of": 3,
+      "i": 2
+    },
+    "description": "The young man turns, revealing the robot's back; another man with glasses watches from behind.",
+    "sameAsPrev": false,
+    "tokens": 5898,
+    "outputTokens": 52,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 18,
+    "startMs": 71792,
+    "endMs": 75000,
+    "description": "Four figures kneel amid ruins, sunlight streaming through broken glass.",
+    "sameAsPrev": false,
+    "tokens": 3336,
+    "outputTokens": 40,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 19,
+    "startMs": 75000,
+    "endMs": 79583,
+    "description": "A large gray robot with orange stripes steps forward, crushing debris.",
+    "sameAsPrev": false,
+    "tokens": 5008,
+    "outputTokens": 40,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 20,
+    "startMs": 79583,
+    "endMs": 83125,
+    "description": "Massive robots clash amid crumbling stone pillars and dust.",
+    "sameAsPrev": false,
+    "tokens": 4170,
+    "outputTokens": 36,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 21,
+    "startMs": 83125,
+    "endMs": 90250,
+    "description": "Four figures in white suits kneel, firing weapons at two large robots advancing through a sunlit, overgrown industrial hall.",
+    "sameAsPrev": false,
+    "tokens": 5856,
+    "outputTokens": 64,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 22,
+    "startMs": 90250,
+    "endMs": 93958,
+    "description": "Dark, rope-laced industrial shaft; man in black jacket adjusts device.",
+    "sameAsPrev": false,
+    "tokens": 4174,
+    "outputTokens": 44,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 23,
+    "startMs": 93958,
+    "endMs": 95500,
+    "description": "Man in dark jacket moves arm, red light glows.",
+    "sameAsPrev": false,
+    "tokens": 3333,
+    "outputTokens": 38,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 24,
+    "startMs": 95500,
+    "endMs": 99458,
+    "description": "Dark industrial shaft; figure swings on rope, then climbs upward.",
+    "sameAsPrev": false,
+    "tokens": 4172,
+    "outputTokens": 40,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 25,
+    "startMs": 99458,
+    "endMs": 102833,
+    "description": "A man in blue and yellow gear swings on rope near organ pipes.",
+    "sameAsPrev": false,
+    "tokens": 3337,
+    "outputTokens": 42,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 26,
+    "startMs": 102833,
+    "endMs": 105542,
+    "description": "Person in dark jacket swings rope near organ.",
+    "sameAsPrev": false,
+    "tokens": 3330,
+    "outputTokens": 32,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 27,
+    "startMs": 105542,
+    "endMs": 107500,
+    "description": "Giant robot collapses amid church ruins.",
+    "sameAsPrev": false,
+    "tokens": 3329,
+    "outputTokens": 30,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 28,
+    "startMs": 107500,
+    "endMs": 113708,
+    "description": "Man in blue jacket climbs rope as organ explodes behind him.",
+    "sameAsPrev": false,
+    "tokens": 5843,
+    "outputTokens": 38,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 29,
+    "startMs": 113708,
+    "endMs": 115917,
+    "description": "Man in glasses shouts, then looks up, surrounded by glowing screens.",
+    "sameAsPrev": false,
+    "tokens": 3336,
+    "outputTokens": 42,
+    "stopReason": "end_turn"
+  },
+  {
+    "index": 30,
+    "startMs": 115917,
+    "endMs": 120000,
+    "description": "Man with cybernetic eye gestures; woman responds with raised hands.",
+    "sameAsPrev": false,
+    "tokens": 4172,
+    "outputTokens": 42,
+    "stopReason": "end_turn"
+  }
+]
