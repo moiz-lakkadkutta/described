@@ -18,7 +18,19 @@ let done: (() => void) | null = null
 let ready: { url: string; player: AudioPlayer; state: string } | null = null
 const timers: ReturnType<typeof setTimeout>[] = []
 
-function release(p: AudioPlayer | null | undefined) { try { p?.remove() } catch { /* already released */ } }
+/**
+ * Silences and frees a player now. On Android `remove()` only drops expo-audio's own map entry (AudioModule.kt
+ * `players.remove(id)`); the ExoPlayer keeps loading and plays once ready, until the JS object is garbage collected. So
+ * a clip replaced while still buffering used to start late, over the new one. `pause()` stops it at once and
+ * `release()` (SharedObject) tears the ExoPlayer down, as expo-audio's own `useAudioPlayer` cleanup does.
+ * https://docs.expo.dev/versions/latest/sdk/audio/ — https://docs.expo.dev/modules/shared-objects/
+ */
+function release(p: AudioPlayer | null | undefined) {
+  if (!p) return
+  try { p.pause() } catch { /* already released */ }
+  try { p.remove() } catch { /* already released */ }
+  try { p.release() } catch { /* already released */ }
+}
 const stateOf = (p: AudioPlayer) => { try { return (p.currentStatus as Status | undefined)?.playbackState } catch { return undefined } }
 function stopClip() {
   timers.splice(0).forEach(clearTimeout)
