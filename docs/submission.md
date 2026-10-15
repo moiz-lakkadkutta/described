@@ -120,7 +120,7 @@ describer — and delivers description through the TV's own audio-track selector
   exception ([decision 0016](decisions/0016-ship-on-glossary-titles.md)), it counts as passed for curated titles with a
   people-and-places glossary (the Sintel result); titles without a glossary are not yet at the bar (the held-out result), and
   one is published only with that caveat. The catalogue titles all have a glossary.
-- **The raters were models.** Gate C was scored by two Claude raters against frame contact sheets. A usability session
+- **The raters were models.** Gate C runs up to DESC-024 (the model-selection run and re-checks g8, g9) were scored by two Claude raters (Fable, then Opus; [0003](decisions/0003-gate-c.md)) against frame contact sheets, a shot counting only when both said usable. From g10 on, each run was scored by three blind raters, a shot counting when a majority said usable ([evaluation.md](evaluation.md#the-bar)). A usability session
   with a screen-reader user has also taken place. TODO(human): where are the session notes, so they can be linked here?
 - **Fire OS only.** Vega OS is experimental: no Vega SDK was installed and the media kit's Vega adapter is not finished
   ([decision 0004](decisions/0004-vega-deferred.md)).
