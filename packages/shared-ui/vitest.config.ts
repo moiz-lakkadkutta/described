@@ -17,5 +17,7 @@ export default defineConfig({
       { find: /^react$/, replacement: path.dirname(require.resolve('react/package.json')) },
     ],
   },
-  test: { globals: true, setupFiles: ['test/setup.ts'] },
+  // the kit now installs from npm into node_modules, which vitest externalises by default; inline it so its dist
+  // imports of react-native hit the alias above instead of Node loading react-native's Flow source
+  test: { globals: true, setupFiles: ['test/setup.ts'], server: { deps: { inline: [/@moiz0309\/vega-media-kit/] } } },
 })
