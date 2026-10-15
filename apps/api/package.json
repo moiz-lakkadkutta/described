@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@described/contracts": "workspace:*",
-    "@moizp/vega-media-kit": "^0.1.0-alpha.0",
+    "@moiz0309/vega-media-kit": "^0.2.0",
     "@prisma/client": "^6.0.0",
     "cors": "^2.8.5",
     "express": "^4.21.0",

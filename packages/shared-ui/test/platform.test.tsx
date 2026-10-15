@@ -1,6 +1,6 @@
 import React from 'react'
 import TestRenderer, { act } from 'react-test-renderer'
-import { toTransport, type RemoteKey } from '@moizp/vega-media-kit/platform'
+import { toTransport, type RemoteKey } from '@moiz0309/vega-media-kit/platform'
 import type { LaunchTarget } from '@described/contracts'
 import { Root, type PlayerSession } from '../src/index'
 import { configureRemote } from '../src/focus/remote'

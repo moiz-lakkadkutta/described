@@ -1,6 +1,6 @@
 import React, { useCallback, useRef } from 'react'
 import { AccessibilityInfo, View } from 'react-native'
-import { useFocusMemory } from '@moizp/vega-media-kit/focus'
+import { useFocusMemory } from '@moiz0309/vega-media-kit/focus'
 import { CaptionStyle, Voice, type Prefs } from '@described/contracts'
 import { Focusable, T } from '../components'
 import { pickInitialFocus } from '../focus/memory'

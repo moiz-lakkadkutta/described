@@ -5,7 +5,7 @@ export default [{
     'no-restricted-imports': ['error', {
       patterns: [{
         group: ['react-native-video', '@amazon-devices/*', 'expo-camera', 'expo-av', 'react-native-webview', 'react-native-iap', '@react-native-async-storage/*'],
-        message: 'Not allowed in shared-ui. Use @moizp/vega-media-kit (player/platform) or put platform code in apps/expo or apps/vega.'
+        message: 'Not allowed in shared-ui. Use @moiz0309/vega-media-kit (player/platform) or put platform code in apps/expo or apps/vega.'
       }]
     }]
   }

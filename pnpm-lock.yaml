@@ -7,7 +7,6 @@ settings:
 overrides:
   react: 19.1.0
   react-dom: 19.1.0
-  '@moizp/vega-media-kit': link:../vega-media-kit
 
 importers:
 
@@ -28,9 +27,9 @@ importers:
       '@described/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
-      '@moizp/vega-media-kit':
-        specifier: link:../../../vega-media-kit
-        version: link:../../../vega-media-kit
+      '@moiz0309/vega-media-kit':
+        specifier: ^0.2.0
+        version: 0.2.0(react-native-video@6.19.2(react-native@0.81.0(@babel/core@7.29.7)(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.1.0))(react@19.1.0))(react-native@0.81.0(@babel/core@7.29.7)(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.1.0))(react-tv-space-navigation@6.0.0-beta1)(react@19.1.0)
       '@prisma/client':
         specifier: ^6.0.0
         version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
@@ -110,9 +109,9 @@ importers:
       '@described/shared-ui':
         specifier: workspace:*
         version: link:../../packages/shared-ui
-      '@moizp/vega-media-kit':
-        specifier: link:../../../vega-media-kit
-        version: link:../../../vega-media-kit
+      '@moiz0309/vega-media-kit':
+        specifier: ^0.2.0
+        version: 0.2.0(react-native-video@6.19.2(react-native@0.81.0(@babel/core@7.29.7)(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.1.0))(react@19.1.0))(react-native@0.81.0(@babel/core@7.29.7)(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.1.0))(react-tv-space-navigation@6.0.0-beta1)(react@19.1.0)
       expo:
         specifier: ~54.0.0
         version: 54.0.37(@babel/core@7.29.7)(react-native@0.81.0(@babel/core@7.29.7)(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.1.0))(react@19.1.0)(typescript@5.9.3)
@@ -215,9 +214,9 @@ importers:
       '@described/contracts':
         specifier: workspace:*
         version: link:../contracts
-      '@moizp/vega-media-kit':
-        specifier: link:../../../vega-media-kit
-        version: link:../../../vega-media-kit
+      '@moiz0309/vega-media-kit':
+        specifier: ^0.2.0
+        version: 0.2.0(react-native-video@6.19.2(react-native@0.81.0(@babel/core@7.29.7)(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.1.0))(react@19.1.0))(react-native@0.81.0(@babel/core@7.29.7)(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.1.0))(react-tv-space-navigation@6.0.0-beta1)(react@19.1.0)
       '@prisma/client':
         specifier: ^6.0.0
         version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
@@ -255,9 +254,9 @@ importers:
       '@described/contracts':
         specifier: workspace:*
         version: link:../contracts
-      '@moizp/vega-media-kit':
-        specifier: link:../../../vega-media-kit
-        version: link:../../../vega-media-kit
+      '@moiz0309/vega-media-kit':
+        specifier: ^0.2.0
+        version: 0.2.0(react-native-video@6.19.2(react-native@0.81.0(@babel/core@7.29.7)(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.1.0))(react@19.1.0))(react-native@0.81.0(@babel/core@7.29.7)(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.1.0))(react-tv-space-navigation@6.0.0-beta1)(react@19.1.0)
       react-tv-space-navigation:
         specifier: 6.0.0-beta1
         version: 6.0.0-beta1
@@ -1505,6 +1504,22 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
+
+  '@moiz0309/vega-media-kit@0.2.0':
+    resolution: {integrity: sha512-gwYuQC79Iofg6q6/HyySlcRjjDMtRvSO7NITjAy7jhggvdUkuqsNAfWRQ3YE0y/y/w12oHb+jAFfwczeqhGkBw==}
+    peerDependencies:
+      '@amazon-devices/react-native-w3cmedia': '*'
+      react: 19.1.0
+      react-native: '>=0.72'
+      react-native-video: '>=6'
+      react-tv-space-navigation: '>=4'
+    peerDependenciesMeta:
+      '@amazon-devices/react-native-w3cmedia':
+        optional: true
+      react-native-video:
+        optional: true
+      react-tv-space-navigation:
+        optional: true
 
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     resolution: {integrity: sha512-oTXEIha4SsuXdTA4Iyskj0kpdx2yVXdhd75c2v3xGrHFfVMsbhTPZU/nMPL4sWKo4pBHm3aucLaqGlF696dTyQ==}
@@ -6389,6 +6404,14 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
+
+  '@moiz0309/vega-media-kit@0.2.0(react-native-video@6.19.2(react-native@0.81.0(@babel/core@7.29.7)(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.1.0))(react@19.1.0))(react-native@0.81.0(@babel/core@7.29.7)(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.1.0))(react-tv-space-navigation@6.0.0-beta1)(react@19.1.0)':
+    dependencies:
+      react: 19.1.0
+      react-native: 0.81.0(@babel/core@7.29.7)(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.1.0)
+    optionalDependencies:
+      react-native-video: 6.19.2(react-native@0.81.0(@babel/core@7.29.7)(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.1.0))(react@19.1.0)
+      react-tv-space-navigation: 6.0.0-beta1
 
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true

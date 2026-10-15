@@ -57,7 +57,7 @@ A title goes through the pipeline in `packages/pipeline` (probe → shots → sp
    with `CHARACTERISTICS="public.accessibility.describes-video"`) and up to three text tracks; S3 and CloudFront serve it.
 
 On the TV, a React Native app (Expo, Fire OS) plays it through
-[`@moizp/vega-media-kit`](https://github.com/moiz-lakkadkutta/vega-media-kit), our open-source player and cue-overlay
+[`@moiz0309/vega-media-kit`](https://github.com/moiz-lakkadkutta/vega-media-kit), our open-source player and cue-overlay
 library (the Player screen plays through its `KitPlayer` and `CueOverlay`). Fire TV integrations: Android deep links
 (`described://title/{slug}`, `described://play/{slug}?t=…`), an Android MediaSession module for remote media keys and
 Alexa transport, captions that follow the viewer's Fire TV caption settings (Android `CaptioningManager`, integration
@@ -166,10 +166,10 @@ hackathon window. vega-media-kit was also created during the window: its first c
 
 | Field | Value |
 |---|---|
-| Project | `@moizp/vega-media-kit` — React Native player wrapper (Fire OS via react-native-video; Vega adapter experimental), WebVTT cue overlay, HLS/VTT parsers that run in Node, Fire TV platform bindings, focus helpers |
+| Project | `@moiz0309/vega-media-kit` — React Native player wrapper (Fire OS via react-native-video; Vega adapter experimental), WebVTT cue overlay, HLS/VTT parsers that run in Node, Fire TV platform bindings, focus helpers |
 | Repository | https://github.com/moiz-lakkadkutta/vega-media-kit (MIT) |
-| Release tag | [`v0.1.0`](https://github.com/moiz-lakkadkutta/vega-media-kit/releases/tag/v0.1.0) (GitHub release, 2026-10-14) |
-| npm | Not published on 2026-10-15 (`npm view @moizp/vega-media-kit` → 404). TODO(human): is `@moizp/vega-media-kit@0.1.0` on npm yet (H11)? |
+| Release tag | [`v0.2.0`](https://github.com/moiz-lakkadkutta/vega-media-kit/releases/tag/v0.2.0) (GitHub release, 2026-10-15; matches the npm release); earlier [`v0.1.0`](https://github.com/moiz-lakkadkutta/vega-media-kit/releases/tag/v0.1.0) (GitHub release, 2026-10-14) |
+| npm | [`@moiz0309/vega-media-kit@0.2.0`](https://www.npmjs.com/package/@moiz0309/vega-media-kit) — 0.1.0 was a GitHub release only; 0.2.0 is the first npm release (the `@moizp` scope was never published). Published 2026-10-15, tagged [`v0.2.0`](https://github.com/moiz-lakkadkutta/vega-media-kit/releases/tag/v0.2.0). Described installs it from npm as `^0.2.0`. |
 | GitHub handle | `moiz-lakkadkutta` (owner of both repositories) |
 | Upstream contribution | [AmazonAppDev/react-native-multi-tv-app-sample#136](https://github.com/AmazonAppDev/react-native-multi-tv-app-sample/pull/136) — "fix(expo): enable ExoPlayer HLS so .m3u8 sources play on Fire TV / Android TV" (opened 2026-10-14; open, not merged, on 2026-10-15) |
 | How Described uses it | The Player screen plays through `KitPlayer` and `CueOverlay`. The pipeline's `validate` step checks its HLS output with the kit's `parseHlsMaster`, `audioTracksFromHls`, `textTracksFromHls` and `parseVtt` (`packages/pipeline/src/validate.ts`; PR #16, merged 2026-10-04; [decision 0004](decisions/0004-vega-deferred.md) §Decision 3) |
@@ -208,7 +208,7 @@ Dev tooling listed in [docs/aws.md](aws.md): Claude Code.
 | ≥ 3 Fire TV platform integrations, each with a screenshot or log in the README | **At risk — 4 implemented, 2 verified** (1 launch intents / deep links; 2 MediaSession; 3 Fire TV caption settings via CaptioningManager — **pending** device check; 4 VoiceView — **pending** device check, [DESC-035](device-checks/DESC-035.md)). Fire TV Recommendations was retired by Amazon in May 2025 (docs 404). Deep links and media keys passed on the stick (device run 2026-10-10, checks 12–13); Alexa voice transport inconclusive (2026-10-14); catalog integration is partner-only (draft feed only); Personalization is not feasible on Fire OS before the freeze ([fire-os-bindings](platform/fire-os-bindings.md)). The audio-track selector is not counted: it is HLS playback, not a platform integration. The README has no evidence section yet. TODO(human): which photos or logcat lines from the device runs go in the README as evidence? |
 | Video < 3:00, public, on the device; Vega moment | [video-script.md](video-script.md); no Vega moment, by decision 0004. **Known risk:** runbook §9 says "public on YouTube/Vimeo"; our upload is unlisted |
 | Text: what, how, who, impact with a cited number | This file |
-| Tracks declared; Open Source section with repo, tag, handle, upstream PR | Above; tag `v0.1.0` and upstream PR #136 done; npm is TODO(human) |
+| Tracks declared; Open Source section with repo, tag, handle, upstream PR | Above; tag `v0.2.0`, npm `@moiz0309/vega-media-kit@0.2.0` and upstream PR #136 done |
 | `docs/aws.md` lists every call, purpose, cost | [docs/aws.md](aws.md) |
 | Feedback (5 answers), feature requests with priorities, ≥ 8 friction logs | ✓ — friction 20, [feedback.md](feedback.md), [feature-requests.md](feature-requests.md) |
 | Tests pass in CI on the default branch; `pnpm i && pnpm dev` shows something | CI green on main at `b0adfe2` (2026-10-15, `gh run list --branch main`); `pnpm dev` runs `turbo run dev --parallel` (API `tsx watch`, Expo `expo start`; PR #10, merged 2026-10-04). TODO(human): on the final submission commit, do CI and `pnpm i && pnpm dev` (API and Expo start) both pass? |

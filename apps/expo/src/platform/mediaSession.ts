@@ -1,4 +1,4 @@
-import { mapKey, toTransport } from '@moizp/vega-media-kit/platform'
+import { mapKey, toTransport } from '@moiz0309/vega-media-kit/platform'
 import type { MediaSessionBinding, Transport } from '@described/shared-ui'
 
 /**

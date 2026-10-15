@@ -4,7 +4,7 @@ This directory is created **on a Mac/Linux machine with the Vega SDK** using the
 
 ```
 cd apps && vega project create vega --template hello-world   # exact command per Amazon's Vega docs for SDK 0.24
-cd vega && pnpm add @described/shared-ui@workspace:* @moizp/vega-media-kit
+cd vega && pnpm add @described/shared-ui@workspace:* @moiz0309/vega-media-kit
 # follow AmazonAppDev/vega-video-sample's post-install to vendor Shaka
 # replace App.tsx with ./App.template.tsx
 vega virtual-device start && npm run build:app && vega run-app build/aarch64-release/described_aarch64.vpkg

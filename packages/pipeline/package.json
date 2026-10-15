@@ -19,7 +19,7 @@
     "@aws-sdk/client-transcribe": "^3.700.0",
     "@aws-sdk/lib-storage": "^3.700.0",
     "@described/contracts": "workspace:*",
-    "@moizp/vega-media-kit": "^0.1.0-alpha.0",
+    "@moiz0309/vega-media-kit": "^0.2.0",
     "@prisma/client": "^6.0.0",
     "commander": "^12.1.0",
     "execa": "^9.5.0",

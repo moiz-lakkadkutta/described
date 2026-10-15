@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { serializeVtt } from '@moizp/vega-media-kit/core'
+import { serializeVtt } from '@moiz0309/vega-media-kit/core'
 import { db } from '../lib/db'
 import { env } from '../lib/env'
 import { notFound, ok } from '../lib/http'

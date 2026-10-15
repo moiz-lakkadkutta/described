@@ -1,7 +1,7 @@
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { parseVtt } from '@moizp/vega-media-kit/core'
+import { parseVtt } from '@moiz0309/vega-media-kit/core'
 import { EXTENDED_WORDS, fit } from '../src/steps/05-fit'
 import type { Described } from '../src/steps/04-describe'
 import type { FitCue } from '../src/steps/05-fit'

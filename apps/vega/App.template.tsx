@@ -1,7 +1,7 @@
 import React from 'react'
 import { Root, configureRemote } from '@described/shared-ui'
 import type { KeySource } from '@described/shared-ui'
-import { mapKey } from '@moizp/vega-media-kit/platform'
+import { mapKey } from '@moiz0309/vega-media-kit/platform'
 // Vega's TVEventHandler is exported by the Kepler package, not react-native:
 // https://developer.amazon.com/docs/react-native-vega/0.72/using_tveventhandler.html
 // manifest.toml needs `[[wants.service]] id = "com.amazon.inputd.service"` for remote button events.

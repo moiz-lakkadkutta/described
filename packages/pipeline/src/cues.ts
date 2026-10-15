@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
-import { serializeVtt } from '@moizp/vega-media-kit/core'
+import { serializeVtt } from '@moiz0309/vega-media-kit/core'
 import type { FitCue } from './steps/05-fit'
 
 /**
