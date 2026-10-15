@@ -1,4 +1,4 @@
-import type { AudioTrack, HlsRendition, KitPlayerRef, PlayerState, TextTrack } from '@moizp/vega-media-kit'
+import type { AudioTrack, HlsRendition, KitPlayerRef, PlayerState, TextTrack } from '@moiz0309/vega-media-kit'
 import type { Prefs } from '@described/contracts'
 import { captionName } from './models'
 import { strings } from './strings'

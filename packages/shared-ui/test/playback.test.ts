@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { audioTracksFromHls, parseHlsMaster, textTracksFromHls, type TextTrack } from '@moizp/vega-media-kit/core'
+import { audioTracksFromHls, parseHlsMaster, textTracksFromHls, type TextTrack } from '@moiz0309/vega-media-kit/core'
 import {
   audioTrackFor, captionTrackFor, characteristicsByUri, clampSeek, clock, crossfadeAudio, resumePoint, seekStep, statusLine, textSelection,
 } from '../src/playback'

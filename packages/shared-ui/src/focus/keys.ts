@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import type { RemoteKey } from '@moizp/vega-media-kit/platform'
+import type { RemoteKey } from '@moiz0309/vega-media-kit/platform'
 
 /**
  * The one place raw remote keys go before spatial navigation. configureRemote's single platform subscription calls

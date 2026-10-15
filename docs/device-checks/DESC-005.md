@@ -7,7 +7,7 @@ Run on the stick (AFTSS, Fire OS 7). D-pad only after launch. Tick each box; any
 
 - [ ] Android SDK + JDK 17 installed, `adb` on PATH; stick: Settings → My Fire TV → Developer options → ADB debugging **on**.
 - [ ] Nothing else on port 8081 (friction 2026-09-26 "expo port 8081 wrong bundle"): `lsof -i :8081` is empty.
-- [ ] `pnpm install` at the repo root (the kit must be checked out at `../vega-media-kit`).
+- [ ] `pnpm install` at the repo root (the kit comes from npm as `@moiz0309/vega-media-kit`).
 - [ ] API with the published Sintel row: `pnpm db:up && pnpm db:migrate`, `.env` has `CLOUDFRONT_DOMAIN=dco7qa0c4m1pw.cloudfront.net`, then `pnpm api`.
 - [ ] `curl -s -H 'x-device-id: stick' http://localhost:4000/catalog` lists `sintel-90-210`.
 - [ ] After launch, the API log / `Profile` table shows a new profile with deviceId `fireos-<android id>` (not `dev-device`).

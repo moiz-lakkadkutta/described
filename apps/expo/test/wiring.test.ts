@@ -37,7 +37,7 @@ const emitter = vi.hoisted(() => {
   return { l, emit: (ev: string, keyCode: number) => (l[ev] ?? []).forEach((f) => f({ keyCode })) }
 })
 vi.mock('react-native', () => ({ DeviceEventEmitter: { addListener: (ev: string, f: (e: { keyCode: number }) => void) => { (emitter.l[ev] ??= []).push(f); return { remove() {} } } } }))
-vi.mock('@moizp/vega-media-kit/platform', () => ({ mapKey: (c: number) => ({ 23: 'select', 22: 'right', 4: 'back' } as Record<number, string>)[c] }))
+vi.mock('@moiz0309/vega-media-kit/platform', () => ({ mapKey: (c: number) => ({ 23: 'select', 22: 'right', 4: 'back' } as Record<number, string>)[c] }))
 
 describe('key hub', () => {
   it('a held key reports repeat until it is released', () => {

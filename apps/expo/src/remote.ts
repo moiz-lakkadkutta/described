@@ -1,5 +1,5 @@
 import { DeviceEventEmitter } from 'react-native'
-import { mapKey } from '@moizp/vega-media-kit/platform'
+import { mapKey } from '@moiz0309/vega-media-kit/platform'
 import type { KeySource } from '@described/shared-ui'
 import { createKeyHub } from './keys'
 /**

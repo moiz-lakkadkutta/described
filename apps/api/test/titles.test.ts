@@ -1,5 +1,5 @@
 import { serve } from './serve'
-import { parseVtt } from '@moizp/vega-media-kit/core'
+import { parseVtt } from '@moiz0309/vega-media-kit/core'
 const findUnique = vi.fn()
 vi.mock('../src/lib/db', () => ({ db: { title: { findUnique: (...a: unknown[]) => findUnique(...a) } } }))
 const { createApp } = await import('../src/app')

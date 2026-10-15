@@ -1,4 +1,4 @@
-// Metro for a pnpm monorepo plus the linked vega-media-kit — friction 2026-09-26 "Metro exports condition order".
+// Metro for a pnpm monorepo plus @moiz0309/vega-media-kit from npm — friction 2026-09-26 "Metro exports condition order".
 // https://docs.expo.dev/guides/monorepos/ · https://metrobundler.dev/docs/resolution/ · https://metrobundler.dev/docs/package-exports/
 const { getDefaultConfig } = require('expo/metro-config')
 const { publicEnvKey } = require('./scripts/public-env')
@@ -8,16 +8,13 @@ const path = require('path')
 const app = __dirname
 const root = path.resolve(app, '../..')
 const sharedUi = path.join(root, 'packages/shared-ui')
-const kit = fs.realpathSync(path.join(app, 'node_modules/@moizp/vega-media-kit')) // link: override → outside the repo
+const kit = fs.realpathSync(path.join(app, 'node_modules/@moiz0309/vega-media-kit')) // pnpm symlink → node_modules/.pnpm/…
 const kitPkg = require(path.join(kit, 'package.json'))
-const esc = (p) => p.replace(/[/\\^$*+?.()|[\]{}]/g, '\\$&')
 
 const config = getDefaultConfig(app)
-config.watchFolders = [root, kit]
+config.watchFolders = [root]
 config.resolver.nodeModulesPaths = [path.join(app, 'node_modules'), path.join(root, 'node_modules')]
 config.resolver.unstable_enableSymlinks = true // pnpm: every package is a symlink into node_modules/.pnpm
-// The kit's own node_modules hold its dev copies of react / react-native: never bundle them (duplicate React).
-config.resolver.blockList = [].concat(config.resolver.blockList ?? [], [new RegExp(`^${esc(path.join(kit, 'node_modules'))}[/\\\\].*`)])
 
 // One copy each in the bundle, resolved from the package that depends on it.
 const singletons = { react: app, 'react-native': app, 'react-native-video': app, 'react-tv-space-navigation': sharedUi }

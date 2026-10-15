@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AccessibilityInfo, BackHandler, View } from 'react-native'
 import { SpatialNavigationRoot, useLockSpatialNavigation } from 'react-tv-space-navigation'
-import { useDpad } from '@moizp/vega-media-kit/focus'
+import { useDpad } from '@moiz0309/vega-media-kit/focus'
 import type { About as AboutData, Catalog, MyList as MyListData, Prefs, PromptKey, TitleDetail } from '@described/contracts'
 import { screenReaderOn } from './a11y'
 import { Focusable, FontsLoadedContext, Rail, Screen, T } from './components'

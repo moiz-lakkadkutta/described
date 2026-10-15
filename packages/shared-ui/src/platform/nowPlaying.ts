@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react'
-import type { TransportControl } from '@moizp/vega-media-kit/platform'
+import type { TransportControl } from '@moiz0309/vega-media-kit/platform'
 import { SEEK_STEP_S } from '../playback'
 import type { PlayerSession } from '../screens/Player'
 import type { CaptioningBinding } from './captioning'

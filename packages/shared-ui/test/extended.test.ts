@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { parseVtt } from '@moizp/vega-media-kit/core'
+import { parseVtt } from '@moiz0309/vega-media-kit/core'
 import { ExtendedScheduler, extendedCues, MAX_TICK_S, PREFETCH_AHEAD_S } from '../src/extended'
 
 const VTT = readFileSync(path.resolve(__dirname, 'fixtures/descriptions.vtt'), 'utf8')

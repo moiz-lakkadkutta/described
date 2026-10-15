@@ -1,7 +1,7 @@
 import React from 'react'
 import { View } from 'react-native'
 import { SpatialNavigationNode, SpatialNavigationScrollView } from 'react-tv-space-navigation'
-import { FocusRow } from '@moizp/vega-media-kit/focus'
+import { FocusRow } from '@moiz0309/vega-media-kit/focus'
 import { T } from './Text'
 import { tokens } from '../theme/tokens'
 import { px } from '../theme/scale'

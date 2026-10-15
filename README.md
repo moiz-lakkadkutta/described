@@ -11,7 +11,7 @@ ffmpeg ducks the soundtrack, and the narration arrives through the player's own 
 rendition. Extended mode pauses the film when there's more to say than the gap allows (WCAG 1.2.7). Description is **on by default**.
 
 Built for the [Build, Ship, Shape: Amazon Developer Hackathon](https://amazonappdev2026.devpost.com/) — Fire TV track,
-AWS Builder and Open Source mini-challenges. Shares [`@moizp/vega-media-kit`](https://github.com/moiz-lakkadkutta/vega-media-kit)
+AWS Builder and Open Source mini-challenges. Shares [`@moiz0309/vega-media-kit`](https://github.com/moiz-lakkadkutta/vega-media-kit)
 with [Lingo](https://github.com/moiz-lakkadkutta/lingo). MIT.
 
 > Described is machine-drafted description for the long tail that has none. It follows the Netflix, Prime Video and DCMP
@@ -94,7 +94,7 @@ source mp4 (S3) ─▶ probe ─▶ shots ─▶ speech ─▶ describe ─▶ f
                                      Transcribe  Qwen3-VL    Nova Lite      Polly    ffmpeg  Nova Lite  Shaka     kit parsers   S3
                                                  (Bedrock)   (Bedrock)                       (SDH)      Packager
                                                                                                                     │
-apps/expo (Fire OS) ─▶ packages/shared-ui ─▶ @moizp/vega-media-kit (KitPlayer, CueOverlay) ◀── HLS over CloudFront ┘
+apps/expo (Fire OS) ─▶ packages/shared-ui ─▶ @moiz0309/vega-media-kit (KitPlayer, CueOverlay) ◀── HLS over CloudFront ┘
         │                                                                   /published/{slug}/master.m3u8
         └── apps/api (Express, Prisma, pg-boss, Postgres): catalog, title detail, prefs, progress, My list, cue audio
 ```
@@ -197,11 +197,10 @@ Not everything scales with length:
 
 Needs Node ≥ 22, pnpm 9, ffmpeg, Shaka Packager (`packager`) for the pipeline, Android platform tools (`adb`) for the stick,
 and AWS credentials only for pipeline runs (they are paid; see [docs/aws.md](docs/aws.md)).
-vega-media-kit is linked from a sibling checkout (`link:../vega-media-kit` in `package.json`), so clone it next to this repo.
+vega-media-kit comes from npm (`@moiz0309/vega-media-kit`), so `pnpm i` is all it needs.
 
 1. **Install and configure**
    ```sh
-   git clone https://github.com/moiz-lakkadkutta/vega-media-kit ../vega-media-kit
    pnpm i
    cp .env.example .env        # set ADMIN_TOKEN (the /admin routes answer 401 without it) and the infra outputs (S3_BUCKET_MEDIA, CLOUDFRONT_DOMAIN, …)
    ```

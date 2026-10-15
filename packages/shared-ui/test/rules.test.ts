@@ -41,7 +41,7 @@ describe('platform wiring', () => {
       expect(existsSync(path.resolve(__dirname, `../../../apps/expo/assets/fonts/${fam}.ttf`)), fam).toBe(true)
   })
   it('shared-ui imports no native module outside the Vega-supported list', () => {
-    const allowed = /^(react|react-native|react-tv-space-navigation|@moizp\/vega-media-kit(\/\w+)?|@described\/contracts)$/
+    const allowed = /^(react|react-native|react-tv-space-navigation|@moiz0309\/vega-media-kit(\/\w+)?|@described\/contracts)$/
     for (const f of files(src)) for (const m of readFileSync(f, 'utf8').matchAll(/from '([^.][^']*)'/g)) expect(m[1], f).toMatch(allowed)
   })
 })

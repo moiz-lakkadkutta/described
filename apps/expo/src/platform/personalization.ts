@@ -1,4 +1,4 @@
-import { personalization } from '@moizp/vega-media-kit/platform'
+import { personalization } from '@moiz0309/vega-media-kit/platform'
 import type { PlaybackReporter } from '@described/shared-ui'
 
 /**
