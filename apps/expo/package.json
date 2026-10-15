@@ -14,7 +14,7 @@
   "dependencies": {
     "@described/contracts": "workspace:*",
     "@described/shared-ui": "workspace:*",
-    "@moizp/vega-media-kit": "^0.1.0-alpha.0",
+    "@moiz0309/vega-media-kit": "^0.2.0",
     "expo": "~54.0.0",
     "expo-application": "~7.0.8",
     "expo-audio": "~1.1.1",

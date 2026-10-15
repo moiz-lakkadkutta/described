@@ -16,15 +16,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { path: app }
-      # The kit is consumed via a `link:../vega-media-kit` override until 0.1.0 is on npm; check it out as a sibling and build it.
-      - uses: actions/checkout@v4
-        with: { repository: moiz-lakkadkutta/vega-media-kit, path: vega-media-kit }
       - uses: pnpm/action-setup@v4
         with: { package_json_file: app/package.json }
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
-      - run: pnpm install --frozen-lockfile && pnpm build
-        working-directory: vega-media-kit
       # ffmpeg for the real-ffmpeg tests (voice activity, clip duration); they are skipped without it
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: pnpm install --frozen-lockfile

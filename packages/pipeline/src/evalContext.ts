@@ -4,7 +4,7 @@ export { assign, mentions } from './glossary'
 import { settingLead } from './sceneSetting'
 import { textSpans } from './textClause'
 import { textClauses } from './steps/05-fit'
-import { parseVtt } from '@moizp/vega-media-kit/core'
+import { parseVtt } from '@moiz0309/vega-media-kit/core'
 import type { Word } from './steps/03-speech'
 
 /**

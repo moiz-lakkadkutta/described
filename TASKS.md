@@ -68,7 +68,7 @@ checks 1–13 passed; check 14 (Alexa) failed for fast forward / rewind and was 
     VTT faults found in `docs/titles.md`; rows in `apps/api/prisma/titles.json` (`pnpm titles:seed`, also the Prisma seed); the CLI writes
     durationS, voice, language, cues and tracks and marks the title published itself (`persistForCli`)
   - [ ] device (human): physical 4K Select; TTFF < 2 s on the new titles
-  - `build:tv` (EAS) cannot work while the kit comes from the `link:../vega-media-kit` override: EAS uploads only this repo; publish the kit (0.1.0) or vendor it first. Build locally with `expo run:android --variant release` until then
+  - `build:tv` (EAS): the kit now comes from npm (`@moiz0309/vega-media-kit@^0.2.0`), so the old `link:../vega-media-kit` blocker is gone; an EAS build is not yet verified. `expo run:android --variant release` still works locally
   - [x] hardware decode on the stick with the 1920×818 L4.0 rendition: `OMX.MTK.VIDEO.DECODER.AVC`, no software fallback (device run check 4).
     First frame 1.8–2.1 s on the stick, so TTFF < 2 s is not met on every try; re-measure on the 4K Select
   - [x] poster and hero stills from probe, admin `posterKey` / `heroKey` (#13)

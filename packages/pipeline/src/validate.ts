@@ -1,7 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 import { resolve } from 'node:path'
-import { audioTracksFromHls, normalizeRoles, parseHlsMaster, parseVtt, textTracksFromHls, type HlsMaster } from '@moizp/vega-media-kit/core'
+import { audioTracksFromHls, normalizeRoles, parseHlsMaster, parseVtt, textTracksFromHls, type HlsMaster } from '@moiz0309/vega-media-kit/core'
 import type { PackageReport } from './steps/09-package'
 
 /**

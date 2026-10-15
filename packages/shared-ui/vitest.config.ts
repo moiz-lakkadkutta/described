@@ -5,17 +5,19 @@ import { defineConfig } from 'vitest/config'
 // Screens render under react-test-renderer: react-native and react-tv-space-navigation are replaced by host-string
 // stubs (test/stubs); the kit's focus module is taken from its source, with React deduped to this package's copy.
 const require = createRequire(import.meta.url)
-const kit = realpathSync(path.resolve(__dirname, 'node_modules/@moizp/vega-media-kit'))
+const kit = realpathSync(path.resolve(__dirname, 'node_modules/@moiz0309/vega-media-kit')) // pnpm symlink; the package ships src/
 export default defineConfig({
   resolve: {
     alias: [
       { find: /^react-native$/, replacement: path.resolve(__dirname, 'test/stubs/react-native.tsx') },
       { find: /^react-tv-space-navigation$/, replacement: path.resolve(__dirname, 'test/stubs/space-navigation.tsx') },
-      { find: /^@moizp\/vega-media-kit\/focus$/, replacement: path.join(kit, 'src/focus/index.ts') },
+      { find: /^@moiz0309\/vega-media-kit\/focus$/, replacement: path.join(kit, 'src/focus/index.ts') },
       { find: /^kit-focus-memory$/, replacement: path.join(kit, 'src/focus/useFocusMemory.ts') }, // same module, for _resetFocusMemory
-      { find: /^@moizp\/vega-media-kit$/, replacement: path.resolve(__dirname, 'test/stubs/kit.tsx') },
+      { find: /^@moiz0309\/vega-media-kit$/, replacement: path.resolve(__dirname, 'test/stubs/kit.tsx') },
       { find: /^react$/, replacement: path.dirname(require.resolve('react/package.json')) },
     ],
   },
-  test: { globals: true, setupFiles: ['test/setup.ts'] },
+  // the kit now installs from npm into node_modules, which vitest externalises by default; inline it so its dist
+  // imports of react-native hit the alias above instead of Node loading react-native's Flow source
+  test: { globals: true, setupFiles: ['test/setup.ts'], server: { deps: { inline: [/@moiz0309\/vega-media-kit/] } } },
 })

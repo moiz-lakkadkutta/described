@@ -1,5 +1,5 @@
 import { SpatialNavigation } from 'react-tv-space-navigation'
-import type { RemoteKey } from '@moizp/vega-media-kit/platform'
+import type { RemoteKey } from '@moiz0309/vega-media-kit/platform'
 import { interceptKey } from './keys'
 
 /**

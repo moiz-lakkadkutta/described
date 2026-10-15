@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@described/contracts": "workspace:*",
-    "@moizp/vega-media-kit": "^0.1.0-alpha.0",
+    "@moiz0309/vega-media-kit": "^0.2.0",
     "react-tv-space-navigation": "6.0.0-beta1"
   },
   "peerDependencies": {

@@ -31,8 +31,7 @@
   "pnpm": {
     "overrides": {
       "react": "19.1.0",
-      "react-dom": "19.1.0",
-      "@moizp/vega-media-kit": "link:../vega-media-kit"
+      "react-dom": "19.1.0"
     }
   }
 }

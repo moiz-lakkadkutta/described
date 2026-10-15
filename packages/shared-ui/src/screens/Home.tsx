@@ -1,7 +1,7 @@
 import React, { useCallback } from 'react'
 import { Image, View } from 'react-native'
 import { SpatialNavigationNode, SpatialNavigationScrollView } from 'react-tv-space-navigation'
-import { useFocusMemory } from '@moizp/vega-media-kit/focus'
+import { useFocusMemory } from '@moiz0309/vega-media-kit/focus'
 import type { Catalog } from '@described/contracts'
 import { AdBadge, Card, Focusable, Row, SkeletonCard, T } from '../components'
 import { pickInitialFocus } from '../focus/memory'

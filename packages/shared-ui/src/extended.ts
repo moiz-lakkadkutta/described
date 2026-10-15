@@ -1,4 +1,4 @@
-import type { Cue } from '@moizp/vega-media-kit/core'
+import type { Cue } from '@moiz0309/vega-media-kit/core'
 
 /**
  * Extended mode without React (DESC-007): which `{extended=1}` description cue a position tick starts, and which one

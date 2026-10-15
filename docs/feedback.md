@@ -10,7 +10,7 @@ Device throughout: Fire TV Stick `AFTSS`, Fire OS 7.7.1.6 (Android 9, API 28), o
 | Tool | Why | How we use it |
 |---|---|---|
 | React Native 0.81 + Expo SDK 54 | One TV codebase, Vega-ready screens | `apps/expo`, local release builds; old architecture because of the key source |
-| react-native-video 6.19.2 → ExoPlayer (media3 1.8.0), via our `@moizp/vega-media-kit` | HLS alternate audio, WebVTT | Player screen (`KitPlayer`, `CueOverlay`) |
+| react-native-video 6.19.2 → ExoPlayer (media3 1.8.0), via our `@moiz0309/vega-media-kit` | HLS alternate audio, WebVTT | Player screen (`KitPlayer`, `CueOverlay`) |
 | AmazonAppDev/react-native-multi-tv-app-sample @ 92c6f7c | Fastest path to the stick | Week-0 spike harness; its keyevent plugin pattern is in `apps/expo/plugins/withKeyEvent.js` |
 | react-tv-space-navigation 6.0.0-beta1 + react-native-keyevent 0.3.2 | D-pad focus proven on Fire OS | All focusable screens |
 | Android `MediaSession` ([Amazon guide](https://developer.amazon.com/docs/fire-tv/mediasession-api-integration.html)) + deep links | Alexa transport; launch into a title | ~220-line Kotlin Expo module `described-media-session` ([bindings §4](platform/fire-os-bindings.md#4-media-controls-and-alexa-transport)); `described://title/{slug}`, `described://play/{slug}?t=…` ([§2](platform/fire-os-bindings.md#2-launch-and-deep-link-intents)) |

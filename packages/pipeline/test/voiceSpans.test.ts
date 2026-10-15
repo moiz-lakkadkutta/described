@@ -1,4 +1,4 @@
-import { parseVtt } from '@moizp/vega-media-kit/core'
+import { parseVtt } from '@moiz0309/vega-media-kit/core'
 import { stripPublishedVoiceSpans, stripVoiceSpans, type RepublishDeps } from '../src/voiceSpans'
 
 // Copied from the bucket on 2026-10-14: published/elephants-dream-0-60/captions.vtt (head) and sintel-90-150-r2/sdh/9.vtt.

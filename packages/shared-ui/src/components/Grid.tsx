@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect } from 'react'
 import { View } from 'react-native'
 import { SpatialNavigationNode, SpatialNavigationScrollView } from 'react-tv-space-navigation'
-import { FocusRow, useFocusMemory } from '@moizp/vega-media-kit/focus'
+import { FocusRow, useFocusMemory } from '@moiz0309/vega-media-kit/focus'
 import type { CatalogItem } from '@described/contracts'
 import { Card, SkeletonCard } from './Card'
 import { T } from './Text'

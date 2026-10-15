@@ -1,6 +1,6 @@
 import { BedrockRuntimeClient, ConverseCommand, type ConverseCommandInput, type ConverseCommandOutput } from '@aws-sdk/client-bedrock-runtime'
 import { z } from 'zod'
-import type { Cue } from '@moizp/vega-media-kit/core'
+import type { Cue } from '@moiz0309/vega-media-kit/core'
 import type { Shot } from './steps/02-shots'
 import type { Gap } from './steps/03-speech'
 import type { FitCue, } from './steps/05-fit'
