@@ -67,6 +67,11 @@ describe('1. a shortened cue keeps the shot\'s action; a place is never the cue 
     expect(editReadsAsSentences('Old man pours broth.', 'In the tent.', ['In the tent, old man pours broth.'])).toMatch(/prepositional/)
     // kept: on-screen text, 0011's fail-open noun phrases, and a place said beside an action
     expect(readsAsSentences('Words appear: SINTEL. A figure walks.', 'Words appear: SINTEL.')).toBeUndefined()
+    // #56 (DESC-031): the neutral "Words appear." kept whole is still accepted, alone or beside the action; cutting it is still rejected
+    expect(readsAsSentences('A man waves slowly. Words appear.', 'A man waves. Words appear.')).toBeUndefined()
+    expect(readsAsSentences('Words appear. A man runs.', 'Words appear.')).toBeUndefined()
+    expect(keepsAction('Words appear. A man runs.', 'Words appear.')).toBe(true)
+    expect(readsAsSentences('A man waves slowly. Words appear.', 'A man waves. Words.')).toBeDefined()
     expect(readsAsSentences('Snowy mountains. A lone figure walks left.', 'Snowy mountains. A figure walks left.')).toBeUndefined()
     expect(readsAsSentences('Two hands hold a red bowl; mist swirls inside.', 'Two hands hold a red bowl.')).toBeUndefined()
     expect(readsAsSentences(shot4, 'In the tent, an old man grips his staff.')).toBeUndefined()
