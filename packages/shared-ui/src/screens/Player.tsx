@@ -233,15 +233,17 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
   /**
    * Every position tick: start an extended cue crossed in playback; prefetch the next one 10 s ahead. Not gated on the
    * reported state (onState can lag the tick, and the scheduler has already moved past the cue): any forward crossing
-   * counts, except while ◄► is held (the viewer is leaving this place).
+   * counts, except while ◄► is held (the viewer is leaving this place). The crossed cue is spoken before the next one is
+   * prefetched: the platform keeps one prefetched clip, so prefetching first would drop the clip about to play and load it again.
    */
   const extendedTick = (s: number) => {
     const t = scheduler.current?.tick(s)
     if (!t || !extendedOn) return
+    if (t.triggers.length && scrubRef.current === null) {
+      queue.current.push(...t.triggers)
+      if (!ext.current) startExtended(queue.current.shift()!, stateRef.current === 'paused' && !ownPause.current) // crossed as the viewer paused: stay paused after
+    }
     if (t.upcoming && prefetched.current !== t.upcoming.id) { prefetched.current = t.upcoming.id; prefetch(cueAudioUrl!(title.slug, t.upcoming.id)) }
-    if (!t.triggers.length || scrubRef.current !== null) return
-    queue.current.push(...t.triggers)
-    if (!ext.current) startExtended(queue.current.shift()!, stateRef.current === 'paused' && !ownPause.current) // crossed as the viewer paused: stay paused after
   }
 
   // Chrome hides after 4 s of playing with no key; it stays while paused, loading, stopped or the sheet is open.

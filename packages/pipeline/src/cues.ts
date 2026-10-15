@@ -18,6 +18,8 @@ import type { FitCue } from './steps/05-fit'
  */
 export const vttCueId = (i: number) => `d${i + 1}`
 export const cueAudioFile = (i: number) => `cue_${i}.mp3`
+/** The clip the app plays for cue i: cue_{i}.mp3 at the AD track's narration level (07-mix writeTrackClips). 10-publish uploads it. */
+export const trackClipFile = (i: number) => `cue_${i}.track.mp3`
 /** First 12 hex of the clip's SHA-256. */
 export const clipHash = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex').slice(0, 12)
 export const cueAudioKey = (slug: string, i: number, hash: string) => `published/${slug}/cues/cue_${i}.${hash}.mp3`

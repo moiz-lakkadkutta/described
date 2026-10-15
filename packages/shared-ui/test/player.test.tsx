@@ -633,6 +633,16 @@ describe('Extended mode (DESC-007)', () => {
     tick(30, 30)
     expect(au.prefetch).toHaveBeenLastCalledWith(clip('d3')); expect(au.prefetch).toHaveBeenCalledTimes(2)
   })
+  it('speaks the cue it crossed before prefetching the next one, so the next prefetch does not drop the clip it is about to play', async () => {
+    // Sintel d29 at 194.5 s and d31 at 204.7 s (logcat 2026-10-15): the tick that crossed d29 prefetched d31 first, which released
+    // d29's prefetched player, so d29 loaded again from the network while the film was paused.
+    const near = vtt.replace('00:00:40.000 --> 00:00:40.833', '00:00:29.900 --> 00:00:30.733')
+    await start({}, near); tick(10, 20)
+    expect(au.prefetch).toHaveBeenCalledTimes(2)
+    expect(au.prefetch.mock.calls.map((c) => c[0])).toEqual([clip('d2'), clip('d3')])
+    expect(au.speak).toHaveBeenCalledWith(clip('d2'))
+    expect(au.speak.mock.invocationCallOrder[0]).toBeLessThan(au.prefetch.mock.invocationCallOrder[1]!)
+  })
   it('reads the whole descriptions VTT once, from the API, before any tick and before the tracks arrive', async () => {
     vi.stubGlobal('fetch', vi.fn((url: string) => (url === descUrl ? Promise.resolve({ ok: true, text: async () => vtt }) : new Promise(() => {}))))
     mount({ cueAudioUrl, descriptionsUrl: descUrl, speak: vi.fn(async () => {}) }); await flush()
