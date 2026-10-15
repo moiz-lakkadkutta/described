@@ -143,21 +143,19 @@ export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, max
       }
       if (placed) continue
       /**
-       * A pause never starts before the estimated end of an earlier shot's placed cue (g9: shot 9's event pause inside shot 8's cue), and
-       * never more than LATE_MS after its own shot ends (decision 0012 amendment: g10 shots 19 and 24 started 1575 and 1025 ms late,
-       * tos-390-510-g10 shot 13 1397 ms, after a long earlier cue); then there is no pause.
+       * A pause never starts before the estimated end of an earlier shot's placed cue (g9: shot 9's event pause inside shot 8's cue). It may
+       * then start more than LATE_MS after its shot when that estimate runs long; 06-voice moves it to the measured end, earlier, and
+       * applies the on-time rule there (decision 0012 amendment, 2026-10-15: g10 shots 19 and 24, tos-390-510-g10 shot 13).
        */
-      const pause = (): FitCue | undefined => {
+      const pause = (): FitCue => {
         const startMs = Math.max(s.startMs, ...out.filter((x) => !x.extended && x.shotIndex < s.index).map((x) => x.endMs))
-        if (startMs > s.endMs + LATE_MS) { console.warn(`fit: shot ${s.index}'s pause would start ${startMs - s.endMs} ms after the shot; no pause:`, JSON.stringify(s.description)); return undefined }
         return { ...extended(s), startMs, endMs: startMs + 100 }
       }
-      if (introducesNew(s.description)) { const p = pause(), capped = p && await capExtended(s.description, shorten, language); if (p && capped) out.push({ ...p, ...capped }); continue } // no cap that reads as sentences: dropped
+      if (introducesNew(s.description)) { const capped = await capExtended(s.description, shorten, language); if (capped) out.push({ ...pause(), ...capped }); continue } // no cap that reads as sentences: dropped
       const previous = [...out].reverse().find((x) => !x.extended)?.text ?? '' // the previous placed cue: what the AD track said, whatever the mode
       const verbs = plotEvents(s.description, previous)
-      const p = verbs.length ? pause() : undefined
-      const capped = p ? await capExtended(s.description, shorten, language) : undefined
-      if (p && capped) events.push({ cue: { ...p, ...capped, event: true }, verbs: verbs.length, fresh: newWords(s.description, previous) })
+      const capped = verbs.length ? await capExtended(s.description, shorten, language) : undefined
+      if (capped) events.push({ cue: { ...pause(), ...capped, event: true }, verbs: verbs.length, fresh: newWords(s.description, previous) })
     }
     const all = [...out, ...capEvents(events)]
     return (opts.scenes && opts.scenePauses !== false ? scenePauses(opts.scenes, all, glossary, shots.map((x) => ({ ...x, description: groundedDescription(x, opts.scenes, glossary) }))) : all).sort(byStart)

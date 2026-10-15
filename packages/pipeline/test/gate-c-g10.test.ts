@@ -169,32 +169,79 @@ describe('2. a scene label is a place, never a light or condition word', () => {
   })
 })
 
-describe('3. no cue starts more than LATE_MS after its shot; placed cues never overlap', () => {
-  for (const [name, r] of [['sintel-90-210-g10', g10], ['tos-390-510-g10', tos]] as const) {
-    it(`${name} replay`, async () => {
-      const x = r(), cues = await fitRun(x)
-      for (const c of cues) expect(late(x, c), `${c.shotIndex}: ${c.text}`).toBeLessThanOrEqual(LATE_MS)
-      const placed = cues.filter((c) => !c.extended).sort((a, b) => a.startMs - b.startMs)
-      for (let i = 1; i < placed.length; i++) expect(placed[i]!.startMs).toBeGreaterThanOrEqual(placed[i - 1]!.endMs)
+/**
+ * fit's cues voiced with the recorded clip lengths (the run's cue_N.json sidecars: text → duration, speech); a text the run did not voice
+ * gets 300 ms a word + 300 ms. Polly is faked (the clip's bytes are its text). No AWS call.
+ */
+async function voiceRun(name: string, x: Run, cues: FitCue[]): Promise<FitCue[]> {
+  const clips = new Map(fixture<{ text: string; durationMs: number; speechMs?: number }[]>(`${name}.clips.json`).map((c) => [c.text, c]))
+  const est = (t: string) => t.split(/\s+/).length * 300 + 300
+  const work = await mkdtemp(join(tmpdir(), 'replay-'))
+  try {
+    await writeFile(`${work}/shots.json`, JSON.stringify(x.shots.map((s) => ({ index: s.index, startMs: s.startMs, endMs: s.endMs }))))
+    await writeFile(`${work}/cues.json`, JSON.stringify(cues))
+    const text = (f: string) => readFile(f, 'utf8')
+    await voice({ slug: name, source: 's.mp4', language: 'en', voice: 'Joanna', work }, {
+      synthesize: async (t) => new TextEncoder().encode(t),
+      measureMs: async (f) => { const t = await text(f); return clips.get(t)?.durationMs ?? est(t) },
+      measureSpeechMs: async (f) => { const t = await text(f); return clips.get(t)?.speechMs ?? est(t) - 120 },
     })
-  }
+    return JSON.parse(await readFile(`${work}/cues.json`, 'utf8')) as FitCue[]
+  } finally { await rm(work, { recursive: true, force: true }) }
+}
+
+describe('3. no cue starts more than LATE_MS after its shot; placed cues never overlap', () => {
   it('the recorded runs had the late cues (g10 shots 19 and 24, tos shot 13)', () => {
     const lateOnes = (x: Run) => x.oldFit.filter((c) => late(x, c) > LATE_MS).map((c) => c.shotIndex)
     expect(lateOnes(g10())).toEqual([19, 24])
     expect(lateOnes(tos())).toEqual([13])
   })
-  it('voice: a pause moved after a measured clip past its shot end + LATE_MS is dropped', async () => {
+  for (const [name, r, recovered] of [['sintel-90-210-g10', g10, [19, 24]], ['tos-390-510-g10', tos, [13]]] as const) {
+    it(`${name}: fit → voice with the recorded clips recovers shots ${recovered.join(', ')} on time; nothing late, no placed overlap`, async () => {
+      const x = r(), out = await voiceRun(name, x, await fitRun(x))
+      for (const c of out) expect(late(x, c), `${c.shotIndex}: ${c.text}`).toBeLessThanOrEqual(LATE_MS)
+      for (const k of recovered) expect(out.find((c) => c.shotIndex === k), `shot ${k}`).toBeDefined()
+      const placed = out.filter((c) => !c.extended).sort((a, b) => a.startMs - b.startMs)
+      for (let i = 1; i < placed.length; i++) expect(placed[i]!.startMs).toBeGreaterThanOrEqual(placed[i - 1]!.endMs)
+    })
+  }
+  it('g10 shot 24 keeps its plot event (decision 0007)', async () => {
+    const x = g10(), out = await voiceRun('sintel-90-210-g10', x, await fitRun(x))
+    expect(out.find((c) => c.shotIndex === 24)).toMatchObject({ extended: true, event: true })
+  })
+  const shots2 = [{ index: 0, startMs: 0, endMs: 3000 }, { index: 1, startMs: 3000, endMs: 4000 }]
+  const runVoice = async (cues: FitCue[], ms: (t: string) => number) => {
     const work = await mkdtemp(join(tmpdir(), 'late-'))
     try {
-      const ctx: Ctx = { slug: 't', source: 's.mp4', language: 'en', voice: 'Joanna', work }
-      await writeFile(`${work}/shots.json`, JSON.stringify([{ index: 0, startMs: 0, endMs: 3000 }, { index: 1, startMs: 3000, endMs: 4000 }]))
-      const placed: FitCue = { startMs: 1000, endMs: 4000, text: 'A woman runs.', extended: false, wordCount: 3, shotIndex: 0, limitMs: 9000 }
-      const pause: FitCue = { startMs: 3000, endMs: 3100, text: 'A man kneels.', extended: true, wordCount: 3, shotIndex: 1, event: true }
-      await writeFile(`${work}/cues.json`, JSON.stringify([placed, pause]))
-      await voice(ctx, { synthesize: async (t) => new TextEncoder().encode(t), measureMs: async (f) => ((await readFile(f, 'utf8')) === 'A woman runs.' ? 4200 : 1500), measureSpeechMs: async () => 1000 })
-      const out = JSON.parse(await readFile(`${work}/cues.json`, 'utf8')) as FitCue[]
-      expect(out.map((c) => c.text)).toEqual(['A woman runs.']) // the pause would start at 5200 ms, 1200 ms after shot 1 ends
+      await writeFile(`${work}/shots.json`, JSON.stringify(shots2))
+      await writeFile(`${work}/cues.json`, JSON.stringify(cues))
+      await voice({ slug: 't', source: 's.mp4', language: 'en', voice: 'Joanna', work }, { synthesize: async (t) => new TextEncoder().encode(t), measureMs: async (f) => ms(await readFile(f, 'utf8')), measureSpeechMs: async (f) => ms(await readFile(f, 'utf8')) - 100 })
+      return JSON.parse(await readFile(`${work}/cues.json`, 'utf8')) as FitCue[]
     } finally { await rm(work, { recursive: true, force: true }) }
+  }
+  const placed0 = (text: string, endMs = 4000): FitCue => ({ startMs: 1000, endMs, text, extended: false, wordCount: text.split(/\s+/).length, shotIndex: 0, limitMs: 9000 })
+  const pause1 = (text: string, extra: Partial<FitCue> = {}): FitCue => ({ startMs: 3000, endMs: 3100, text, extended: true, wordCount: text.split(/\s+/).length, shotIndex: 1, ...extra })
+  it('voice: a pause fit put late moves EARLIER to the measured end of the clip before it', async () => {
+    const out = await runVoice([placed0('A woman runs.'), { ...pause1('A man kneels.', { event: true }), startMs: 5500, endMs: 5600 }], (t) => (t === 'A woman runs.' ? 2500 : 1500))
+    expect(out.map((c) => [c.text, c.startMs])).toEqual([['A woman runs.', 1000], ['A man kneels.', 3500]])
+  })
+  it('voice: an event pause still late shortens the placed cue that blocks it, and is dropped only when that does not help', async () => {
+    const long = 'A tall woman slowly crosses the old bridge, holding a lantern.'
+    const ms = (t: string) => (t === long ? 4500 : t.split(/\s+/).length * 400)
+    const out = await runVoice([placed0(long), pause1('A man kneels.', { event: true })], ms)
+    expect(out.map((c) => [c.text, c.extended])).toEqual([['A woman crosses the bridge, holding a lantern.', false], ['A man kneels.', true]])
+    expect(out[1]!.startMs).toBeLessThanOrEqual(4000 + LATE_MS)
+    // a 3-word placed cue cannot be shortened: the event pause is dropped (the old behaviour, last resort)
+    expect((await runVoice([placed0('A woman runs.'), pause1('A man kneels.', { event: true })], (t) => (t === 'A woman runs.' ? 4200 : 1500))).map((c) => c.text)).toEqual(['A woman runs.'])
+  })
+  it('voice: a text-only pause is never dropped, late or not (DESC-017)', async () => {
+    const out = await runVoice([placed0('A woman runs.'), pause1('Words appear: NORTH.')], (t) => (t === 'A woman runs.' ? 4200 : 1500))
+    expect(out.map((c) => c.text)).toEqual(['A woman runs.', 'Words appear: NORTH.'])
+  })
+  it('voice: the on-time rule runs when nothing moved (no early return)', async () => {
+    // the pause starts 1500 ms after shot 1 ends, and no clip blocks it: nothing moves, and it is still late (not an event: dropped)
+    const out = await runVoice([{ ...placed0('A woman runs.'), startMs: 0 }, { ...pause1('A man waits by the door.'), startMs: 5500, endMs: 5600 }, { ...placed0('Snow falls.'), startMs: 5500 }], (t) => t.split(/\s+/).length * 400)
+    expect(out.map((c) => c.text)).toEqual(['A woman runs.', 'Snow falls.'])
   })
 })
 
