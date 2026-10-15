@@ -6,16 +6,17 @@ import { join } from 'node:path'
 import { meter, metered, Meter } from '../src/cost'
 import type { Ctx, Step } from '../src/steps'
 import type { FitCue } from '../src/steps/05-fit'
-import { buildPackets, limitOf, rubricMd, RUBRIC_TEMPLATE, scoresMd, shotsMd, skipShots, tc, type PacketData } from '../src/eval/packets'
+import { buildPackets, limitOf, loadPacketData, nextSpeech, rubricMd, RUBRIC_TEMPLATE, scoresMd, shotsMd, skipShots, tc, type PacketData } from '../src/eval/packets'
 import { BASE_INPUTS, CapExceeded, effectiveModels, evalCtx, evalGlossary, EVAL_STEPS, parseSteps, pipelineQualitySteps, runGateC, runSettings, type EvalDeps } from '../src/eval/run'
 import { defaultCredit, preparePlan, prepareGateC, PREPARE_STEPS, type PrepareDeps } from '../src/eval/prepare'
 import { editModelId, LITE } from '../src/prompts'
 import { verifyModelId } from '../src/steps/04b-verify'
 import { chmod } from 'node:fs/promises'
 import { formatSummary, needsAttention, parseCorrections, parseScores, parseShotList, readExpected, readPacket, readRaters, scoreDir, summarise, type RaterScores } from '../src/eval/score'
+import { VAD } from '../src/voiceActivity'
 
 let root: string
-beforeEach(async () => { root = await mkdtemp(join(tmpdir(), 'gate-c-')); noStep.mockClear() })
+beforeEach(async () => { root = await mkdtemp(join(tmpdir(), 'gate-c-')); noStep.mockClear(); noRegap.mockClear() })
 afterEach(async () => { vi.unstubAllEnvs(); await rm(root, { recursive: true, force: true }) })
 
 /** A source work dir with every input, plus caches and outputs that must never be copied. */
@@ -38,7 +39,9 @@ const snapshot = async (d: string) => {
   return out
 }
 const noStep = vi.fn(async () => { throw new Error('a step ran') })
-const deps = (over: Partial<EvalDeps> = {}): EvalDeps => ({ runStep: noStep, metered, meter, log: () => {}, ...over })
+const fakeVad = { source: 'transcribe+vad' as const, options: VAD, transcribeGaps: [], unlabelledSpeech: [{ startMs: 1000, endMs: 1600 }], gaps: [], gapMs: { transcribe: 10_000, final: 8600, lost: 1400 } }
+const noRegap = vi.fn(async (_work: string) => fakeVad)
+const deps = (over: Partial<EvalDeps> = {}): EvalDeps => ({ runStep: noStep, metered, meter, log: () => {}, regap: noRegap, ...over })
 const opts = (o: Partial<Parameters<typeof runGateC>[0]> = {}) => ({ workRoot: root, sourceSlug: 'src-clip', evalSlug: 'eval-1', steps: parseSteps('describe,scenes,fit,edit,voice'), cap: 0.3, language: 'en' as const, voice: 'Joanna', ...o })
 
 describe('gate-c parseSteps', () => {
@@ -77,6 +80,29 @@ describe('gate-c run: input copying', () => {
     expect(Object.keys(manifest.env)).toEqual(expect.arrayContaining(['DESCRIBE_MODEL_ID', 'VERIFY_MODEL_ID', 'EDIT_MODEL_ID', 'DESCRIBE_EDIT', 'DESCRIBE_VERIFY', 'DESCRIBE_CONCURRENCY']))
     expect(typeof manifest.dirty).toBe('boolean')
     expect(manifest.models.map((m: { role: string }) => m.role)).toEqual(['describe', 'verify', 'scenes', 'shorten (fit, edit)', 'edit'])
+  })
+  // DESC-032 / decision 0014: a source dir made before the voice-activity check has Transcribe-only gaps; the copy's are rebuilt.
+  it('rebuilds the copy\'s gaps (regap) after the copy and before the first step, and records gapsSource', async () => {
+    await sourceDir()
+    const order: string[] = []
+    const regap = vi.fn(async (w: string) => { order.push(`regap ${w}`); return fakeVad })
+    await runGateC(opts({ steps: parseSteps('fit,edit') }), deps({ regap, runStep: async (s) => { order.push(`step ${s}`) } }))
+    expect(order).toEqual([`regap ${join(root, 'eval-1')}`, 'step fit', 'step edit'])
+    expect(JSON.parse(await readFile(join(root, 'eval-1', 'gate-c.json'), 'utf8'))).toMatchObject({ gapsSource: 'transcribe+vad', unlabelledSpeech: 1, gapsMs: { lost: 1400 } })
+  })
+  it('--keep-gaps keeps the copied gaps; a dry run rebuilds nothing', async () => {
+    await sourceDir()
+    await runGateC(opts({ keepGaps: true }), deps({ runStep: async () => {} }))
+    expect(noRegap).not.toHaveBeenCalled()
+    expect(JSON.parse(await readFile(join(root, 'eval-1', 'gate-c.json'), 'utf8'))).toMatchObject({ gapsSource: 'copied (--keep-gaps)' })
+    await runGateC(opts({ evalSlug: 'eval-2', dryRun: true }), deps())
+    expect(noRegap).not.toHaveBeenCalled()
+  })
+  it('a regap that fails stops the run before any step, with the error in the manifest', async () => {
+    await sourceDir()
+    await expect(runGateC(opts(), deps({ regap: async () => { throw new Error('words.json: bad JSON') } }))).rejects.toThrow(/bad JSON/)
+    expect(noStep).not.toHaveBeenCalled()
+    expect(JSON.parse(await readFile(join(root, 'eval-1', 'gate-c.json'), 'utf8'))).toMatchObject({ error: 'words.json: bad JSON' })
   })
   it('a copy that fails part-way removes the half-copied eval dir', async () => {
     await sourceDir()
@@ -217,6 +243,7 @@ describe('gate-c packets: rubric', () => {
     const norm = (s: string) => s.replace(/\s+/g, ' ')
     const rubric = rubricMd(await readFile(RUBRIC_TEMPLATE, 'utf8'), 3, 29)
     expect(norm(rubric)).toContain(norm(rule))
+    expect(rule).toContain('"Fits" also means before unlabelled speech (decision 0014)')
     expect(rubric).toMatch(/one of 3 independent raters/)
     expect(rubric).toMatch(/usable \/ 29/)
     expect(rubric).not.toMatch(/\{\{/)
@@ -246,12 +273,37 @@ describe('gate-c packets: shots.md', () => {
   it('gives every fits number, and "Not voiced" with the text to rate', () => {
     const md = shotsMd(data, new Map([[0, 1600], [1, undefined]]), { title: 'T', offsetMs: 90_000 })
     expect(md).toMatch(/^# T — 3 shots/)
-    expect(md).toContain('Limit: 3850 ms · clip end: 2300 ms (limit + 200 ms = 4050) · speech end: 2100 ms · next dialogue word: 6200 ms · next placed cue: 4000 ms')
+    expect(md).toContain('Limit: 3850 ms · clip end: 2300 ms (limit + 200 ms = 4050) · speech end: 2100 ms · next speech: 6200 ms (word) · next placed cue: 4000 ms')
     expect(md).toContain('speech end: 5500 ms') // not measured: the clip end
     expect(md).toContain('**Not voiced** (placed by fit but dropped by the voice step')
     expect(md).toContain('"Door shuts."')
     expect(md).toContain('(spk_0): "Hello"')
     expect(tc(0, 90_000)).toBe('1:30.000')
+  })
+  // DESC-032 / decision 0014: speech Transcribe missed is shown per shot and counts as the next speech for "fits".
+  it('lists unlabelled speech near each shot and takes it as the next speech when it comes before the next word', () => {
+    const md = shotsMd({ ...data, unlabelled: [{ startMs: 1800, endMs: 2400 }] }, new Map([[0, 1600], [1, undefined]]), { title: 'T', offsetMs: 90_000 })
+    expect(md).toContain('- Unlabelled speech (not transcribed) near the shot (±2 s): 1:31.800 – 1:32.400 (1800–2400 ms)')
+    expect(md).toContain('speech end: 2100 ms · next speech: 1800 ms (unlabelled speech) · next placed cue: 4000 ms')
+    expect(md).toContain('speech end: 5500 ms · next speech: 6200 ms (word)') // shot 1's cue starts after it: the word is next
+    expect(md.split('## Shot 2')[1]).not.toContain('Unlabelled speech') // 8000–9000 ms is more than 2 s away
+    expect(shotsMd(data, new Map(), { title: 'T', offsetMs: 0 })).not.toContain('Unlabelled speech') // a dir without gaps.vad.json
+  })
+  it('nextSpeech: a segment running at the cue start counts (its start, before the cue); the earlier of word and segment', () => {
+    const words = [{ start: 5, end: 5.4, text: 'Hi' }]
+    expect(nextSpeech(words, [{ startMs: 900, endMs: 1500 }], 1000)).toEqual({ ms: 900, kind: 'unlabelled speech' })
+    expect(nextSpeech(words, [{ startMs: 900, endMs: 1000 }], 1000)).toEqual({ ms: 5000, kind: 'word' }) // ended at the cue start
+    expect(nextSpeech(words, [{ startMs: 6000, endMs: 7000 }], 1000)).toEqual({ ms: 5000, kind: 'word' })
+    expect(nextSpeech([], [{ startMs: 6000, endMs: 7000 }, { startMs: 3000, endMs: 3500 }], 1000)).toEqual({ ms: 3000, kind: 'unlabelled speech' })
+    expect(nextSpeech([], [], 1000)).toBeUndefined()
+  })
+  it('loadPacketData reads unlabelled speech from gaps.vad.json, and [] without it', async () => {
+    const w = join(root, 'pk')
+    await mkdir(w)
+    for (const [f, v] of Object.entries({ 'shots.json': [], 'described.json': [], 'gaps.json': [], 'cues.json': [] })) await writeFile(join(w, f), JSON.stringify(v))
+    expect((await loadPacketData(w)).unlabelled).toEqual([])
+    await writeFile(join(w, 'gaps.vad.json'), JSON.stringify({ source: 'transcribe+vad', unlabelledSpeech: [{ startMs: 1, endMs: 600 }] }))
+    expect((await loadPacketData(w)).unlabelled).toEqual([{ startMs: 1, endMs: 600 }])
   })
   it('the score sheet has one row per shot and parses back as unrated', () => {
     const rows = parseScores(scoresMd(data.shots))

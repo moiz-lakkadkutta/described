@@ -10,6 +10,7 @@ import { scenesModelId } from '../scenePrompt'
 import { CONTINUATION_CACHE_VERSION, DEFAULT_DESCRIBE_MODEL_ID, DESCRIBE_CACHE_VERSION, describeConcurrency } from '../steps/04-describe'
 import { verifyEnabled, verifyModelId } from '../steps/04b-verify'
 import { VERIFY_PROMPT_VERSION } from '../verifyPrompt'
+import { regap as regapWork, type GapsVad } from '../steps/03-speech'
 
 /**
  * DESC-030: a Gate C evaluation run — copy one work dir's step inputs into a new slug and run only the quality steps on it, under
@@ -31,7 +32,7 @@ export const DEFAULT_CAP_USD = 0.3
  * re-run). Never `cache/` (a cached describe reply would hide a prompt change), `frames/` (describe regenerates them), or any output
  * of describe and later.
  */
-export const BASE_INPUTS = ['probe.json', 'shots.json', 'gaps.json', 'words.json', 'transcript.json', 'transcript.src', 'mezz.mp4'] as const
+export const BASE_INPUTS = ['probe.json', 'shots.json', 'gaps.json', 'gaps.vad.json', 'words.json', 'transcript.json', 'transcript.src', 'mezz.mp4'] as const
 /** Needed by every evaluation step; the rest of BASE_INPUTS is copied when present. */
 const REQUIRED = new Set(['probe.json', 'shots.json', 'gaps.json', 'words.json', 'mezz.mp4'])
 /** Outputs of an earlier step that the first step reads (05b-edit starts from cues.fit.json). voice is never first (parseSteps). */
@@ -127,6 +128,8 @@ export interface EvalDeps {
   metered: typeof runMetered
   meter: typeof currentMeter
   log: (line: string) => void
+  /** Rebuilds the copy's gaps (03-speech regap: words.json → gapsFromWords → voice-activity split; never Transcribe). */
+  regap?: (work: string) => Promise<GapsVad>
 }
 
 export interface EvalResult { steps: { step: Step; costUsd: number }[]; totalUsd: number }
@@ -232,7 +235,7 @@ export function glossaryStatus(sourceSlug: string, files: readonly (string | URL
  * The whole `gate-c run`: plan, check every model has a price, print, and — unless dryRun — copy the inputs, run the steps and write
  * gate-c.json. A dry run reads the source dir only: no copy, no eval dir, no step, $0. A copy that fails part-way removes the eval dir.
  */
-export async function runGateC(o: { workRoot: string; sourceSlug: string; evalSlug: string; steps: EvalStep[]; cap: number; dryRun?: boolean; language: 'en' | 'de'; voice: string }, deps: EvalDeps): Promise<EvalResult> {
+export async function runGateC(o: { workRoot: string; sourceSlug: string; evalSlug: string; steps: EvalStep[]; cap: number; dryRun?: boolean; keepGaps?: boolean; language: 'en' | 'de'; voice: string }, deps: EvalDeps): Promise<EvalResult> {
   const plan = await planEval(o)
   assertPriced(o.steps)
   for (const l of describePlan(plan, o.sourceSlug, o.evalSlug)) deps.log(l)
@@ -240,6 +243,7 @@ export async function runGateC(o: { workRoot: string; sourceSlug: string; evalSl
   deps.log(`verify: ${verifyEnabled() ? 'on' : 'off (DESCRIBE_VERIFY=0)'}${o.steps.includes('describe') ? '' : ' (describe is not run)'}`)
   deps.log(`glossary: ${glossaryStatus(o.sourceSlug)}`)
   deps.log(`language: ${o.language}, voice: ${o.voice}`)
+  deps.log(o.keepGaps ? 'gaps: kept as copied (--keep-gaps)' : `gaps: rebuilt on the copy from words.json (decision 0014; voice-activity split ${process.env.SPEECH_VAD === '0' ? 'off, SPEECH_VAD=0' : 'on'}; no Transcribe)`)
   if (o.dryRun) { deps.log('dry run: nothing copied, no AWS call, $0.00'); return { steps: [], totalUsd: 0 } }
   const settings = runSettings(o.steps, o.language, o.voice)
   const prepared = await readFile(join(plan.sourceDir, 'gate-c.json'), 'utf8').then((t) => JSON.parse(t) as { credit?: string; input?: string; start?: string; end?: string }, () => undefined)
@@ -248,13 +252,19 @@ export async function runGateC(o: { workRoot: string; sourceSlug: string; evalSl
     await rm(plan.evalDir, { recursive: true, force: true })
     throw e
   }
+  const withGaps = (r: Record<string, unknown>, vad?: GapsVad) => ({ ...r, gapsSource: o.keepGaps ? 'copied (--keep-gaps)' : vad?.source, gapsNote: vad?.note, gapsMs: vad?.gapMs, unlabelledSpeech: vad?.unlabelledSpeech.length })
+  let vad: GapsVad | undefined
   try {
+    if (!o.keepGaps) {
+      vad = await (deps.regap ?? ((w: string) => regapWork(w)))(plan.evalDir)
+      deps.log(`gaps: ${vad.source}${vad.note ? ` (${vad.note})` : ''}; ${vad.unlabelledSpeech.length} unlabelled speech segment(s), ${(vad.gapMs.lost / 1000).toFixed(1)} s of gap time removed`)
+    }
     const r = await runEvalSteps(plan, evalCtx(o.workRoot, o.evalSlug, o.language, o.voice, '', evalGlossary(o.sourceSlug)), deps)
-    await writeManifest(plan.evalDir, record, settings, r)
+    await writeManifest(plan.evalDir, withGaps(record, vad), settings, r)
     return r
   } catch (e) {
     const spent = e instanceof CapExceeded ? e.spentUsd : (e as { costUsd?: number }).costUsd
-    await writeManifest(plan.evalDir, record, settings, { steps: (e as { steps?: EvalResult['steps'] }).steps, totalUsd: spent, error: (e as Error).message })
+    await writeManifest(plan.evalDir, withGaps(record, vad), settings, { steps: (e as { steps?: EvalResult['steps'] }).steps, totalUsd: spent, error: (e as Error).message })
     throw e
   }
 }

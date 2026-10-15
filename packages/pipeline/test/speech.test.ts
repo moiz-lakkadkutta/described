@@ -34,7 +34,9 @@ function fakeTranscribe(statuses: Record<string, string[]>) {
 }
 
 describe('speech', () => {
-  beforeEach(() => { vi.useRealTimers(); upload.mockReset(); download.mockReset().mockImplementation(async (_uri: string, file: string) => writeFile(file, fixture)) })
+  afterEach(() => { vi.unstubAllEnvs() })
+  // SPEECH_VAD=0: these tests are about Transcribe reuse; the fake mezzanine is not audio (voice activity: voiceActivity.test.ts)
+  beforeEach(() => { vi.stubEnv('SPEECH_VAD', '0'); vi.useRealTimers(); upload.mockReset(); download.mockReset().mockImplementation(async (_uri: string, file: string) => writeFile(file, fixture)) })
   it('reuses transcript.json made from the same mezzanine and language: no upload, no Transcribe', async () => {
     const work = await workDir()
     await writeFile(join(work, 'transcript.json'), fixture)

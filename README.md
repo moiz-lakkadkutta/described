@@ -48,7 +48,7 @@ apps/expo (Fire OS) ─▶ packages/shared-ui ─▶ @moizp/vega-media-kit (KitP
 |---|---|---|---|
 | 1 | probe | `steps/01-probe.ts` | Download the source, normalise to H.264 ≤ 1920×1080 + stereo AAC with a keyframe every 4 s; poster and hero stills |
 | 2 | shots | `steps/02-shots.ts` | ffmpeg scene cuts; merge < 1.5 s, split > 8 s (a split shot's later parts are asked only for what is new) |
-| 3 | speech | `steps/03-speech.ts` | **Amazon Transcribe** word timings + speaker labels → dialogue spans → gaps ≥ 1.2 s |
+| 3 | speech | `steps/03-speech.ts` | **Amazon Transcribe** word timings + speaker labels → dialogue spans → gaps ≥ 1.2 s; gaps split around speech Transcribe missed (local ffmpeg check, `gaps.vad.json`, off with `SPEECH_VAD=0`, [0014](docs/decisions/0014-unlabelled-speech.md)) |
 | 4 | describe | `steps/04-describe.ts` | **Qwen3-VL 235B on Bedrock** (Converse), one call per shot with 3–6 key frames; per-shot cache ([0003](docs/decisions/0003-gate-c.md), [0005](docs/decisions/0005-describe-direct-bedrock.md)) |
 | 5 | fit | `steps/05-fit.ts` | Place each description in a gap; **Nova Lite** shortens it, accepted only if it adds no content word; on-screen text is never shortened away; a dropped shot with a new plot event becomes an extended cue ([0007](docs/decisions/0007-dropped-events.md)) |
 | 5b | edit | `steps/05b-edit.ts` | **Nova Lite** scene-level edit pass: fold dropped facts into the next cue, remove repetition, no new facts ([0006](docs/decisions/0006-scene-edit-pass.md)) |

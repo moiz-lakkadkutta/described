@@ -200,7 +200,11 @@ describe('clip duration', () => {
   })
   it.skipIf(!hasFfprobe)('measures the synthetic MP3 with the real ffprobe', async () => {
     const { stdout } = await execa('ffprobe', clipDurationArgs(mp3))
-    expect(parseClipDurationMs(stdout)).toBe(2500)
+    // ffmpeg 8 (macOS) reads the encoder's gapless info: 2500 ms. Ubuntu's ffmpeg 6.1 (CI, since DESC-032 installs it) counts the
+    // MP3 encoder padding too: 2568 ms. Either is a safe clip length for 06-voice (longer, never shorter).
+    const ms = parseClipDurationMs(stdout)
+    expect(ms).toBeGreaterThanOrEqual(2500)
+    expect(ms).toBeLessThanOrEqual(2600)
   })
   // Human decision 2026-10-10 (M4): r2 cue 0 ran past the next cue; the shortening could not keep the text beside the action.
   it('an overrun whose on-screen text does not fit beside the action keeps the action within its limit and the text as its own extended cue', async () => {

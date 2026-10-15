@@ -32,11 +32,16 @@ in a dialogue-free gap while the film plays) or **extended** (the film pauses wh
    - the clip **file** ends by limit + `OVERRUN_TOLERANCE_MS` (200 ms), before the next dialogue word starts, and before the next
      placed cue starts.
 
+   "Fits" also means before unlabelled speech (decision 0014): speech Transcribe did not transcribe counts as dialogue.
+
    The limit is the one 06-voice uses: the end of the cue's gap, or the next placed cue's start − 150 ms when that is earlier.
    An **extended** cue fits when it is at most 25 words.
 
-   For every placed cue, `shots.md` gives the limit, the clip end, the speech end, the time of the next dialogue word and the
-   start of the next placed cue (all in ms from the start of the segment); rate "fits" from those numbers.
+   For every placed cue, `shots.md` gives the limit, the clip end, the speech end, the next speech (the earlier of the next
+   transcribed word and the next unlabelled speech) and the start of the next placed cue (all in ms from the start of the
+   segment); rate "fits" from those numbers. Unlabelled speech is found by loudness and stereo position, not by words, so it
+   can be wrong (an impact, a creature, music): if the frames and the timing show it is not speech, rate "fits" as if it were
+   not there and say so in the note ("unlabelled speech at … ms is not speech").
 
 ## Special cases
 
