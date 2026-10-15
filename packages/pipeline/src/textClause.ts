@@ -162,6 +162,23 @@ export function stripDarkness(text: string): string {
   return rest === t ? t : capitalise(rest)
 }
 
+/**
+ * A bare light or condition word is never a lead (decision 0012 amendment, 2026-10-15): a first sentence that is one such word — "Dim.",
+ * "Dark.", "Towering.", "Smoky." — in front of the rest is removed and the rest capitalised. g10 shot 2 opened "Dim. A fire pit glows …"
+ * (the 0009 darkness rule's "say dim", written as its own sentence) and all three raters failed the fragment; tos-390-510-g10 shot 11's
+ * "Towering." was a scene label put in front. A time word stays ("Night. A rooftop." signals a scene change), so does "Darkness." (stripDarkness)
+ * and a word that is the whole description. Applied with stripDarkness by parseDescription, fit and the edit step.
+ */
+export function stripBareLead(text: string): string {
+  const t = text.trim(), m = /^(\p{L}+)(?:\.\.\.|…|[.!])\s+(?=\S)/u.exec(t)
+  if (!m || !BARE_LEAD.test(m[1]!) || TIME_LEAD.test(m[1]!) || ING_PLACES.test(m[1]!)) return t
+  return capitalise(t.slice(m[0].length))
+}
+const BARE_LEAD = /^(?:dim|dark|bright|gloomy|murky|smoky|misty|foggy|hazy|dusky|shadowy|blurry|blurred|silent|quiet|still|calm|empty|dunkel|düster|hell|neblig|\p{L}+ing)$/iu
+/** -ing words that name a place ("Clearing."), not a condition. */
+const ING_PLACES = /^(?:building|clearing|landing|crossing|ceiling|opening|dwelling|offing)$/iu
+const TIME_LEAD = /^(?:night|day|dawn|dusk|morning|evening|nacht|tag|morgen|abend)$/iu
+
 /** After an ellipsis, an all-caps word or a number may go on with the text ("SIMULATION READY... LOCKED."); "A", "Thom" do not. */
 const TEXT_GOES_ON = /^["“„«»]?(?:\p{Lu}{2,}(?!\p{Ll})|\p{N})/u
 

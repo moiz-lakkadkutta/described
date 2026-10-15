@@ -3,15 +3,15 @@ import { z } from 'zod'
 import type { Ctx } from './index'
 import type { Described } from './04-describe'
 import type { Word } from './03-speech'
-import { textClauses, type FitCue } from './05-fit'
+import { groundedDescription, textClauses, type FitCue } from './05-fit'
 import { NEXT_CUE_SPACING_MS } from './06-voice'
-import { sentences, stripDarkness, textSpans } from '../textClause'
+import { sentences, textSpans } from '../textClause'
 import { contentWords, stem } from '../contentWords'
 import { editReadsAsSentences } from '../sentenceGuard'
 import { editRequest, editModelId, shortenEditWithNovaLite, stripFence, type EditConverse, type EditCueInput, bedrockEditSend } from '../prompts'
 import { meter } from '../cost'
 import { allowedNames, EMPTY_GLOSSARY, glossaryFor, glossarySettingStems, isEmpty, isProperName, matchedCharacters, nameEvidence, nameRevealed, placeStems, shortOf, withoutName, type Glossary, type NameSource } from '../glossary'
-import { sceneStems, statesPlace } from '../sceneSetting'
+import { foreignPlaceStems, sceneStems, statesPlace } from '../sceneSetting'
 import { knownNames } from './04-describe'
 import { readScenes, sceneOf, type Scene } from './04c-scenes'
 
@@ -115,7 +115,8 @@ const prevActionIndex = (cues: readonly FitCue[], i: number) => { for (let k = i
  * round 5: 17 words into 11), and the shortened text goes through the same guards; it is dropped when it still does not fit.
  */
 export async function editScene(cues: FitCue[], shots: Described[], words: Word[], language: 'en' | 'de', send: EditConverse, signal?: AbortSignal, shorten: Shorten = (t, n, keep, must) => shortenEditWithNovaLite(t, n, keep, must, language), context: EditContext = {}): Promise<EditReport> {
-  shots = shots.map((s) => ({ ...s, description: stripDarkness(s.description) })) // as fit read them: "Darkness." never comes back through an edit
+  // as fit read them (groundedDescription): "Darkness." never comes back through an edit, nor a bare "Dim." lead, nor another scene's place
+  shots = shots.map((s) => ({ ...s, description: groundedDescription(s, context.scenes, context.glossary ?? EMPTY_GLOSSARY) }))
   const model = editModelId()
   const report: EditReport = { cues: cues.map((c) => ({ ...c })), applied: [], rejected: [], model, usage: { inputTokens: 0, outputTokens: 0 }, shorteningCalls: 0, evidence: [] }
   if (!cues.length) return report
@@ -451,6 +452,12 @@ export function applyEdits(cues: readonly FitCue[], shots: readonly Described[],
     const gate = guard && { glossary: guard.glossary, atMs: c.startMs, spoken: guard.spoken, shots: [...own, c.text], extra: sc ? [sc.setting, ...(set ? [`${set.name} ${set.look}`] : []), ...(sc.returning && firstOfScene ? ['back in'] : [])] : [] }
     const bad = unfaithfulWords(text, allowed, gate)
     if (bad.length) { reject(`not in any shot description: ${bad.join(', ')}`); continue }
+    // decision 0012 amendment (2026-10-15): a place word is grounded in the cue's own scene, never carried from another scene's shots
+    if (sc && guard?.scenes) {
+      const foreign = foreignPlaceStems(sc, guard.scenes, guard.glossary), had = new Set(placeStems(c.text))
+      const carried = placeStems(text).filter((w) => foreign.has(w) && !had.has(w))
+      if (carried.length) { reject(`another scene's place: ${carried.join(', ')}`); continue }
+    }
     if (sc && guard) {
       const stems = sceneStems(sc, guard.glossary)
       const said = Array.from({ length: i }, (_, k) => heard(k)).some((x) => sc.shots.includes(x.shotIndex) && statesPlace(x.text, stems))

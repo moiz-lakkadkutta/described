@@ -3,7 +3,7 @@ import { execa } from 'execa'
 import { readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { z } from 'zod'
 import type { Ctx } from './index'
-import { byStart, capExtended, introducesNew, leadText, shortenDeterministic, shortenSentences, TAIL_SILENCE_MS, textClauses, type FitCue } from './05-fit'
+import { byStart, capExtended, introducesNew, LATE_MS, leadText, shortenDeterministic, shortenSentences, TAIL_SILENCE_MS, textClauses, type FitCue } from './05-fit'
 import type { Shot } from './02-shots'
 import { cueAudioFile, probeDurationMs } from '../cues'
 import { meter, pollyUsd } from '../cost'
@@ -139,7 +139,9 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
   const language = ctx.language
   await removeCueFilesFrom(ctx.work, cues.length)
   for (const f of await readdir(ctx.work)) if (f.startsWith(MOVING)) await rm(`${ctx.work}/${f}`, { force: true }) // left by a crash in withTextCues
-  const shotStart = new Map((JSON.parse(await readFile(`${ctx.work}/shots.json`, 'utf8').catch(() => '[]')) as Shot[]).map((x) => [x.index, x.startMs]))
+  const shotList = JSON.parse(await readFile(`${ctx.work}/shots.json`, 'utf8').catch(() => '[]')) as Shot[]
+  const shotStart = new Map(shotList.map((x) => [x.index, x.startMs]))
+  const shotEnd = new Map(shotList.map((x) => [x.index, x.endMs]))
   /** Synthesizes text into slot i (overwriting it) and returns the clip's duration and speech length. */
   const synth = async (i: number, text: string): Promise<Clip> => {
     const file = `${ctx.work}/${cueAudioFile(i)}`
@@ -244,7 +246,14 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
     kept.push({ ...cue, startMs, text, endMs: startMs + durationMs, wordCount: words(text) })
   }
   if (texts.length) kept = await withTextCues(ctx.work, kept, texts, synth, reuse)
-  kept = await afterClips(ctx.work, kept)
+  /** Voices a shorter text for the placed cue in slot `from` (a spare slot first; moved in only when it is used): afterClips' on-time fix. */
+  const reshorten = async (from: number, text: string): Promise<Clip | undefined> => {
+    const spare = SPARE_SLOT + from
+    const clip = await synth(spare, text)
+    for (const f of [cueAudioFile, cueSidecarFile]) await rename(`${ctx.work}/${f(spare)}`, `${ctx.work}/${f(from)}`)
+    return clip
+  }
+  kept = await afterClips(ctx.work, kept, { start: shotStart, end: shotEnd }, reshorten, language)
   kept = await dropPastEnd(ctx.work, kept, filmMs)
   await removeCueFilesFrom(ctx.work, kept.length)
   warnOverlaps(kept)
@@ -266,6 +275,8 @@ async function withTextCues(work: string, kept: FitCue[], texts: FitCue[], synth
   return all.map((x) => x.c)
 }
 
+/** A slot index far past any title's cues, for afterClips' shortened re-voice before it replaces the clip. */
+const SPARE_SLOT = 100_000
 /** Prefix of withTextCues' temporary clip names; any left over are deleted when voice starts. */
 const MOVING = 'moving_'
 /** Prefix of a clip set aside during the overrun shortening (deleted with the MOVING ones when voice starts). */
@@ -283,31 +294,75 @@ export function withoutSaidText(text: string, said: readonly string[]): string {
   return spans.length ? withoutSpans(text, spans) : text
 }
 /**
- * A pause must not start while a clip still speaks: every extended cue (on-screen text, event, introducesNew) starts at or after the
- * measured end of every placed cue before it (`before`: an earlier shot's, or one that starts earlier) — fit's starts were estimates (a text cue TEXT_LEAD_MS before its action; an event cue at the
- * shot start, which can be inside the previous clip). Keeps its clip length. The cap holds after the move: an event cue that now starts
- * within EVENT_SPACING_MS of an earlier event cue (in start order) is dropped, deterministically. Re-sorted (byStart) and the clips
- * re-slotted when anything moved. Pure apart from the clip files (tested through voice).
+ * A pause must not start while a clip still speaks: every extended cue (on-screen text, event, introducesNew, scene) starts at or after
+ * the measured end of every placed cue before it (`before`: an earlier shot's, or one that starts earlier) — fit's starts were estimates.
+ * Decision 0012 amendment (2026-10-15, review): a pause that is not only on-screen text and would start more than LATE_MS after its
+ * shot instead starts at max(its shot's start, the measured ends of the placed cues of earlier shots), at the first moment no clip speaks
+ * — so it moves EARLIER when fit's estimate ran long (g10 shots 19 and 24, tos-390-510-g10 shot 13 were late only because of the
+ * estimate). Other pauses keep their start or move later as before; a text cue keeps DESC-017's lead.
+ * The on-time rule (LATE_MS after its shot's end, shots.json) is checked on every pause, moved or not: an event pause still late first
+ * shortens the placed cue that blocks it (shortenSentences, voiced in a spare slot, then put in that cue's slot) — the plot event
+ * outranks the earlier cue's extra words (0007) — and is dropped only when that does not help. A pause that is only on-screen text is
+ * never dropped (DESC-017: neither the text nor the action is dropped). The event cap holds after the moves: an event cue now within
+ * EVENT_SPACING_MS of an earlier one (in start order) is dropped. Re-sorted (byStart) and the clips re-slotted. Pure apart from the clip
+ * files (tested through voice).
  */
-async function afterClips(work: string, cues: FitCue[]): Promise<FitCue[]> {
-  let moved = false
+async function afterClips(work: string, cues: FitCue[], shots: { start: ReadonlyMap<number, number>; end: ReadonlyMap<number, number> } = { start: new Map(), end: new Map() }, reshorten?: (from: number, text: string) => Promise<Clip | undefined>, language: 'en' | 'de' = 'en'): Promise<FitCue[]> {
+  const placed = cues.map((c, from) => ({ c, from })).filter((x) => !x.c.extended)
+  /** The first start ≥ t at which no placed clip speaks. */
+  /** The first start ≥ t at which no clip of an earlier shot than `shot` speaks. */
+  const free = (t: number, shot: number) => { let at = t; for (let moved = true; moved;) { moved = false; for (const { c: p } of placed) if (p.shotIndex < shot && p.startMs <= at && at < p.endMs) { at = p.endMs; moved = true } } return at }
+  /** Some clip of a later shot speaks at t. */
+  const laterSpeaks = (t: number, shot: number) => placed.some(({ c: p }) => p.shotIndex > shot && p.startMs <= t && t < p.endMs)
+  const startOf = (c: FitCue) => {
+    const later = Math.max(c.startMs, ...placed.filter(({ c: p }) => before(p, c)).map(({ c: p }) => p.endMs))
+    const shotStart = shots.start.get(c.shotIndex), shotEnd = shots.end.get(c.shotIndex)
+    if (textOnly(c) || shotStart === undefined || shotEnd === undefined || later <= shotEnd + LATE_MS) return later
+    // late only because fit's estimate ran long: as early as its shot and the measured clips of earlier cues allow
+    const earlier = placed.filter(({ c: p }) => p.shotIndex < c.shotIndex || (p.shotIndex === c.shotIndex && byStart(p, c) < 0)).map(({ c: p }) => p.endMs)
+    const at = free(Math.max(shotStart, ...earlier), c.shotIndex)
+    return laterSpeaks(at, c.shotIndex) ? later : at // never onto a later shot's clip: then it stays where it was (and is checked late)
+  }
+  let changed = false
   const all = cues.map((c, from) => {
     if (!c.extended) return { c, from }
-    const end = Math.max(-Infinity, ...cues.filter((p) => !p.extended && before(p, c)).map((p) => p.endMs))
-    if (c.startMs >= end) return { c, from }
-    moved = true
-    return { c: { ...c, startMs: end, endMs: end + (c.endMs - c.startMs) }, from }
+    const startMs = startOf(c)
+    if (startMs === c.startMs) return { c, from }
+    changed = true
+    return { c: { ...c, startMs, endMs: startMs + (c.endMs - c.startMs) }, from }
   })
-  if (!moved) return cues
+  // the on-time rule, on every pause: an event pause first shortens the placed cue that blocks it
+  for (const x of all) {
+    const c = x.c, end = shots.end.get(c.shotIndex)
+    if (!c.extended || textOnly(c) || end === undefined || c.startMs <= end + LATE_MS) continue
+    const block = placed.find(({ c: p }) => p.endMs === c.startMs && p.shotIndex < c.shotIndex) // only an earlier shot's cue is shortened
+    if (!c.event || !block || !reshorten) continue
+    const deadline = end + LATE_MS, p = block.c
+    const n = Math.floor((words(p.text) * (deadline - p.startMs)) / (p.endMs - p.startMs))
+    const shorter = n >= 3 ? shortenSentences(p.text, n, 'voice', language) : p.text
+    if (shorter === p.text) continue
+    const clip = await reshorten(block.from, shorter)
+    if (!clip) continue
+    console.log(`voice: cue at ${p.startMs} ms shortened so the event pause of shot ${c.shotIndex} is on time: ${JSON.stringify(p.text)} → ${JSON.stringify(shorter)}`)
+    const q = all.find((y) => y.from === block.from)!
+    q.c = { ...p, text: shorter, wordCount: words(shorter), endMs: p.startMs + clip.durationMs }
+    block.c = q.c
+    const s = startOf(c)
+    x.c = { ...c, startMs: s, endMs: s + (c.endMs - c.startMs) }
+    changed = true
+  }
   all.sort((a, b) => byStart(a.c, b.c))
   let lastEvent = -Infinity
   const dropped: number[] = []
   const out = all.filter(({ c, from }) => {
+    const end = shots.end.get(c.shotIndex)
+    if (c.extended && !textOnly(c) && end !== undefined && c.startMs > end + LATE_MS) { console.log(`voice: pause at ${c.startMs} ms starts ${c.startMs - end} ms after its shot ends (> ${LATE_MS}); dropped: ${JSON.stringify(c.text)}`); dropped.push(from); return false }
     if (!c.event) return true
     if (c.startMs - lastEvent < EVENT_SPACING_MS) { console.log(`voice: event cue moved to ${c.startMs} ms is within ${EVENT_SPACING_MS} ms of the one at ${lastEvent} ms; dropped: ${JSON.stringify(c.text)}`); dropped.push(from); return false }
     lastEvent = c.startMs
     return true
   })
+  if (!changed && !dropped.length && out.every(({ from }, to) => from === to)) return cues
   for (const from of dropped) for (const f of [cueAudioFile, cueSidecarFile]) await rm(`${work}/${f(from)}`, { force: true })
   const moves = out.flatMap(({ from }, to) => (from !== to ? [{ from, to }] : []))
   for (const { from } of moves) for (const f of [cueAudioFile, cueSidecarFile]) await rename(`${work}/${f(from)}`, `${work}/${MOVING}${f(from)}`)

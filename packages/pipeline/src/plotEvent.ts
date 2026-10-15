@@ -1,4 +1,4 @@
-import { contentWords, STOP, stem } from './contentWords'
+import { contentWords, normalizeQuotes, STOP, stem } from './contentWords'
 import { sentences, textSpans } from './textClause'
 
 /**
@@ -71,7 +71,7 @@ const NOT_VERBS = new Set(['across', 'towards', 'perhaps', 'always', 'sometimes'
 
 const isTextClause = (unit: string) => textSpans(unit).some((s) => s.start === 0)
 /** The words of a clause, lower-cased, punctuation stripped, stop words kept (the verb's position and what follows "hands" need them). */
-const tokens = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}\s'-]/gu, ' ').split(/\s+/).map((w) => w.replace(/^['-]+|['-]+$/g, '')).filter(Boolean)
+const tokens = (t: string) => normalizeQuotes(t).toLowerCase().replace(/[^\p{L}\p{N}\s'-]/gu, ' ').split(/\s+/).map((w) => w.replace(/^['-]+|['-]+$/g, '')).filter(Boolean)
 /** A house-style finite verb form: ends in -s, is not a stop or function word, not -ss / -us / -is (which covers -ous). */
 const finite = (w: string) => /^\p{L}[\p{L}'-]*s$/u.test(w) && !STOP.has(w) && !NOT_VERBS.has(w) && !/(ss|us|is)$/.test(w)
 const CLAUSE = /\s*[,;]\s*|\s+then\s+/i

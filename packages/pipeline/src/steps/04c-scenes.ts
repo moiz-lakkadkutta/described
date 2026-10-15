@@ -9,6 +9,7 @@ import { glossaryFor, placeStems, settingStems, type Glossary } from '../glossar
 import { bedrockEditSend, stripFence, type EditConverse } from '../prompts'
 import { scenesModelId, scenesRequest } from '../scenePrompt'
 import { sentences, stripDarkness, textSpans } from '../textClause'
+import { placeLabelProblem } from '../sceneSetting'
 
 /**
  * Scene grouping (DESC-029, docs/decisions/0012-characters-and-scenes.md): a text-only step after describe (and its verify pass, 04b)
@@ -32,6 +33,11 @@ export interface Scene {
   settingName?: string
   /** an earlier, not adjacent scene was in the same place: a cue may say "Back in …" */
   returning: boolean
+  /**
+   * The model's label when it was rejected only for naming no place but is grounded and states an action ("Man in glasses shouts"):
+   * fit may voice it as the pause of an unvoiced shot whose description it shortens (decision 0012 amendment, 2026-10-15, review).
+   */
+  action?: string
   evidence: SettingEvidence[]
 }
 export interface ScenesReport { source: 'model' | 'fallback'; model: string; cached: boolean; usage: { inputTokens: number; outputTokens: number }; reason?: string; labels: { scene: number; label: string; reason: string }[]; scenes: Scene[] }
@@ -171,22 +177,46 @@ export function fallbackLabel(sceneShots: readonly Described[], g: Glossary): st
   return ''
 }
 
-/** Scenes with times, glossary setting, returns and the label's evidence; a label that is not grounded becomes the fallback label. */
+/**
+ * Scenes with times, glossary setting, returns and the label's evidence. A label must be grounded (groundLabel) and a place noun phrase
+ * (placeLabelProblem: a place noun, no verb, not only a light or condition word — decision 0012 amendment, 2026-10-15); otherwise the
+ * fallback label, under the same rule, else none (''). Adjacent scenes in the same place are one scene (g10: Nova Lite split the tent at
+ * shot 10, and the second half got a "The tent." pause), unless the second opens with a time jump ("Night.").
+ */
 export function finishScenes(groups: readonly Group[], shots: readonly Described[], g: Glossary, labels: ScenesReport['labels'] = []): Scene[] {
-  const scenes: Scene[] = []
-  groups.forEach((x, id) => {
+  const extra = new Set(g.settings.flatMap((s) => [...settingStems(s)]))
+  const placeOk = (l: string) => !l || !placeLabelProblem(l, extra)
+  const labelled = groups.map((x, id) => {
     const own = shots.filter((s) => s.index >= x.firstShot && s.index <= x.lastShot)
-    let setting = x.setting, { evidence, bad } = groundLabel(setting, own, g)
-    if (bad.length || !setting) {
-      if (setting) labels.push({ scene: id, label: setting, reason: `not in its descriptions or the glossary: ${bad.join(', ')}` })
-      setting = fallbackLabel(own, g);
-      ({ evidence } = groundLabel(setting, own, g))
+    let setting = x.setting
+    const { bad } = groundLabel(setting, own, g)
+    const notPlace = setting && !bad.length ? placeLabelProblem(setting, extra) : undefined
+    const action = notPlace?.startsWith('no place noun') ? x.setting : undefined
+    if (bad.length || !setting || notPlace) {
+      if (setting) labels.push({ scene: id, label: setting, reason: notPlace ?? `not in its descriptions or the glossary: ${bad.join(', ')}` })
+      setting = fallbackLabel(own, g)
+      if (!placeOk(setting)) setting = ''
     }
+    return { own, setting, action }
+  })
+  const key = (own: readonly Described[], setting: string) => {
+    const named = matchSettings(`${setting} ${own.map(describedText).join(' ')}`, g)
+    return (g.settings.find((s) => s.name.toLowerCase() === setting.toLowerCase())?.name ?? (setting && named.length === 1 ? named[0] : undefined) ?? setting).toLowerCase()
+  }
+  const merged: Array<{ own: Described[]; setting: string; action?: string }> = []
+  for (const x of labelled) {
+    const prev = merged.at(-1)
+    if (prev && x.setting && key(prev.own, prev.setting) === key(x.own, x.setting) && !timeJump(describedText(x.own[0]!))) prev.own.push(...x.own)
+    else merged.push({ own: [...x.own], setting: x.setting, ...(x.action ? { action: x.action } : {}) })
+  }
+  const scenes: Scene[] = []
+  merged.forEach(({ own, setting, action }, id) => {
+    const { evidence } = groundLabel(setting, own, g)
     const named = matchSettings(`${setting} ${own.map(describedText).join(' ')}`, g)
     const settingName = g.settings.find((s) => s.name.toLowerCase() === setting.toLowerCase())?.name ?? (named.length === 1 ? named[0] : undefined)
-    const key = (settingName ?? setting).toLowerCase()
-    const returning = !!key && scenes.slice(0, -1).some((p) => (p.settingName ?? p.setting).toLowerCase() === key) && (scenes.at(-1)?.settingName ?? scenes.at(-1)?.setting ?? '').toLowerCase() !== key
-    scenes.push({ id, shots: own.map((s) => s.index), startMs: own[0]!.startMs, endMs: own.at(-1)!.endMs, setting, ...(settingName ? { settingName } : {}), returning, evidence })
+    const k = (settingName ?? setting).toLowerCase()
+    const returning = !!k && scenes.slice(0, -1).some((p) => (p.settingName ?? p.setting).toLowerCase() === k) && (scenes.at(-1)?.settingName ?? scenes.at(-1)?.setting ?? '').toLowerCase() !== k
+    scenes.push({ id, shots: own.map((s) => s.index), startMs: own[0]!.startMs, endMs: own.at(-1)!.endMs, setting, ...(settingName ? { settingName } : {}), returning, evidence, ...(action && !setting ? { action } : {}) })
   })
   return scenes
 }

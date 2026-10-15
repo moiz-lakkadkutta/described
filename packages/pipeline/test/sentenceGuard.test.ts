@@ -113,16 +113,18 @@ describe('one source sentence per clause (DESC-029)', () => {
   })
   it('accepts whole sentences kept or dropped, words dropped inside one sentence, and two sentences joined by "and"', () => {
     for (const [o, s] of [
-      ['Tent interior. Fire glows.', 'Tent interior.'], ['Tent interior. Fire glows.', 'Fire glows.'], ['Tent interior. Fire glows.', 'Tent. Fire glows.'],
+      ['Tent interior. Fire glows.', 'Fire glows.'], ['Tent interior. Fire glows.', 'Tent. Fire glows.'],
       ['Snowy mountains. A lone figure walks left, carrying a spear.', 'Mountains. A figure walks left.'],
       ['Bearded man holds ornate staff. Red-haired woman watches.', 'Bearded man holds staff.'],
       ['Red-haired woman stares intently forward.', 'Red-haired woman stares forward.'], ['A figure walks, falls. Logo fades.', 'A figure walks, falls.'],
       ['Girl runs. Dragon follows.', 'The girl runs and the dragon follows.'],
       ['Old man sits. He holds a staff.', 'Old man holds a staff.'], // a pronoun subject refers back: the join keeps the fact
     ]) expect(readsAsSentences(o!, s!), s).toBeUndefined()
+    // decision 0012 amendment (2026-10-15): a place alone is no longer a shortening of a text with an action
+    expect(readsAsSentences('Tent interior. Fire glows.', 'Tent interior.')).toMatch(/^only a place/)
   })
-  it('safeShorten: "Tent glows." falls back to the deterministic shortening', async () => {
-    expect(await safeShorten('Tent interior. Fire glows.', 2, () => 'Tent glows.')).toBe('Tent interior.')
+  it('safeShorten: "Tent glows." is rejected, and so is the deterministic "Tent interior." (a place alone): the text comes back unshortened', async () => {
+    expect(await safeShorten('Tent interior. Fire glows.', 2, () => 'Tent glows.')).toBe('Tent interior. Fire glows.')
   })
 })
 
@@ -136,7 +138,9 @@ describe('safeShorten with the sentence guard (DESC-028)', () => {
   })
   it('a deterministic shortening that keeps only a subject is rejected too: the text comes back unshortened and fit moves on', async () => {
     expect(await safeShorten(CREATURE, 5, () => 'A scaled creature with horns.')).toBe(CREATURE) // deterministic at 5 is the same subject
-    expect(await safeShorten(SHOT0, 2, () => 'Mountains.')).toBe('Mountains.') // a verbless sentence of the original: accepted (fail open)
+    // "Mountains." is a place alone (decision 0012 amendment): the deterministic "Snowy mountains." is used — a verbless sentence of the
+    // original that is not only place words (fail open; fit itself then rejects it for dropping the action, keepsAction)
+    expect(await safeShorten(SHOT0, 2, () => 'Mountains.')).toBe('Snowy mountains.')
   })
   it('German: a shortening without a verb the English heuristic would want is accepted', async () => {
     expect(await safeShorten('Ein Drache mit Hörnern starrt, während eine Hand greift.', 4, () => 'Ein Drache mit Hörnern.', 'de')).toBe('Ein Drache mit Hörnern.')

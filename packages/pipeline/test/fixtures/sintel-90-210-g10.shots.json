@@ -1,0 +1,179 @@
+[
+  {
+    "index": 0,
+    "startMs": 0,
+    "endMs": 5604,
+    "part": {
+      "of": 2,
+      "i": 0
+    }
+  },
+  {
+    "index": 1,
+    "startMs": 5604,
+    "endMs": 11208,
+    "part": {
+      "of": 2,
+      "i": 1
+    }
+  },
+  {
+    "index": 2,
+    "startMs": 11208,
+    "endMs": 15271,
+    "part": {
+      "of": 2,
+      "i": 0
+    }
+  },
+  {
+    "index": 3,
+    "startMs": 15271,
+    "endMs": 19333,
+    "part": {
+      "of": 2,
+      "i": 1
+    }
+  },
+  {
+    "index": 4,
+    "startMs": 19333,
+    "endMs": 25833
+  },
+  {
+    "index": 5,
+    "startMs": 25833,
+    "endMs": 28125
+  },
+  {
+    "index": 6,
+    "startMs": 28125,
+    "endMs": 30042
+  },
+  {
+    "index": 7,
+    "startMs": 30042,
+    "endMs": 33125
+  },
+  {
+    "index": 8,
+    "startMs": 33125,
+    "endMs": 36333
+  },
+  {
+    "index": 9,
+    "startMs": 36333,
+    "endMs": 41000
+  },
+  {
+    "index": 10,
+    "startMs": 41000,
+    "endMs": 44042
+  },
+  {
+    "index": 11,
+    "startMs": 44042,
+    "endMs": 48125
+  },
+  {
+    "index": 12,
+    "startMs": 48125,
+    "endMs": 51000
+  },
+  {
+    "index": 13,
+    "startMs": 51000,
+    "endMs": 58417,
+    "part": {
+      "of": 2,
+      "i": 0
+    }
+  },
+  {
+    "index": 14,
+    "startMs": 58417,
+    "endMs": 65833,
+    "part": {
+      "of": 2,
+      "i": 1
+    }
+  },
+  {
+    "index": 15,
+    "startMs": 65833,
+    "endMs": 72083
+  },
+  {
+    "index": 16,
+    "startMs": 72083,
+    "endMs": 79813,
+    "part": {
+      "of": 2,
+      "i": 0
+    }
+  },
+  {
+    "index": 17,
+    "startMs": 79813,
+    "endMs": 87542,
+    "part": {
+      "of": 2,
+      "i": 1
+    }
+  },
+  {
+    "index": 18,
+    "startMs": 87542,
+    "endMs": 90125
+  },
+  {
+    "index": 19,
+    "startMs": 90125,
+    "endMs": 92042
+  },
+  {
+    "index": 20,
+    "startMs": 92042,
+    "endMs": 94375
+  },
+  {
+    "index": 21,
+    "startMs": 94375,
+    "endMs": 96708
+  },
+  {
+    "index": 22,
+    "startMs": 96708,
+    "endMs": 99792
+  },
+  {
+    "index": 23,
+    "startMs": 99792,
+    "endMs": 101875
+  },
+  {
+    "index": 24,
+    "startMs": 101875,
+    "endMs": 104667
+  },
+  {
+    "index": 25,
+    "startMs": 104667,
+    "endMs": 107625
+  },
+  {
+    "index": 26,
+    "startMs": 107625,
+    "endMs": 113125
+  },
+  {
+    "index": 27,
+    "startMs": 113125,
+    "endMs": 116000
+  },
+  {
+    "index": 28,
+    "startMs": 116000,
+    "endMs": 120000
+  }
+]

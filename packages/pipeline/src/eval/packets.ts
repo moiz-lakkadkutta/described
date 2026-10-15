@@ -9,7 +9,10 @@ import type { Shot } from '../steps/02-shots'
 import type { Gap, GapsVad, Word } from '../steps/03-speech'
 import type { Segment } from '../voiceActivity'
 import type { Described } from '../steps/04-describe'
-import type { FitCue } from '../steps/05-fit'
+import { groundedDescription, type FitCue } from '../steps/05-fit'
+import { readScenes, type Scene } from '../steps/04c-scenes'
+import { EMPTY_GLOSSARY, type Glossary } from '../glossary'
+import { evalGlossary } from './run'
 import { ffmpegSpeechMs, ffprobeClipMs, NEXT_CUE_SPACING_MS, OVERRUN_TOLERANCE_MS } from '../steps/06-voice'
 
 /**
@@ -31,7 +34,17 @@ export interface PacketData {
   shots: Shot[]; described: Described[]; gaps: Gap[]; words: Word[]; cues: FitCue[]; fitCues: FitCue[]
   /** Speech Transcribe missed (gaps.vad.json, decision 0014); [] for a work dir made before it. */
   unlabelled?: Segment[]
+  /** scenes.json and the source's glossary: what fit read a description through (groundedDescription); absent in older work dirs */
+  scenes?: Scene[]
+  glossary?: Glossary
 }
+/**
+ * The text to rate for a shot that is not voiced and that fit did not place: fit's grounded description (05-fit groundedDescription,
+ * the same function fit reads every description through: "Darkness." whole or absent, no bare light-word lead, no place carried from
+ * another scene) — exactly what the pipeline would voice if the shot got a slot (decision 0012 amendment, 2026-10-15, review). Before
+ * this, packets showed raw described.json (g10 shot 28 "… inside the tent" was rated on a phrase fit never voices).
+ */
+export const unvoicedText = (d: Pick<PacketData, 'scenes' | 'glossary'>, desc: Described) => groundedDescription(desc, d.scenes, d.glossary ?? EMPTY_GLOSSARY)
 export interface Line { start: number; end: number; speaker?: string; text: string }
 
 export const frameTimes = (s: Shot) => FRAME_FRACTIONS.map((f) => s.startMs + (s.endMs - CUT_LAG_MS - s.startMs) * f)
@@ -131,7 +144,7 @@ export function shotsMd(d: PacketData, speechMs: ReadonlyMap<number, number | un
       md.push('- **Not voiced: empty description** (describe returned no text and did not mark the shot same as previous; a pipeline failure). See RUBRIC.md.')
     else if (!voiced.length) {
       const fc = d.fitCues.find((c) => c.shotIndex === i)
-      const would = fc?.text ?? desc?.description ?? ''
+      const would = fc?.text ?? (desc ? unvoicedText(d, desc) : '')
       const why = fc ? 'placed by fit but dropped by the voice step (the spoken clip ran past its slot)' : 'no room in the dialogue gaps'
       md.push(`- **Not voiced** (${why}). Rate the text it would have voiced: "${would}". On time and fits: n/a.`)
     }
@@ -181,6 +194,8 @@ export async function loadPacketData(work: string): Promise<PacketData> {
     gaps: await readJson<Gap[]>(work, 'gaps.json'), words: await readJson<Word[]>(work, 'words.json', []),
     cues: await readJson<FitCue[]>(work, 'cues.json'), fitCues: await readJson<FitCue[]>(work, 'cues.fit.json', []),
     unlabelled: (await readJson<Partial<GapsVad>>(work, 'gaps.vad.json', {})).unlabelledSpeech ?? [],
+    scenes: await readScenes(work),
+    glossary: await readJson<{ source?: string }>(work, 'gate-c.json', {}).then((m) => (m.source ? evalGlossary(m.source) : EMPTY_GLOSSARY)),
   }
 }
 
@@ -194,7 +209,8 @@ export async function treeHash(dir: string): Promise<string> {
 
 /**
  * Builds {outDir}/rater1 … raterN, byte-identical (one staged copy, copied N times; checked by treeHash), plus {outDir}/packet.json
- * (which work dir, when, the hash, and skipShots — the same-as-previous shots `score` leaves out). Refuses an even N (a majority needs an odd number of raters) and an outDir that has files,
+ * (which work dir, when, the hash, skipShots — the same-as-previous shots `score` leaves out — and voicedShots, the shots with a voiced
+ * cue in cues.json, for `score`'s informational voiced lines). Refuses an even N (a majority needs an odd number of raters) and an outDir that has files,
  * so filled score sheets are never overwritten.
  */
 export async function buildPackets(o: { work: string; outDir: string; raters: number; offsetMs?: number; title?: string; credit?: string }, deps: PacketDeps = realDeps) {
@@ -233,6 +249,6 @@ export async function buildPackets(o: { work: string; outDir: string; raters: nu
   }
   await rm(stage, { recursive: true })
   if (new Set(hashes).size !== 1) throw new Error('rater packets differ; this is a bug')
-  await writeFile(join(o.outDir, 'packet.json'), JSON.stringify({ work: o.work, raters: o.raters, shots: d.shots.length, shotIndices: d.shots.map((s) => s.index), skipShots: skip, offsetMs, title, credit, sha256: hashes[0], at: new Date().toISOString() }, null, 2))
+  await writeFile(join(o.outDir, 'packet.json'), JSON.stringify({ work: o.work, raters: o.raters, shots: d.shots.length, shotIndices: d.shots.map((s) => s.index), skipShots: skip, voicedShots: [...new Set(d.cues.map((c) => c.shotIndex))].filter((i) => d.shots.some((s) => s.index === i)).sort((a, b) => a - b), offsetMs, title, credit, sha256: hashes[0], at: new Date().toISOString() }, null, 2))
   return { shots: d.shots.length, sha256: hashes[0]! }
 }

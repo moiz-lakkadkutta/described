@@ -53,10 +53,11 @@ describe('scene grouping (DESC-029, 04c-scenes)', () => {
   it('uses the model\'s grouping when it is valid; an ungrounded label falls back to the deterministic one', async () => {
     const r = await sceneGroups(sintel, gSintel, 'en', toolReply([{ firstShot: 0, lastShot: 1, setting: 'snowy mountains' }, { firstShot: 2, lastShot: 8, setting: 'a castle' }, { firstShot: 9, lastShot: 14, setting: 'tent interior' }]))
     expect(r.source).toBe('model')
-    expect(r.scenes.map((s) => [span(s), s.setting, s.settingName, s.returning])).toEqual([['0–1', 'snowy mountains', 'the snowy mountains', false], ['2–8', 'the tent', 'the tent', false], ['9–14', 'tent interior', 'the tent', false]])
+    // decision 0012 amendment (2026-10-15): adjacent scenes in one place are one scene (here "the tent" and "tent interior", both the glossary's tent)
+    expect(r.scenes.map((s) => [span(s), s.setting, s.settingName, s.returning])).toEqual([['0–1', 'snowy mountains', 'the snowy mountains', false], ['2–14', 'the tent', 'the tent', false]])
     expect(r.labels).toEqual([{ scene: 1, label: 'a castle', reason: 'not in its descriptions or the glossary: castle' }])
     expect(r.usage).toEqual({ inputTokens: 900, outputTokens: 60 })
-    expect(sceneOf(r.scenes, 10)?.id).toBe(2)
+    expect(sceneOf(r.scenes, 10)?.id).toBe(1)
   })
   it('marks a return to an earlier, not adjacent place', async () => {
     const r = await sceneGroups(tos, gTos, 'en', toolReply([{ firstShot: 0, lastShot: 1, setting: 'the canal bridge' }, { firstShot: 2, lastShot: 7, setting: 'the lab' }, { firstShot: 8, lastShot: 8, setting: 'the smoking city' }, { firstShot: 9, lastShot: 11, setting: 'the hideout' }, { firstShot: 12, lastShot: 12, setting: 'the smoking city' }, { firstShot: 13, lastShot: 15, setting: 'the hideout' }]))

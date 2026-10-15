@@ -1,4 +1,5 @@
-import { contentWords, STOP, stem } from './contentWords'
+import { contentWords, normalizeQuotes, STOP, stem } from './contentWords'
+import { PLACE_NOUNS } from './glossary'
 import { cutsNeutral } from './textClause'
 
 /**
@@ -28,7 +29,73 @@ export function readsAsSentences(original: string, shortened: string, language: 
   const joined = joinsSentences(orig, aligned)
   if (joined) return joined
   if (language === 'de') return undefined
-  return endsMidPhrase(orig, aligned) ?? onlySubjects(shortened, [original])
+  return endsMidPhrase(orig, aligned) ?? danglingClause(orig, aligned) ?? onlySubjects(shortened, [original]) ?? onlyPlace(shortened, [original])
+}
+
+const CLAUSE_OPENERS = new Set(['while', 'as', 'who', 'which', 'whose', 'where'])
+/**
+ * Check 2c (decision 0012 amendment, 2026-10-15; English): a cut that keeps a clause opener but not the clause's verb ("… stirs a pot
+ * over fire while a young woman with short red hair." from "… while a young woman …, watches."; the g10 replay's capExtended cut of
+ * shot 5). Only when the original had a verb after that opener in the same sentence.
+ */
+function danglingClause(orig: readonly Word[], aligned: ReadonlyArray<Word & { at: number }>): string | undefined {
+  const ov = verbIndexes(orig), sv = verbIndexes(aligned)
+  for (const sent of sentencesOf(aligned.map((x, i) => ({ ...x, i })))) {
+    const k = sent.map((x) => CLAUSE_OPENERS.has(x.bare)).lastIndexOf(true)
+    if (k < 0 || sent.slice(k + 1).some((x) => sv.has(x.i))) continue
+    const at = sent[k]!.at
+    if (at >= 0 && [...ov].some((v) => v > at && orig[v]!.sentence === orig[at]!.sentence)) return `dangling clause: "${sent.slice(k).map((x) => x.raw).join(' ')}"`
+  }
+  return undefined
+}
+
+/** Prepositions a place phrase opens with ("In the tent.", "Back in the lab.", "Inside the hut."). */
+const PLACE_PREPOSITIONS = new Set(['in', 'inside', 'at', 'on', 'under', 'near', 'by', 'outside', 'into', 'within', 'beside', 'behind', 'above', 'below', 'beneath', 'across', 'along', 'through', 'amid', 'among', 'atop', 'over', 'back'])
+/** Light and condition words: with place nouns, all a setting statement says ("Dim tent.", "Darkness."). */
+const CONDITIONS = new Set(['dim', 'dark', 'darkness', 'bright', 'light', 'shadow', 'shadows', 'gloom', 'mist', 'fog', 'haze', 'smoke', 'night', 'day', 'interior', 'exterior', 'inside', 'outside', 'back'].map(stem))
+/**
+ * Check 4 (decision 0012 amendment, 2026-10-15; English): the cue is only where we are. g10 voiced "In the tent." four times in a row in
+ * place of the blade, the ladle pour and the bowl handed over (fit's clause cut kept the description's opening phrase, which check 3
+ * let through: a word from a verbless clause fails open), and "The tent." as a scene pause. Rejected:
+ * - a sentence with no verb that opens with a preposition ("In the tent.", "Back in the lab.") — 'only a prepositional phrase';
+ * - a text with no verb whose every content word is a place noun or a light / condition word ("The tent.", "Night. A rooftop.",
+ *   "Dim tent interior.") when a
+ *   source has a verb — 'only a place'.
+ * Narrow on purpose: other verbless noun phrases stay acceptable here ("Snowy mountains." beside on-screen text in 06-voice; fit's
+ * keepsAction is what stops fit shortening to them) ("Man with dark hair, eyes closed, mechanical device near face." and
+ * "Dark, rope-laced industrial shaft." passed every rater on tos-390-510-g10). Verbs: verbIndexes.
+ */
+function onlyPlace(text: string, sources: readonly string[]): string | undefined {
+  const ws = words(text), verbs = verbIndexes(ws)
+  for (const s of sentencesOf(ws.map((x, i) => ({ ...x, i })))) {
+    if (s.some((x) => verbs.has(x.i))) continue
+    if (PLACE_PREPOSITIONS.has(s[0]!.bare) && s.length > 1) return `only a prepositional phrase: "${s.map((x) => x.raw).join(' ')}"`
+  }
+  if (verbs.size) return undefined
+  const cw = contentWords(text).map(stem)
+  if (!cw.length || !cw.every((w) => PLACE_NOUNS.has(w) || CONDITIONS.has(w)) || !cw.some((w) => PLACE_NOUNS.has(w))) return undefined
+  return sources.some((src) => verbIndexes(words(src)).size) ? `only a place: "${text.trim()}"` : undefined
+}
+
+/**
+ * fit's action rule (decision 0012 amendment, 2026-10-15): a shortening keeps the shot's action — a verb of the original (by stem,
+ * verbIndexes) — when the original has one. g10 shot 27 "a young woman …, in a grey tank top smiles slightly. A small tan dragon roars."
+ * was shortened to "A woman with red hair." (no verb; check 3 failed open on the comma before "smiles"). The original's on-screen text
+ * clauses are not action and the caller passes the rest. True when the original has no verb that verbIndexes finds (fails open). fit
+ * only: 06-voice's overrun shortening is unchanged (tos-390-510-g10 shot 22 "Dark, rope-laced industrial shaft.", passed by its raters).
+ * Verbs are matched by Porter stem against the shot's own description, not by meaning: a shortener's synonym ("grabs" for "grips") does
+ * not count — the shortener may only remove words (preservesFacts), so a synonym was never a valid shortening anyway.
+ */
+const PREPOSITIONS = new Set(['with', 'without', 'of', 'in', 'on', 'at', 'by', 'for', 'from', 'into', 'onto', 'under', 'over', 'behind', 'beside', 'near', 'between', 'among', 'through', 'across', 'toward', 'towards', 'above', 'below', 'beneath', 'around', 'along', 'against', 'inside', 'outside', 'beyond', 'within', 'upon', 'past', 'amid', 'atop'])
+export function keepsAction(original: string, shortened: string): boolean {
+  const ow = words(original), vi = verbIndexes(ow)
+  // an -s word right after "preposition + word", when its sentence already has a verb before it, is a compound noun, not a second verb
+  // ("swings on rope near organ pipes", "climbs on stone steps"; but "Man in glasses shouts" keeps its verb)
+  const compound = (i: number) => i >= 2 && PREPOSITIONS.has(ow[i - 2]!.bare) && !vi.has(i - 1) && !LINKING.has(ow[i]!.bare) && [...vi].some((j) => j < i - 2 && ow[j]!.sentence === ow[i]!.sentence)
+  const verbs = [...vi].filter((i) => !compound(i)).map((i) => stem(ow[i]!.bare))
+  if (!verbs.length) return true
+  const have = new Set(words(shortened).map((w) => stem(w.bare)))
+  return verbs.some((v) => have.has(v))
 }
 
 const SUBJECT_PRONOUNS = new Set(['he', 'she', 'it', 'they', 'er', 'sie', 'es'])
@@ -97,7 +164,7 @@ export function editReadsAsSentences(original: string, edited: string, sources: 
     const next = ws[k + 1]?.bare ?? ''
     if (!JOINERS.has(next) && !/ing$/.test(next)) return `new list comma after "${w.bare}"`
   }
-  return language === 'de' ? undefined : onlySubjects(edited, [original, ...sources])
+  return language === 'de' ? undefined : onlySubjects(edited, [original, ...sources]) ?? onlyPlace(edited, [original, ...sources])
 }
 /** Words that may follow a comma the sources did not have: they open a clause, not the next item of a list. */
 const JOINERS = new Set(['and', 'then', 'while', 'as', 'but', 'who', 'which', 'when', 'before', 'after', 'until', 'where', 'whose'])
@@ -157,7 +224,7 @@ export const originalVerbs = (text: string) => { const w = words(text); return [
 interface Word { raw: string; bare: string; sentence: number }
 const words = (t: string): Word[] => {
   let sentence = 0
-  return t.trim().split(/\s+/).filter(Boolean).map((raw) => {
+  return normalizeQuotes(t).trim().split(/\s+/).filter(Boolean).map((raw) => {
     const w = { raw, bare: raw.toLowerCase().replace(/[^\p{L}\p{N}'-]/gu, '').replace(/^['-]+|['-]+$/g, ''), sentence }
     if (/[.!?…]["'”’)\]]*$/.test(raw)) sentence++
     return w

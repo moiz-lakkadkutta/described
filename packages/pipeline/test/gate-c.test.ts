@@ -12,7 +12,7 @@ import { defaultCredit, preparePlan, prepareGateC, PREPARE_STEPS, type PrepareDe
 import { editModelId, LITE } from '../src/prompts'
 import { verifyModelId } from '../src/steps/04b-verify'
 import { chmod } from 'node:fs/promises'
-import { formatSummary, needsAttention, parseCorrections, parseScores, parseShotList, readExpected, readPacket, readRaters, scoreDir, summarise, type RaterScores } from '../src/eval/score'
+import { formatSummary, needsAttention, parseCorrections, parseEventsLost, parseScores, parseShotList, readExpected, readPacket, readRaters, scoreDir, summarise, type RaterScores } from '../src/eval/score'
 import { VAD } from '../src/voiceActivity'
 
 let root: string
@@ -412,7 +412,7 @@ describe('gate-c packets: end to end with a fake ffmpeg', () => {
     expect((await readdir(join(out, 'rater1', 'frames'))).length).toBe(10)
     for (const f of ['RUBRIC.md', 'shots.md', 'scores.md']) expect(await readFile(join(out, 'rater1', f), 'utf8')).not.toMatch(/secret-run-slug|packet\.json/)
     expect(await readFile(join(out, 'rater1', 'shots.md'), 'utf8')).toContain('speech end: 1600 ms')
-    expect(JSON.parse(await readFile(join(out, 'packet.json'), 'utf8'))).toMatchObject({ shotIndices: [0, 1], raters: 3, sha256: hashes[0] })
+    expect(JSON.parse(await readFile(join(out, 'packet.json'), 'utf8'))).toMatchObject({ shotIndices: [0, 1], raters: 3, sha256: hashes[0], voicedShots: [0] })
     expect(calls.length).toBe(2 * 6) // 5 frames + 1 sheet per shot
   })
 })
@@ -561,7 +561,7 @@ describe('gate-c packets: same-as-previous shots are not rated', () => {
     const out = join(root, 'packets')
     await buildPackets({ work, outDir: out, raters: 1 }, { ffmpeg: async (a) => { await writeFile(a.at(-1)!, 'img') }, speechMs: async () => 1000, log: () => {} })
     expect(JSON.parse(await readFile(join(out, 'packet.json'), 'utf8'))).toMatchObject({ shotIndices: [0, 1], skipShots: [1] })
-    expect(await readPacket(out)).toEqual({ shotIndices: [0, 1], skipShots: [1] })
+    expect(await readPacket(out)).toEqual({ shotIndices: [0, 1], skipShots: [1], voicedShots: [0] })
   })
 })
 
@@ -668,6 +668,27 @@ describe('gate-c score: corrections.md', () => {
     expect(r.exitCode).toBe(0) // the exit code follows the as-rated result
     expect(text).toContain('shot 25 on time → fail: talks over "Come on!" at 103 s, missed by Transcribe')
     expect(await readFile(join(root, 'rater1', 'scores.md'), 'utf8')).toBe(before) // the raters' sheets are never written
+  })
+  it('prints voiced-usable / voiced, the shots not voiced and the plot events lost, as rated and corrected; the gate is unchanged', async () => {
+    const sheet = (rows: string[], lost: string) => `| Shot | Faithful | On time | Style | Clean | Fits | Usable | Note |\n|---|---|---|---|---|---|---|---|\n${rows.join('\n')}\n\nUsable: 2 / 3\n\nPlot events lost (not voiced and plot-relevant):\n${lost}\n`
+    const rows = ['| 2 | pass | pass | pass | fail | pass | no | "Dim." |', '| 25 | pass | n/a | pass | pass | n/a | yes | Not voiced. |', '| 28 | fail | n/a | pass | pass | n/a | no | not a tent |']
+    for (const [r, lost] of [['rater1', '- Shot 28: she holds the dragon.\n- Shots 4/7/8 lose the bowl.'], ['rater2', '- Shot 28: she tends the dragon.'], ['rater3', '- (Minor) Shot 25: x']] as const) {
+      await mkdir(join(root, r))
+      await writeFile(join(root, r, 'scores.md'), sheet(rows, lost))
+    }
+    expect(parseEventsLost(sheet(rows, '- Shot 28: x\n- Shots 4/7/8 lose the bowl.\n- (Minor) Shot 3: y'))).toEqual([28, 4, 7, 8, 3])
+    await writeFile(join(root, 'packet.json'), JSON.stringify({ shotIndices: [2, 25, 28] }))
+    const plain = (await scoreDir(root)).lines.join('\n')
+    expect(plain).toMatch(/majority-usable .*: 1 \/ 3 = 33\.3 % — gate ≥ 70 %: FAIL/) // the gate as before
+    expect(plain).toContain('informational (not the gate): voiced-usable / voiced: 0 / 1 = 0.0 %; not voiced: 2 shots (25, 28); plot events lost (listed by a majority): 1 (shot 28)')
+    // packet.json's voicedShots decides, not the raters' "On time: n/a" (old packets without it fall back to n/a, as above)
+    await writeFile(join(root, 'packet.json'), JSON.stringify({ shotIndices: [2, 25, 28], voicedShots: [2, 25] }))
+    expect((await scoreDir(root)).lines.join('\n')).toContain('voiced-usable / voiced: 1 / 2 = 50.0 %; not voiced: 1 shot (28)')
+    await writeFile(join(root, 'packet.json'), JSON.stringify({ shotIndices: [2, 25, 28] }))
+    await writeFile(join(root, 'corrections.md'), '| 25 | faithful | fail | wrong colour |\n')
+    const both = (await scoreDir(root)).lines.join('\n')
+    expect(both.match(/informational \(not the gate\)/g)).toHaveLength(2) // as rated and corrected
+    expect(both).toContain('informational (not the gate): voiced-usable / voiced: 0 / 1 = 0.0 %; not voiced: 2 shots (25, 28); plot events lost (listed by a majority): 1 (shot 28)')
   })
   it('--skip scores an old packet.json that lacks skipShots', async () => {
     const sheet = (rows: string[]) => `| Shot | Faithful | On time | Style | Clean | Fits | Usable | Note |\n|---|---|---|---|---|---|---|---|\n${rows.join('\n')}\n`

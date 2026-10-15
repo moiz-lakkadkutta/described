@@ -36,9 +36,18 @@ A run passes when **at least 70 % of the shots are majority-usable**: rated usab
 3. **Build blind packets.** `pnpm gate-c packets <eval> <out> --raters 3` gives each rater an identical folder: contact sheets and
    frames per shot, dialogue ±2 s, the gaps, the numbers "fits" needs (limit, clip end, speech end, next dialogue word, next placed
    cue), the voiced text or "Not voiced" with the text it would have voiced. Packets name no model or run.
+   **Text to rate for an unvoiced shot = fit's grounded description** (`groundedDescription` in 05-fit, the function fit reads every
+   description through; the packet calls it, there is no separate cleanup): what the pipeline would voice if the shot got a slot —
+   "Darkness." whole or absent, no bare light-word lead ("Dim."), no place carried from another scene. A shot fit placed but voice
+   dropped shows fit's text, as before. Decision 0012 amendment (2026-10-15). The `sintel-90-210-g10` and `tos-390-510-g10` ratings
+   used the raw described.json text for unvoiced shots (g10 shot 28 "… inside the tent"), so they are not strictly comparable with
+   later runs.
 4. **Rate independently.** Each rater sees only their own folder and does not talk to the others.
 5. **Score.** `pnpm gate-c score <out>`: per-rater usable counts, majority-usable (against 70 %), all-raters-usable, agreement,
-   and each disagreement with the raters' notes.
+   and each disagreement with the raters' notes. Also, **informational only** (the pass rule is unchanged): voiced-usable / voiced
+   (packet.json `voicedShots`, the shots with a voiced cue; for an older packet, shots a majority did not mark "On time: n/a"), the shots not voiced, and the plot events lost (shots a majority listed under
+   "Plot events lost") — the gate counts an unvoiced shot like a voiced one, so a run that voices less can score higher. Printed for
+   the corrected result too when there are corrections.
 6. **Report each clip separately, never pooled.**
    - **Primary: `sintel-90-210`** (Sintel 1:30–3:30, 29 shots). The Gate C clip since 0003; every change since has been checked on
      it, so it is **tuned** and is reported as such.

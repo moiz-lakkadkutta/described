@@ -46,6 +46,7 @@ in a dialogue-free gap while the film plays) or **extended** (the film pauses wh
 ## Special cases
 
 - **Not voiced**: rate the text it would have voiced on faithful, style and clean; on time and fits are n/a (count as pass).
+  That text is what the pipeline would say if the shot had a slot (fit's grounded description), not the model's raw line above it.
   If the shot carries a plot event the viewer now misses, list it at the end of `scores.md` — it does not make the shot unusable.
 - **Same as previous / continuation**: a later part of one camera shot may say only what is new. A continuation with text
   (voiced, or not voiced with the text it would have voiced) is rated against its own frames like any other shot. A shot marked

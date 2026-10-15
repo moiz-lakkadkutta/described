@@ -2,11 +2,12 @@ import { readFile, writeFile } from 'node:fs/promises'
 import type { Ctx } from './index'
 import type { Described } from './04-describe'
 import type { Gap } from './03-speech'
-import { clauseText, stripDarkness, textSpans, withoutSpans } from '../textClause'
+import { clauseText, sentences, stripBareLead, stripDarkness, textSpans, withoutSpans } from '../textClause'
 import { eventSpaced, newWords, plotEvents } from '../plotEvent'
-import { midPhrase, readsAsSentences } from '../sentenceGuard'
+import { keepsAction as keepsVerb, midPhrase, readsAsSentences } from '../sentenceGuard'
+import { normalizeQuotes } from '../contentWords'
 import { EMPTY_GLOSSARY, glossaryFor, type Glossary } from '../glossary'
-import { sceneLine, sceneStems, settingLead, statesPlace } from '../sceneSetting'
+import { foreignPlaceStems, placeKnown, sceneLine, sceneStems, settingLead, statesPlace, withoutPlacePhrases, withPlace } from '../sceneSetting'
 import { freshScenes, sceneOf, type Scene } from './04c-scenes'
 
 /**
@@ -53,38 +54,48 @@ export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, max
   const events: EventCandidate[] = []
   const glossary = opts.glossary ?? EMPTY_GLOSSARY
   const opened = new Set<number>() // scenes whose first described shot has been placed (or tried)
+  const names = glossary.characters.map((c) => c.name)
   const work = async () => {
-    for (const s of shots.map((x) => ({ ...x, description: stripDarkness(x.description) }))) { // "Darkness." is the whole description or absent (../textClause)
+    for (const s of shots.map((x) => ({ ...x, description: groundedDescription(x, opts.scenes, glossary) }))) {
       if (s.sameAsPrev || !s.description) continue
       // DESC-029: a scene's first described shot states where the scene is — its own opening setting sentence, protected from shortening,
-      // or the scene's label put in front ("The tent.", "Back in the lab.") — when the words fit; an event still outranks the setting.
+      // or the scene's place merged into the action ("In the tent, a faint fire glows …", "Back in the lab, …") — when the words fit; an
+      // event still outranks the setting, and a place is never a cue on its own (decision 0012 amendment, 2026-10-15).
       const scene = opts.scenes ? sceneOf(opts.scenes, s.index) : undefined
       const opening = scene && !opened.has(scene.id) ? scene : undefined
       if (scene) opened.add(scene.id)
       // Later in a scene whose place a cue has stated, the shot's own setting statement is not said again ("Snowy mountains." twice,
-      // "Dark room." after "The tent. …"); a shot that is only that statement is not voiced.
+      // "Dark room." after "The tent. …"), nor its opening place phrase ("In the tent, an old man …" four times in g10); a shot that is
+      // only that statement is not voiced.
       if (scene && !opening && out.some((c) => scene.shots.includes(c.shotIndex) && statesPlace(c.text, sceneStems(scene, glossary)))) {
-        const again = settingLead(s.description, sceneStems(scene, glossary))
+        const stems = sceneStems(scene, glossary)
+        const again = settingLead(s.description, stems)
         if (again) {
           const left = s.description.slice(s.description.indexOf(again) + again.length).trim()
           if (!left) continue
           s.description = left
         }
+        s.description = withoutPlacePhrases(s.description, stems, true)
+        if (!s.description) continue
       }
       const stems = opening ? sceneStems(opening, glossary) : undefined
       const ownLead = stems ? settingLead(s.description, stems) : undefined
-      const lead = ownLead ?? (opening && !statesPlace(s.description, stems!) ? sceneLine(opening) || undefined : undefined)
       const rest = ownLead ? s.description.slice(s.description.indexOf(ownLead) + ownLead.length).trim() : s.description
-      const prevPlaced = () => [...out].reverse().find((x) => !x.extended)?.text ?? ''
-      /** The text with its setting lead kept whole in maxWords: the rest shortened beside it; the lead alone (own lead only) when the rest carries no plot event. */
+      const merge = !ownLead && opening && !statesPlace(s.description, stems!) && placeKnown(opening, s.index, shots) ? (action: string) => withPlace(opening, action, names) : undefined
+      /** The text with the scene's place in maxWords: the shot's own setting sentence beside the rest, or the place merged into the action; the rest shortened to the words left, its action kept. Never the place alone. */
       const withLead = async (maxWords: number) => {
-        if (!lead) return undefined
-        const full = rest ? `${lead} ${rest}` : lead
+        if (!ownLead && !merge) return undefined
+        const full = ownLead ? (rest ? `${ownLead} ${rest}` : ownLead) : merge!(rest)
+        if (full === undefined) return undefined
         if (words(full) <= maxWords) return full
-        const room = maxWords - words(lead)
-        if (rest && room >= 2) { const r = (await shorten(rest, room)).trim(); if (r && words(r) <= room) return `${lead} ${r}` }
-        if (ownLead && words(lead) <= maxWords && !plotEvents(rest, prevPlaced()).length) return lead
-        return undefined
+        if (!rest) return undefined
+        const room = maxWords - (ownLead ? words(ownLead) : words(full) - words(rest))
+        if (room < 2) return undefined
+        const r = await fitted(rest, room)
+        // where the lead alone used to be voiced (0012): the first sentence of the rest that keeps its action and fits, without the lead
+        if (r === undefined) return ownLead ? actionSentence(rest, maxWords, language) : undefined
+        const t = ownLead ? `${ownLead} ${r}` : merge!(r)
+        return t !== undefined && words(t) <= maxWords ? t : undefined
       }
       /** The gaps in the shot's window with ≥ MIN_WORDS of room, in order, with where a cue would start in each. */
       const slots = () => {
@@ -98,7 +109,14 @@ export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, max
         }
         return r
       }
-      const fitted = async (text: string, maxWords: number) => { const t = words(text) > maxWords ? await shorten(text, maxWords) : text; return words(t) <= maxWords ? t : undefined }
+      /** The text in maxWords: whole, or shortened keeping its action (a verb of the text, keepsVerb), else the next-best: one of its own sentences that has a verb, shortened under the same rules. */
+      const fitted = async (text: string, maxWords: number) => {
+        if (words(text) <= maxWords) return text
+        const t = await shorten(text, maxWords)
+        if (words(t) <= maxWords && keepsActionOf(text, t)) return t
+        if (words(t) <= maxWords) console.warn('fit: shortening drops the shot\'s action, trying its sentences:', JSON.stringify(text), '→', JSON.stringify(t))
+        return actionSentence(text, maxWords, language)
+      }
       const place = (g: (typeof free)[number], start: number, text: string) => {
         const end = Math.min(g.endMs, start + estimateClipMs(words(text)))
         out.push({ startMs: start, endMs: end, text, extended: false, wordCount: words(text), shotIndex: s.index, limitMs: g.endMs })
@@ -125,7 +143,11 @@ export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, max
         break
       }
       if (placed) continue
-      /** A pause never starts before the estimated end of an earlier shot's placed cue (g9: shot 9's event pause inside shot 8's cue). */
+      /**
+       * A pause never starts before the estimated end of an earlier shot's placed cue (g9: shot 9's event pause inside shot 8's cue). It may
+       * then start more than LATE_MS after its shot when that estimate runs long; 06-voice moves it to the measured end, earlier, and
+       * applies the on-time rule there (decision 0012 amendment, 2026-10-15: g10 shots 19 and 24, tos-390-510-g10 shot 13).
+       */
       const pause = (): FitCue => {
         const startMs = Math.max(s.startMs, ...out.filter((x) => !x.extended && x.shotIndex < s.index).map((x) => x.endMs))
         return { ...extended(s), startMs, endMs: startMs + 100 }
@@ -137,7 +159,7 @@ export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, max
       if (capped) events.push({ cue: { ...pause(), ...capped, event: true }, verbs: verbs.length, fresh: newWords(s.description, previous) })
     }
     const all = [...out, ...capEvents(events)]
-    return (opts.scenes && opts.scenePauses !== false ? scenePauses(opts.scenes, all, glossary) : all).sort(byStart)
+    return (opts.scenes && opts.scenePauses !== false ? scenePauses(opts.scenes, all, glossary, shots.map((x) => ({ ...x, description: groundedDescription(x, opts.scenes, glossary) }))) : all).sort(byStart)
   }
   return work()
 }
@@ -147,29 +169,97 @@ export interface FitOptions { scenes?: readonly Scene[]; glossary?: Glossary; sc
 /** Scene pauses are at least this far apart: at most one per title-minute (Extended mode only, so the plain AD track is unchanged). */
 export const SCENE_PAUSE_SPACING_MS = 60_000
 /**
- * Extended mode only (DESC-029, amends 0007): a scene where no cue says where we are gets one short pause with its place ("The white
- * chamber.", "Back in the tent."), at the scene's start but never inside an earlier shot's placed cue, at most one per
- * SCENE_PAUSE_SPACING_MS, and only while the scene is still on screen. Its words are the scene's grounded label (04c-scenes).
- * One pause, not two: when an event or other pause of the scene already starts there, the place is said first in that pause (when it
- * stays within EXTENDED_WORDS) instead of a pause of its own; a scene pause on the same start as another pause sorts first (byStart).
- * Returns `cues` with the pauses added or merged.
+ * Extended mode only (DESC-029, amends 0007): a scene where no cue says where we are gets one pause with its place merged into the action
+ * of the shot on screen there ("In the tent, a young woman blinks slowly."; "Back in the tent, …"), at the scene's start but never inside an
+ * earlier shot's placed cue, at most one per SCENE_PAUSE_SPACING_MS, and only while the scene is still on screen. Its place words are the
+ * scene's grounded label (04c-scenes). One pause, not two: when an event or other pause of the scene already starts there, the place is
+ * merged into that pause (when it stays within EXTENDED_WORDS) instead.
+ * Decision 0012 amendment (2026-10-15): a place is never a pause on its own (g10's "The tent." over a close-up, failed by all three
+ * raters), and the shot under the pause has priority — its own description is what the pause says, with the place in front; when that
+ * shot is already voiced, or has no action, or the two do not fit in EXTENDED_WORDS, there is no scene pause.
+ * `shots`: the descriptions as fit read them (groundedDescription). Returns `cues` with the pauses added or merged.
  */
-export function scenePauses(scenes: readonly Scene[], cues: readonly FitCue[], g: Glossary): FitCue[] {
+export function scenePauses(scenes: readonly Scene[], cues: readonly FitCue[], g: Glossary, shots: readonly Described[] = []): FitCue[] {
   const out = cues.map((c) => ({ ...c }))
   let last = -Infinity
   for (const sc of scenes) {
-    const line = sceneLine(sc)
-    if (!line) continue
+    if (!sceneLine(sc)) { const a = actionPause(sc, out, shots, last); if (a) { last = a.startMs; out.push(a) } continue }
     const stems = sceneStems(sc, g)
     if (out.some((c) => sc.shots.includes(c.shotIndex) && statesPlace(c.text, stems))) continue
     const startMs = Math.max(sc.startMs, ...out.filter((x) => !x.extended && x.shotIndex < sc.shots[0]!).map((x) => x.endMs))
     if (startMs >= sc.endMs || startMs - last < SCENE_PAUSE_SPACING_MS) continue
-    last = startMs
     const same = out.find((c) => c.extended && !textOnly(c) && c.startMs === startMs && sc.shots.includes(c.shotIndex))
-    if (same && words(same.text) + words(line) <= EXTENDED_WORDS) { same.text = `${line} ${same.text}`; same.wordCount = words(same.text); same.scene = true; continue }
-    out.push({ startMs, endMs: startMs + 100, text: line, extended: true, wordCount: words(line), shotIndex: sc.shots[0]!, scene: true })
+    if (same) {
+      const merged = (!shots.length || placeKnown(sc, same.shotIndex, shots)) ? withPlace(sc, same.text, g.characters.map((c) => c.name)) : undefined
+      if (merged && words(merged) <= EXTENDED_WORDS) { last = startMs; same.text = merged; same.wordCount = words(merged); same.scene = true }
+      continue
+    }
+    const under = shots.find((x) => sc.shots.includes(x.index) && x.startMs <= startMs && startMs < x.endMs)
+    if (!under || under.sameAsPrev || !under.description || out.some((c) => c.shotIndex === under.index) || !placeKnown(sc, under.index, shots)) continue
+    const action = textClauses(under.description) ? undefined : under.description
+    const text = action && placedAction(sc, action, g.characters.map((c) => c.name))
+    if (!text) continue
+    last = startMs
+    out.push({ startMs, endMs: startMs + 100, text, extended: true, wordCount: words(text), shotIndex: under.index, scene: true })
   }
   return out
+}
+/**
+ * A scene with no place label but an action label (04c `action`: Nova Lite's "Man in glasses shouts", grounded, naming no place) keeps the
+ * pause it had before the decision 0012 amendment, as an action, not a place: at the scene's start (the same timing and spacing as a scene
+ * pause), when the shot under it is not voiced, the label keeps that shot's action (keepsAction) and reads as a shortening of its
+ * description. tos-390-510-g10 shot 29 ("Man in glasses shouts.", passed by its raters) was lost without it.
+ */
+function actionPause(sc: Scene, out: readonly FitCue[], shots: readonly Described[], last: number): FitCue | undefined {
+  if (!sc.action) return undefined
+  const startMs = Math.max(sc.startMs, ...out.filter((x) => !x.extended && x.shotIndex < sc.shots[0]!).map((x) => x.endMs))
+  if (startMs >= sc.endMs || startMs - last < SCENE_PAUSE_SPACING_MS) return undefined
+  const under = shots.find((x) => sc.shots.includes(x.index) && x.startMs <= startMs && startMs < x.endMs)
+  if (!under || under.sameAsPrev || !under.description || out.some((c) => c.shotIndex === under.index)) return undefined
+  const text = `${sc.action.trim().replace(/[.!?…]+$/u, '').replace(/^\p{Ll}/u, (c) => c.toUpperCase())}.`
+  if (keepsVerb(text, '') || !keepsVerb(under.description, text) || readsAsSentences(under.description, text)) return undefined
+  return { startMs, endMs: startMs + 100, text, extended: true, wordCount: words(text), shotIndex: under.index, scene: true }
+}
+/** The place merged into the action within EXTENDED_WORDS: whole, else the action shortened deterministically to the words left, its verb kept and still sentences. */
+function placedAction(sc: Pick<Scene, 'setting' | 'returning'>, action: string, names: readonly string[]): string | undefined {
+  const whole = withPlace(sc, action, names)
+  if (!whole) return undefined
+  if (words(whole) <= EXTENDED_WORDS) return whole
+  const room = EXTENDED_WORDS - (words(whole) - words(action))
+  const short = shortenDeterministic(action, room)
+  if (words(short) > room || !keepsVerb(action, short) || readsAsSentences(action, short)) return undefined
+  const t = withPlace(sc, short, names)
+  return t && words(t) <= EXTENDED_WORDS ? t : undefined
+}
+/**
+ * A description as fit and the edit pass read it (decision 0012 amendment, 2026-10-15): "Darkness." whole or absent (stripDarkness), no
+ * bare light word as a lead (stripBareLead: g10 "Dim. A fire pit glows …"), and no place phrase naming another scene's place
+ * (foreignPlaceStems: g10 shot 28 "… inside the tent", in the town scene) — a place word is grounded in its own scene.
+ */
+export function groundedDescription(shot: Pick<Described, 'index' | 'description'>, scenes: readonly Scene[] | undefined, g: Glossary): string {
+  const text = stripBareLead(stripDarkness(shot.description))
+  const sc = scenes ? sceneOf(scenes, shot.index) : undefined
+  return sc ? withoutPlacePhrases(text, foreignPlaceStems(sc, scenes!, g)) : text
+}
+/** keepsVerb on the action beside any on-screen text clause. */
+function keepsActionOf(text: string, short: string): boolean {
+  const a = textClauses(text), b = textClauses(short)
+  return keepsVerb(a ? a.rest : text, a && b ? b.rest : short)
+}
+/**
+ * fit's next-best shortening when the shortener's drops the action: the first sentence of the text that has a verb and fits, whole or shortened
+ * deterministically to maxWords, that keeps its verb and reads as sentences against the whole text (g10 shot 27: "A small tan dragon
+ * roars." in place of "A woman with red hair."). Plain text only; undefined when none fits.
+ */
+function actionSentence(text: string, maxWords: number, language: 'en' | 'de'): string | undefined {
+  if (textClauses(text)) return undefined
+  for (const u of sentences(text)) {
+    const v = u.trim().replace(/^\p{Ll}/u, (c) => c.toUpperCase())
+    if (keepsVerb(v, '')) continue // no verb found: not an action
+    const cand = words(v) <= maxWords ? v : shortenDeterministic(v, maxWords)
+    if (words(cand) <= maxWords && keepsVerb(v, cand) && !readsAsSentences(text, cand, language)) return cand // the first that fits: the main action before a side detail
+  }
+  return undefined
 }
 const textOnly = (c: FitCue) => textClauses(c.text)?.rest === ''
 
@@ -279,7 +369,7 @@ export const introducesNew = (description: string) => textSpans(description).len
 const STOPWORDS = new Set(['a', 'an', 'the', 'and'])
 /** Dropping any of these flips the meaning, so a shortening must keep every one the original has. */
 const NEGATIONS = new Set(['not', 'no', 'never', 'without', 'nobody', 'nothing', 'none', 'neither', 'nor', "n't", "don't", "doesn't", "isn't", "aren't", "can't", "won't"])
-const tokens = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}\s'-]/gu, ' ').split(/\s+/).filter(Boolean)
+const tokens = (t: string) => normalizeQuotes(t).toLowerCase().replace(/[^\p{L}\p{N}\s'-]/gu, ' ').split(/\s+/).filter(Boolean)
 
 /**
  * A shortening keeps the facts when its content words appear in the original in the same order (exact tokens, case-insensitive,
