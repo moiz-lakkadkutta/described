@@ -68,7 +68,7 @@ history; where they disagree with this table, this table is current.
 | big-buck-bunny-0-60 | 2026-10-15 re-run | 9 (0) | Captions 1, Description text 9 | `ad` |
 | elephants-dream-0-60 | 2026-10-15 re-run | 6 (0) | Captions 12, Description text 6 | `ad` |
 | caminandes-35-95 | 2026-10-15 re-run after #68 | 12 (1) | Description text 12 (no speech, so no Captions) | `ad extended` |
-| sintel (full length) | DESC-025 run, 2026-10-15 | 127 (17) | Captions 37, Description text 127 | `ad extended` |
+| sintel (full length) | 2026-10-15 `--from edit` re-run after #71 | 127 (17) | Captions 37, Description text 127 | `ad extended` |
 
 **The 2026-10-15 re-run.** The five 60 s titles were re-run from describe with the DESC-029 glossary and scene build-up and with
 #61 (complete sentences). On Sintel and Tears of Steel the result was worse than what it replaced, so both were restored.
@@ -104,15 +104,29 @@ to 12, and the 41–52 s cues now say "orange" instead of "tan-and-white". Known
 - `eval-context` reports "Earth" (53.9 s, "… as the moon moves near Earth.") as an invented name, because it is capitalised and
   not in the glossary. It is a planet, not a person.
 
-**sintel (full length).** Published by another session (DESC-025 run, $1.1043). The glossary comes from
-`apps/api/prisma/glossaries.json`. Rich captions were left out: Nova Lite answered the SDH window with `ModelErrorException`
-twice, so only plain Captions are offered. Known issue: Scales is named on the wrong dragons in **4** cues: 5:22.3 and 5:29.6
-(the horned dragon's swoop) and 12:10.8 and 12:18.1 (the baby dragon in the lair). The DESC-036 notes below list three; the
-5:29.6 cue is "The small tan dragon, Scales, flies toward a reaching hand." A fix is in progress.
+**sintel (full length).** First published by another session (DESC-025 run, $1.1043). The glossary comes from
+`apps/api/prisma/glossaries.json`. It was then re-run `--from edit` after #71 (glossary name windows, `unnamedIn`), for
+$0.0984 (edit $0.0030, Polly $0.0954). The work dir as it was before this re-run is backed up in the session scratchpad.
+- **Scales: fixed.** The four cues that named Scales on the wrong dragons now say "The dragon …" / "the dragon …": 5:22.3 and
+  5:29.6 (the horned dragon's swoop) and 12:10.8 and 12:18.1 (the baby dragon in the lair). The only cue that names Scales is 4:43.3,
+  "The tan dragon, Scales, perches on a beam."
+- 127 cues (17 extended), timings unchanged; `validate` reported no problems (`[]`). Checked against the DescriptionCue and
+  TextTrack rows and `GET /titles/sintel`.
+- The edit pass ran uncached, so it also reworded 11 other cues:
+  - "The red-haired woman, Sintel, …" became "The red-haired young woman, Sintel, …" at 10:07.7, 10:12.8, 10:16.8, 10:30.6,
+    10:48.0, 10:56.5 and 11:01.5.
+  - 3:01.0 (extended): "A young woman with short red hair climbs a rooftop."
+  - 3:04.7: "A young woman with red hair stands."
+  - 3:14.5 (extended): "A young woman kneels beside a bleeding small tan dragon." This brings in both again with "A …", after
+    the cues before it have already shown them.
+  - 11:20.3: "Dim rocky cave on the ledge, gnarled tree roots on the right." It still has no verb.
+- Rich captions are still left out. Nova Lite answered the single SDH window (c1–c37) with `ModelErrorException` ("Model
+  produced invalid sequence as part of ToolUse") twice again, so only plain Captions are offered.
 
 **Cost.** The 2026-10-15 re-run cost $0.3366 for the five titles (Big Buck Bunny $0.0760, Elephants Dream $0.0733, Sintel $0.0480,
 Tears of Steel $0.0543, Caminandes $0.0850). The Caminandes re-run after #68 cost $0.0582 more. That makes **$0.3948** against
-the approved $0.50 cap. The two restores cost $0. The full-length Sintel run is counted separately (DESC-036, below).
+the approved $0.50 cap. The two restores cost $0. The full-length Sintel run is counted separately (DESC-036, below). Its `--from edit` re-run after #71 cost $0.0984, so the
+model spend of this session's runs on 2026-10-15 is **$0.4932** against the approved $0.50.
 
 **S3 leftovers.** The re-run's cue MP3s that no row names are still in S3: 8 under `published/sintel-90-150-r2/cues/` and 10
 under `published/tears-of-steel-40-100/cues/`. Each folder also holds 15 older unnamed clips. Those are the older stale objects
@@ -185,7 +199,8 @@ Notes for review:
   town" at 5:22.3, during the horned dragon's swoop (5:15–5:30), and the two cues at 12:10.8 and 12:18.1, which the glossary marks
   as "the baby dragon in the lair" (12:08–12:20). The look matches the small tan dragon, so the name passes the guard. A viewer
   should check these against the frames. Checked: the describer wrote the name (described.json shots 72, 75, 169, 170); the
-  glossary now withholds Scales there (`unnamedIn`, decision 0012 amendment "Name windows"); a `--from edit` re-run applies it.
+  glossary now withholds Scales there (`unnamedIn`, decision 0012 amendment "Name windows"); the `--from edit` re-run after #71
+  applied it, and all four now say "the dragon" (see "Published state, 2026-10-15" above).
 - The work dir is `packages/pipeline/work/sintel/` on the machine that ran it, and S3 does not keep `described.json`. A
   `--from` re-run needs that machine.
 
