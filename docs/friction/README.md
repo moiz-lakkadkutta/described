@@ -28,3 +28,4 @@ expected vs actual, severity, workaround, suggestion). Target: 8–12 per submis
 | 2026-10-10 | [Fire OS drops `Log.d`: a native module's debug logs never reach logcat](2026-10-10-fire-os-drops-log-d.md) | Fire OS tooling | Medium |
 | 2026-10-14 | [Nova Lite at temperature 0 gives different replies to the same request](2026-10-14-nova-lite-temperature-0-is-not-deterministic.md) | Bedrock / Nova | Medium |
 | 2026-10-14 | [Gate C re-run: no stop-before-publish in the CLI; earlier rater packets lost with the scratchpad](2026-10-14-gate-c-re-run-no-cli-stop-before-publish-and-previous-rater-packets-lost-with-the-scratchpad.md) | Pipeline / evaluation | Low |
+| 2026-10-15 | [Aurora Serverless v2 auto-pause resume outlasts a TV app's fetch timeout](2026-10-15-aurora-serverless-v2-auto-pause-resume-outlasts-a-tv-app-fetch-timeout.md) | AWS / RDS, Lambda | Low |

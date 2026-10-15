@@ -17,6 +17,48 @@ with [Lingo](https://github.com/moiz-lakkadkutta/lingo). MIT.
 > Described is machine-drafted description for the long tail that has none. It follows the Netflix, Prime Video and DCMP
 > description style rules. Human-authored description remains the gold standard.
 
+## Try it
+
+The release APK talks to a hosted copy of the API (AWS Lambda + Amazon RDS in us-east-1, [docs/aws.md](docs/aws.md#hosted-api-desc-034))
+and streams from CloudFront, so it needs nothing on your network. Fire TV Stick, Fire OS 7 or later; a computer with
+Android platform tools (`adb`) on the same Wi-Fi.
+
+1. On the Fire TV: **Settings → My Fire TV → About**, select the device name seven times to show Developer options; then
+   **Developer options → ADB debugging: On** (and **Apps from Unknown Sources: On** on older Fire OS). Note the IP address
+   under **Settings → My Fire TV → About → Network**.
+2. Download `described-0.1.0.apk` from the [latest GitHub release](https://github.com/moiz-lakkadkutta/described/releases/latest).
+3. Install and open it:
+   ```sh
+   adb connect <fire-tv-ip>:5555          # accept the "Allow USB debugging?" prompt on the TV
+   adb install -r described-0.1.0.apk
+   adb shell monkey -p dev.moizp.described 1   # or open Described from Your Apps & Channels
+   ```
+
+Five CC-BY titles are in the library; description is on by default. Prefs and My list are kept per device (Android ID), no sign-in.
+
+<details><summary>Maintainers: host the API and publish the APK (DESC-034)</summary>
+
+Each step below is paid or public: run it only with the owner's go-ahead.
+
+```sh
+set -a; source .env; set +a                      # CLOUDFRONT_DOMAIN: the media stack's CdnDomain
+export ALERT_EMAIL=<you@example.com>             # USD 25/month budget + low-storage alarm emails (confirm both subscriptions)
+cd infra && AWS_PROFILE=described-dev pnpm deploy:viewer && cd ..   # builds apps/api/dist-lambda, deploys described-viewer-dev, writes infra/cdk-outputs-viewer.json
+pnpm --filter @described/api export:catalogue    # published titles from your DATABASE_URL → apps/api/.hosted/seed-event.json (no device data)
+FN=$(node -p "require('./infra/cdk-outputs-viewer.json')['described-viewer-dev'].ApiFunctionName")
+AWS_PROFILE=described-dev aws lambda invoke --region us-east-1 --function-name "$FN" \
+  --payload fileb://apps/api/.hosted/seed-event.json /dev/stdout   # migrates, then imports; re-run after any re-publish
+API=$(node -p "require('./infra/cdk-outputs-viewer.json')['described-viewer-dev'].ViewerApiUrl.replace(/\/$/, '')")
+curl -s "$API/catalog" | node -e "process.stdin.on('data',d=>console.log(JSON.parse(d).data.all.map(t=>t.slug)))"
+pnpm --filter @described/expo build:apk -- --hosted   # → apps/expo/dist/described-0.1.0.apk (no device needed)
+gh release create v0.1.0 apps/expo/dist/described-0.1.0.apk --title "Described 0.1.0 — Fire TV APK" \
+  --notes "Sideload with adb (README, Try it). Uses the hosted API; media from CloudFront."
+```
+
+Remove it with `cd infra && AWS_PROFILE=described-dev npx cdk destroy described-viewer-dev -c viewer=1 -c stage=dev`
+(the database goes with it; the catalogue can be re-seeded, device prefs and lists cannot).
+</details>
+
 ## What you get on the TV
 
 - **Home, Title, Described, My list, Settings** — the whole app works with the D-pad, **Select**, **Back** and **Menu**; every
@@ -176,6 +218,8 @@ vega-media-kit is linked from a sibling checkout (`link:../vega-media-kit` in `p
    CI=1 npx expo run:android --variant release --no-bundler
    ```
    Without `EXPO_PUBLIC_API_URL` at prebuild, Android blocks the HTTP API and the app shows "Can't reach the library".
+   Without a stick connected: `pnpm --filter @described/expo build:apk -- --url http://<mac-ip>:4000` does the same prebuild
+   and writes `apps/expo/dist/described-<version>.apk` for `adb install -r` (`-- --hosted` builds against the hosted API, "Try it").
    A new IP needs both commands again. After dependency changes, run `pnpm install` and
    `rm -rf android/app/build/generated/assets android/app/build/intermediates/assets` (Gradle can reuse a stale JS bundle).
    `pnpm --filter @described/expo build:tv` (EAS) does not work while the kit is linked: EAS uploads only this repo.
@@ -188,13 +232,13 @@ vega-media-kit is linked from a sibling checkout (`link:../vega-media-kit` in `p
 
 | Path | What |
 |---|---|
-| `apps/api` | Express 4 + Zod + Prisma + pg-boss + Socket.IO. Routes: `/catalog`, `/titles`, `/me` (prefs, progress, list), `/admin`, `/about`, `/prompts` |
+| `apps/api` | Express 4 + Zod + Prisma + pg-boss + Socket.IO. Routes: `/catalog`, `/titles`, `/me` (prefs, progress, list), `/admin`, `/about`, `/prompts`. `API_MODE=viewer` (the hosted copy, `src/lambda.ts`) leaves out `/admin` |
 | `apps/expo` | Fire OS app (Expo SDK 54): fonts, remote keys (`plugins/withKeyEvent.js`), cleartext plugin, `modules/described-media-session` (Kotlin) |
 | `apps/vega` | Vega OS entry template (deferred, decision 0004) |
 | `packages/shared-ui` | Every screen, focus, tokens (`src/theme/tokens.ts`), strings; Vega-supported imports only |
 | `packages/contracts` | Zod schemas shared by api and ui (voices, prompt keys, prefs) |
 | `packages/pipeline` | The media and description pipeline (machine-drafted description): steps, jobs, prompts, cost table, CLI and worker |
-| `infra` | AWS CDK: `described-media-<stage>` |
+| `infra` | AWS CDK: `described-media-<stage>` (eu-central-1); `described-viewer-<stage>` (us-east-1, the hosted API for the release APK, `-c viewer=1`) |
 | `docs` | [PLAN](docs/PLAN.md) · [decisions](docs/decisions) · [device checks](docs/device-checks) · [friction logs](docs/friction/README.md) · [AWS](docs/aws.md) · [feedback](docs/feedback.md) · [feature requests](docs/feature-requests.md) · [screens](docs/screens/README.md) · [platform](docs/platform/fire-os-bindings.md) |
 | `TASKS.md` | Tickets and their state |
 

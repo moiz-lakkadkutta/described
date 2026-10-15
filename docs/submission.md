@@ -17,8 +17,8 @@ source; anything that needs a person is marked **TODO(human)**. Sources are list
 | Repository | https://github.com/moiz-lakkadkutta/described (public, MIT `LICENSE` at the root) |
 | Demo video | Unlisted on YouTube, < 3:00 (upload Oct 20). TODO(human): what is the video's URL? |
 | Team members | Moiz — solo entry (GitHub `moiz-lakkadkutta`). TODO(human): what is Moiz's Devpost handle? |
-| Built with | Amazon Bedrock (Qwen3-VL 235B, Nova Lite), Amazon Polly, Amazon Transcribe, Amazon S3, Amazon CloudFront, AWS CDK, React Native, Expo, react-native-video, Shaka Packager, ffmpeg, Express, Prisma, PostgreSQL, pg-boss, TypeScript |
-| Try it | Sideload the release APK onto a Fire TV (APK attached to the GitHub release of this repo), or watch the demo video. No release exists on 2026-10-15 (`gh release list`). TODO(human): what is the URL of the GitHub release with the APK attached? |
+| Built with | Amazon Bedrock (Qwen3-VL 235B, Nova Lite), Amazon Polly, Amazon Transcribe, Amazon S3, Amazon CloudFront, AWS Lambda, Amazon RDS for PostgreSQL, AWS CDK, React Native, Expo, react-native-video, Shaka Packager, ffmpeg, Express, Prisma, PostgreSQL, pg-boss, TypeScript |
+| Try it | Sideload the release APK onto a Fire TV: `adb connect <fire-tv-ip>:5555`, `adb install -r described-0.1.0.apk` (README, "Try it"). The APK talks to a hosted copy of the API over HTTPS (AWS Lambda function URL + Amazon RDS, us-east-1, DESC-034) and streams from CloudFront, so it needs nothing on the judge's network. Or watch the demo video. No release exists on 2026-10-15 (`gh release list`): the hosted stack, its seed and the release wait for the owner's go-ahead. TODO(human): what is the URL of the GitHub release with the APK attached (https://github.com/moiz-lakkadkutta/described/releases/tag/v0.1.0 once created)? |
 
 ---
 
@@ -184,6 +184,9 @@ Services and why each is load-bearing — the full table with costs is [docs/aws
 - **Amazon S3 + CloudFront**: sources, renditions and HLS delivery; CloudFront serves only `/published/*` (`infra/lib/media-stack.ts`). Deployed and checked 2026-10-15: distribution
   `E2P33RN2ZSRFN0` has one `/published/*` behaviour, the default behaviour runs the `DenyUnpublished` viewer-request function,
   the bucket policy denies CloudFront `s3:GetObject` outside `published/*`, and any other path answers 403.
+- **AWS Lambda + Amazon RDS for PostgreSQL** (hosted API, DESC-034): the release APK's API — Express in viewer mode behind an
+  HTTPS function URL, RDS db.t4g.micro in isolated subnets with no NAT, ≈ $14.50 a month (`infra/lib/viewer-stack.ts`,
+  [docs/aws.md](aws.md#hosted-api-desc-034)). TODO(human): deployed? (not on 2026-10-15)
 - **AWS CDK**: the whole stack as code in `infra/`.
 
 Dev tooling listed in [docs/aws.md](aws.md): Claude Code.
@@ -192,7 +195,7 @@ Dev tooling listed in [docs/aws.md](aws.md): Claude Code.
 
 - Product feedback (five required answers): [docs/feedback.md](feedback.md) (PR #36).
 - Feature requests with priorities: [docs/feature-requests.md](feature-requests.md).
-- Friction logs: [docs/friction/](friction/) — 20 on 2026-10-15, not counting its README (runbook target 8–12; §9 requires ≥ 8).
+- Friction logs: [docs/friction/](friction/) — 21 on 2026-10-15, not counting its README (runbook target 8–12; §9 requires ≥ 8).
 
 ## Definition-of-done check (runbook §9)
 

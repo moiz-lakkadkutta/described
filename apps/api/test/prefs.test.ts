@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client'
 import { serve } from './serve'
-const upsert = vi.fn(), update = vi.fn(), findMany = vi.fn(), findUniqueOrThrow = vi.fn()
-vi.mock('../src/lib/db', () => ({ db: { profile: { upsert: (...a: unknown[]) => upsert(...a), update: (...a: unknown[]) => update(...a), findUniqueOrThrow: (...a: unknown[]) => findUniqueOrThrow(...a) }, title: { findMany: (...a: unknown[]) => findMany(...a) } } }))
+const upsert = vi.fn(), update = vi.fn(), findMany = vi.fn(), findUniqueOrThrow = vi.fn(), findUnique = vi.fn()
+vi.mock('../src/lib/db', () => ({ db: { profile: { upsert: (...a: unknown[]) => upsert(...a), update: (...a: unknown[]) => update(...a), findUniqueOrThrow: (...a: unknown[]) => findUniqueOrThrow(...a), findUnique: (...a: unknown[]) => findUnique(...a) }, title: { findMany: (...a: unknown[]) => findMany(...a) } } }))
 vi.mock('../src/lib/env', () => ({ env: { CLOUDFRONT_DOMAIN: 'cdn.test' } }))
 const { createApp } = await import('../src/app')
 const http = serve(createApp())
@@ -12,20 +12,21 @@ beforeEach(() => { upsert.mockReset().mockResolvedValue(profile); update.mockRes
 // What Prisma throws when two upserts both try to create the same deviceId (seen on a Fire TV Stick's first launch).
 const p2002 = () => new Prisma.PrismaClientKnownRequestError('Unique constraint failed on the fields: (`deviceId`)', { code: 'P2002', clientVersion: Prisma.prismaVersion.client, meta: { target: ['deviceId'] } })
 
-describe('GET /me/prefs for a new device', () => {
-  it('two concurrent first requests for a new device both succeed', async () => {
+describe('first writes for a new device', () => {
+  // GET /me/prefs no longer creates the row (DESC-034); the first PUT does, and two can race.
+  it('two concurrent first writes for a new device both succeed', async () => {
     upsert.mockResolvedValueOnce(profile).mockRejectedValueOnce(p2002())
     findUniqueOrThrow.mockResolvedValue(profile)
-    const [a, b] = await Promise.all([http().get('/me/prefs').set('x-device-id', 'fireos-abc'), http().get('/me/prefs').set('x-device-id', 'fireos-abc')])
+    const put = () => http().put('/me/prefs').set('x-device-id', 'fireos-abc').send({ firstRunDone: true })
+    const [a, b] = await Promise.all([put(), put()])
     expect([a.status, b.status]).toEqual([200, 200])
-    expect(a.body.data).toEqual(profile)
-    expect(b.body.data).toEqual(profile)
+    expect(update).toHaveBeenCalledTimes(2)
     expect(findUniqueOrThrow).toHaveBeenCalledTimes(1)
     expect(findUniqueOrThrow).toHaveBeenCalledWith({ where: { deviceId: 'fireos-abc' } })
   })
   it('a non-P2002 error from upsert still fails the request', async () => {
     upsert.mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError('Foreign key constraint failed', { code: 'P2003', clientVersion: Prisma.prismaVersion.client }))
-    const res = await http().get('/me/prefs').set('x-device-id', 'fireos-abc')
+    const res = await http().put('/me/prefs').set('x-device-id', 'fireos-abc').send({ firstRunDone: true })
     expect(res.status).toBe(500)
     expect(findUniqueOrThrow).not.toHaveBeenCalled()
   })
