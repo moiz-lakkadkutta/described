@@ -174,16 +174,20 @@ Three rules protect titles that already exist:
 
 ### Cost per hour of film
 
-**≈ $3.28 per hour of film ($3.08–3.52)**, list prices, from the CLI meter. This is not an AWS bill.
+**≈ $4.55 per hour of film ($4.36–4.79)** with Polly neural (Joanna), **≈ $5.14** with Polly generative (Ruth), list prices,
+from the CLI meter plus two estimated steps. This is not an AWS bill.
 
 - Source: the five 60 s DESC-010 titles cost $0.0514–0.0586 each, $0.2731 for all five, so $0.0546 per minute on average
   ([docs/titles.md](docs/titles.md), "Measured cost per title"; the same rows are in `MEASURED_TITLES` in `packages/pipeline/src/cost.ts`).
 - Transcribe: $0.024 per minute × 60 = **$1.44** per hour. This is exact. It is billed per second (15 s minimum) and does not
   depend on how much speech the film has.
-- Everything else (Qwen3-VL, Nova Lite, Polly): ($0.2731 − 5 × $0.024) / 5 = $0.0306 per minute × 60 = **$1.84** per hour.
-  The range is $0.0274 (Sintel) to $0.0346 (Caminandes) per minute, so $1.64–2.08 per hour.
-- Total: $1.44 + $1.84 = **$3.28** per hour. A 90-minute feature comes to ≈ $4.92. `pnpm describe --dry-run` prints the same
-  sum for your file.
+- Everything else measured (Qwen3-VL, Nova Lite, Polly neural): ($0.2731 − 5 × $0.024) / 5 = $0.0306 per minute × 60 = **$1.84**
+  per hour. The range is $0.0274 (Sintel) to $0.0346 (Caminandes) per minute, so $1.64–2.08 per hour.
+- Added after those runs: the verify pass (decision 0010, ≈ $0.020 per minute, estimated) and the narrative pass (decision 0017,
+  DeepSeek v3.2, $0.0013 per minute measured on full-length Sintel): **$1.28** per hour. A generative voice costs $30 instead of
+  $16 per 1M characters: Polly +$0.59 per hour.
+- Total: $1.44 + $1.84 + $1.28 = **$4.55** per hour. A 90-minute feature comes to ≈ $6.83. `pnpm describe --dry-run` prints the
+  same sum for your file.
 
 Not everything scales with length:
 - **Transcribe** is linear in seconds.

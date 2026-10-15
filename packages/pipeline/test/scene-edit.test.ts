@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import type { ConverseCommandInput } from '@aws-sdk/client-bedrock-runtime'
 import { applyEdits, cueEvidence, editBudgets, editScene, editWindows, EDIT_CHUNK_CUES, spokenNames, unfaithfulWords, type EditGuard } from '../src/steps/05b-edit'
-import { editRequest, sceneRules, type EditConverse } from '../src/prompts'
+import type { EditConverse } from '../src/prompts'
 import { fallbackScenes, finishScenes, type Scene } from '../src/steps/04c-scenes'
 import { EMPTY_GLOSSARY, loadGlossary } from '../src/glossary'
 import type { FitCue } from '../src/steps/05-fit'
@@ -38,16 +38,17 @@ describe('edit pass with scenes and a glossary (DESC-029)', () => {
     const many = Array.from({ length: 65 }, (_, k) => cue(0, k * 1000, 'A man walks.'))
     expect(editWindows(many, [{ ...edScenes[0]!, shots: [0] }])).toEqual([[0, EDIT_CHUNK_CUES], [EDIT_CHUNK_CUES, 2 * EDIT_CHUNK_CUES], [2 * EDIT_CHUNK_CUES, 65]])
   })
-  it('sends the scene, the people (names only once revealed) and each cue\'s mayName; one call per scene', async () => {
+  it('sends the scene opening, the people (looks and short form; names only once revealed; never roles) and each cue\'s mayName; one call per scene', async () => {
     const sent: ConverseCommandInput[] = []
     await editScene(edCues, edShots, edWords, 'en', async (i) => { sent.push(i); return toolReply([])(i) }, undefined, noShorten, { scenes: edScenes, glossary: ED })
     expect(sent).toHaveLength(1)
-    const input = JSON.parse((sent[0]!.messages![0]!.content![0] as { text: string }).text.replace(/^Input:\n/, '').replace(/\n\nUse the emit_edits tool[\s\S]*$/, ''))
-    expect(input.scene).toEqual({ setting: 'the white chamber', looks: expect.stringContaining('cables'), returning: false, placeAlreadySaid: false })
-    expect(input.people).toEqual([{ look: 'a bald old man with a long nose, in a long brown coat and a red tie' }, { look: expect.stringContaining('thin young man'), name: 'Emo', namedFrom: 25.1 }])
+    const input = JSON.parse((sent[0]!.messages![0]!.content![0] as { text: string }).text.replace(/^Input:\n/, '').replace(/\n\nReply with the JSON object only\.$/, ''))
+    expect(input.cues[0].newScene).toEqual({ place: 'the white chamber' }) // the scene's first cue; not returning
+    expect(input.cues[1].newScene).toBeUndefined()
+    expect(input.people).toEqual([{ look: 'a bald old man with a long nose, in a long brown coat and a red tie', short: expect.any(String) }, { look: expect.stringContaining('thin young man'), short: expect.any(String), name: 'Emo' }])
     for (const c of ED.characters) expect(JSON.stringify(sent[0])).not.toContain(c.role) // never the role (0012)
     expect(input.cues.map((c: { mayName?: string[] }) => c.mayName)).toEqual([['Emo'], ['Emo'], ['Emo']])
-    expect((sent[0]!.system![0] as { text: string }).text).toMatch(/8\. These cues are one scene, set in "the white chamber"[\s\S]*9\. People:[\s\S]*10\. Voice: guide the listener/)
+    expect((sent[0]!.system![0] as { text: string }).text).toMatch(/"Back in …" only when it is returning/)
   })
   it('the guard accepts a revealed name on a shot that shows that person, and the look; rejects a premature, unbound or invented name', () => {
     const budgets = editBudgets(edCues).map((b) => b + 10)
@@ -119,14 +120,12 @@ describe('edit pass with scenes and a glossary (DESC-029)', () => {
     expect(r.evidence[1]).toEqual({ i: 1, names: [{ name: 'Emo', source: 'glossary', revealedAtS: 25.1, evidence: expect.stringContaining('c3') }], setting: { scene: 0, words: [{ word: 'platform', source: 'description', shot: 0 }] } })
     expect(cueEvidence(0, cue(0, 40_000, 'A man named Jack waits.'), shots, guard)).toMatchObject({ unbacked: ['Jack'] })
   })
-  it('without scenes or a glossary the request carries no scene, people or mayName, and no rules 8–10', () => {
-    const req = editRequest({ language: 'en', cues: [{ i: 0, startMs: 0, text: 'A man walks.', wordCount: 3, budget: 3, extended: false, onScreenText: false, missed: [] }], dialogue: [] })
-    const sys = (req.system![0] as { text: string }).text
-    expect(sys).not.toMatch(/\n8\. |\n9\. |Voice:/)
-    expect((req.messages![0]!.content![0] as { text: string }).text).not.toMatch(/"scene"|"people"|mayName/)
-    expect(sceneRules(undefined, undefined)).toEqual([])
-    expect(sceneRules({ setting: 'the lab', returning: true, placeAlreadySaid: false }, undefined).join('\n')).toContain('may open "Back in the lab"')
-    expect(sceneRules({ setting: 'the lab', returning: false, placeAlreadySaid: true }, [])[0]).toContain('Do not say the place again.')
+  it('without scenes or a glossary the request carries no scene opening and no people; mayName is empty', async () => {
+    const sent: ConverseCommandInput[] = []
+    await editScene(edCues, edShots, [], 'en', async (i) => { sent.push(i); return toolReply([])(i) }, undefined, noShorten)
+    const text = (sent[0]!.messages![0]!.content![0] as { text: string }).text
+    expect(text).not.toMatch(/"newScene"|"people"/)
+    expect(text).toContain('"mayName":[]')
   })
   it('an empty glossary and no scenes leave the pass as it was (no name changes, no evidence of scenes)', async () => {
     const r = await editScene(edCues, edShots, [], 'en', toolReply([]), undefined, noShorten)

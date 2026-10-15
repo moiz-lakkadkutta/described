@@ -3,8 +3,8 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ConverseCommandInput } from '@aws-sdk/client-bedrock-runtime'
-import { applyEdits, cleanShortening, dropRepeatedLeads, REPEAT_WINDOW_MS, dialogueTurns, EDIT_CHUNK_CUES, editBudgets, editCues, editScene, factWords, FIT_CUES_FILE, isTextCue, replyEdits, stem, unfaithfulWords } from '../src/steps/05b-edit'
-import { editRequest, EDIT_TOOL_SCHEMA, shortenEditRequest, type EditConverse } from '../src/prompts'
+import { applyEdits, cleanShortening, dropRepeatedLeads, REPEAT_WINDOW_MS, dialogueTurns, EDIT_CHUNK_CUES, NARRATIVE_CONTEXT, editBudgets, editCues, editScene, factWords, FIT_CUES_FILE, isTextCue, replyEdits, stem, unfaithfulWords } from '../src/steps/05b-edit'
+import { shortenEditRequest, type EditConverse } from '../src/prompts'
 import type { FitCue } from '../src/steps/05-fit'
 import type { Described } from '../src/steps/04-describe'
 import type { Word } from '../src/steps/03-speech'
@@ -222,30 +222,48 @@ describe('edit (scene-level context pass)', () => {
     expect(applyEdits(roomy, shots, [{ cue: 1, text: 'A figure walks, falls. Logo fades.' }]).applied).toHaveLength(1)
   })
 
-  it('falls back to the original cues on an invalid reply', async () => {
+  it('falls back to the original cues on an invalid reply, after asking the fallback model once', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    for (const send of [textReply('Sorry, I cannot help with that.'), textReply('{"cues":[]}'), toolReply({ not: 'a list' })] as EditConverse[]) {
-      const r = await editScene(r2cues, shots, words, 'en', send, undefined, noShorten)
+    for (const send of [textReply('Sorry, I cannot help with that.'), textReply('{"notes":"none"}'), toolReply({ not: 'a list' })] as EditConverse[]) {
+      const asked: string[] = []
+      const r = await editScene(r2cues, shots, words, 'en', async (i) => { asked.push(i.modelId!); return send(i) }, undefined, noShorten)
+      expect(asked).toEqual(['deepseek.v3.2', 'amazon.nova-pro-v1:0'])
       expect(r.cues).toEqual(dropRepeatedLeads(r2cues)) // only the repeat guard: cue 1 without "Snowy mountains."
       expect(byModel(r.applied)).toEqual([])
+      expect(r.models).toEqual([])
     }
-    expect(warn).toHaveBeenCalledTimes(3)
+    expect(warn).toHaveBeenCalledTimes(6)
     warn.mockRestore()
-    expect(replyEdits('```json\n{"edits":[{"cue":"5","text":"x"}]}\n```')).toEqual([{ cue: 5, text: 'x' }])
-    expect(replyEdits('Here are the edits: {"edits":[{"cue":5,"text":"x"}]} Let me know!')).toEqual([{ cue: 5, text: 'x' }]) // prose around the object (JSON mode)
+    expect(replyEdits('{"cues":[]}')).toEqual([]) // an empty list is a valid answer
+    expect(replyEdits('```json\n{"cues":[{"cue":"5","text":"x"}]}\n```')).toEqual([{ cue: 5, text: 'x' }])
+    expect(replyEdits('Here are the cues: {"cues":[{"cue":5,"text":"x"}]} Let me know!')).toEqual([{ cue: 5, text: 'x' }]) // prose around the object
+    expect(replyEdits('{"edits":[{"cue":5,"text":"x"}]}')).toEqual([{ cue: 5, text: 'x' }]) // the older shape still reads
     expect(replyEdits({ edits: [] })).toEqual([])
   })
 
-  it('asks once more for JSON text when the forced tool call fails, then keeps the originals', async () => {
+  it('salvages each whole cue of a reply cut off at maxTokens (lenient parse)', () => {
+    expect(replyEdits('{"cues":[{"cue":3,"text":"She looks down at a \\"ruined\\" town."},{"cue":4,"text":"Then she ru')).toEqual([{ cue: 3, text: 'She looks down at a "ruined" town.' }])
+    expect(replyEdits('{"cues":[{"cue":3,"text":"A."}]} trailing {')).toEqual([{ cue: 3, text: 'A.' }])
+    expect(replyEdits('{"cues":[{"cue":3,')).toBeUndefined()
+  })
+
+  it('asks the fallback model (Nova Pro) when DeepSeek v3.2 fails, and records which model answered', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const modes: string[] = []
-    const send: EditConverse = async (i) => { modes.push(i.toolConfig ? 'tool' : 'json'); if (i.toolConfig) throw new Error('Model produced invalid sequence as part of ToolUse'); return textReply(`{"edits":[{"cue":5,"text":"${FOLD}"}]}`)(i) }
+    const asked: string[] = []
+    const send: EditConverse = async (i) => { asked.push(i.modelId!); if (i.modelId === 'deepseek.v3.2') throw new Error('ServiceUnavailableException'); return textReply(`{"cues":[{"cue":5,"text":"${FOLD}"}]}`)(i) }
     const r = await editScene(roomy, shots, words, 'en', send, undefined, noShorten)
-    expect(modes).toEqual(['tool', 'json'])
+    expect(asked).toEqual(['deepseek.v3.2', 'amazon.nova-pro-v1:0'])
     expect(r.cues[BROTH]!.text).toBe(FOLD)
+    expect(r.models).toEqual(['amazon.nova-pro-v1:0'])
     const r2 = await editScene(roomy, shots, words, 'en', async () => { throw new Error('ServiceUnavailableException') }, undefined, noShorten)
     expect(r2.cues).toEqual(dropRepeatedLeads(roomy))
     expect(warn).toHaveBeenCalledTimes(3)
+    vi.stubEnv('EDIT_FALLBACK_MODEL_ID', '') // off
+    vi.stubEnv('EDIT_MODEL_ID', 'amazon.nova-pro-v1:0') // Nova Pro first is configurable
+    asked.length = 0
+    await editScene(roomy, shots, words, 'en', async (i) => { asked.push(i.modelId!); throw new Error('x') }, undefined, noShorten)
+    expect(asked).toEqual(['amazon.nova-pro-v1:0'])
+    vi.unstubAllEnvs()
     warn.mockRestore()
   })
 
@@ -306,9 +324,9 @@ describe('edit (scene-level context pass)', () => {
       await editScene(split, shots, words, 'en', async (i) => { seen.push(i); return toolReply([])(i) }, undefined, noShorten)
       const body = (seen[0]!.messages![0]!.content![0] as { text: string }).text
       const input = JSON.parse(body.slice(body.indexOf('{'), body.lastIndexOf('}') + 1))
-      expect(input.cues[0]).toEqual({ cue: 0, start: 0, text: 'Words appear: SINTEL.', onScreenText: true, fixed: true })
-      expect(input.cues[1]).toMatchObject({ cue: 1, words: 7, wordsYouMayAdd: expect.any(Number) })
-      expect(input.cues[1].missedJustBefore).toBeUndefined()
+      expect(input.cues[0]).toEqual({ cue: 0, at: '0:00', text: 'Words appear: SINTEL.', fixed: true })
+      expect(input.cues[1]).toMatchObject({ cue: 1, maxWords: expect.any(Number) })
+      expect(input.cues[1].sources).toEqual([shots[0]!.description]) // its own shot only: nothing before it
     })
     it('a dropped fact can only land in the action cue, whose context skips the text cue', async () => {
       // the merged fit voices shot 8 at 37.24 s, so even a widened gap leaves this cue 8 words (M4: the next cue of any kind caps it)
@@ -319,7 +337,7 @@ describe('edit (scene-level context pass)', () => {
       const r = await editScene(roomySplit, shots, words, 'en', async (i) => { seen.push(i); return toolReply([{ cue: SPLIT_BROTH, text: fold8 }, { cue: 0, text: 'Words appear: SINTEL. The man stirs a pot.' }])(i) }, undefined, noShorten)
       const body = (seen[0]!.messages![0]!.content![0] as { text: string }).text
       const input = JSON.parse(body.slice(body.indexOf('{'), body.lastIndexOf('}') + 1))
-      expect(input.cues[SPLIT_BROTH].missedJustBefore).toEqual([shots[5]!.description, shots[6]!.description])
+      expect(input.cues[SPLIT_BROTH].sources).toEqual([shots[5]!.description, shots[6]!.description, shots[7]!.description]) // the dropped shots before it, and its own
       expect(r.cues[SPLIT_BROTH]!.text).toBe(fold8)
       expect(r.rejected).toEqual([{ i: 0, text: 'Words appear: SINTEL. The man stirs a pot.', reason: 'on-screen text cue' }])
       // the action cue of the split shot keeps continuity with the cue before the text cue, not with the text cue
@@ -346,20 +364,21 @@ describe('edit (scene-level context pass)', () => {
     } finally { if (before === undefined) delete process.env.EDIT_MODEL_ID; else process.env.EDIT_MODEL_ID = before }
   })
 
-  it('sends the cues as heard (with the room left and the shots dropped just before each) plus the dialogue, and forces the emit_edits tool', async () => {
+  it('sends each cue with its sources, the facts it must keep, its word budget and names; plain JSON, no forced tool, no synopsis or dialogue', async () => {
     const seen: ConverseCommandInput[] = []
-    await editScene(roomy, shots, words, 'en', async (i) => { seen.push(i); return toolReply([])(i) }, undefined, noShorten)
+    await editScene(roomy, shots, words, 'en', async (i) => { seen.push(i); return textReply('{"cues":[]}')(i) }, undefined, noShorten)
     const req = seen[0]!
     const body = (req.messages![0]!.content![0] as { text: string }).text
     const input = JSON.parse(body.slice(body.indexOf('{'), body.lastIndexOf('}') + 1))
-    // by shot order (cue 5 for shot 7 starts 45 ms into shot 8): shots 5 and 6 under cue 5, shot 8 under cue 6 (shot 9), 10 and 11 under cue 7 (shot 12), 13 under cue 8
-    expect(input.cues.map((c: { cue: number; missedJustBefore?: string[] }) => [c.cue, c.missedJustBefore?.length ?? 0])).toEqual([[0, 0], [1, 0], [2, 0], [3, 0], [4, 0], [5, 2], [6, 1], [7, 2], [8, 1]])
-    expect(input.cues[BROTH]).toEqual({ cue: 5, start: 33.2, missedJustBefore: ['Red-haired girl watches man stir pot over fire.', shots[6]!.description], text: 'Old man pours broth.', mustStillSay: ['pours', 'broth'], words: 4, wordsYouMayAdd: 7 })
-    expect(JSON.stringify(input)).not.toContain('Bearded man holds ornate staff') // a voiced shot's full description is not shown (the models restore it)
-    expect(input.dialogue[0]).toMatchObject({ start: 16.92, speaker: 'spk_0', text: expect.stringContaining('This blade has a dark past.') })
-    expect(req.toolConfig).toEqual({ tools: [{ toolSpec: { name: 'emit_edits', description: expect.any(String), inputSchema: { json: EDIT_TOOL_SCHEMA } } }], toolChoice: { tool: { name: 'emit_edits' } } })
+    // by shot order (cue 5 for shot 7 starts 45 ms into shot 8): shots 5, 6 and 7 under cue 5, 8 and 9 under cue 6, 10–12 under cue 7, 13–14 under cue 8
+    expect(input.cues.map((c: { cue: number; sources: string[] }) => [c.cue, c.sources.length])).toEqual([[0, 1], [1, 1], [2, 1], [3, 1], [4, 1], [5, 3], [6, 2], [7, 3], [8, 2]])
+    expect(input.cues[BROTH]).toEqual({ cue: 5, at: '0:33', text: 'Old man pours broth.', sources: ['Red-haired girl watches man stir pot over fire.', shots[6]!.description, shots[7]!.description], mustStillSay: ['pours', 'broth'], maxWords: 11, mayName: [] })
+    expect(input).not.toHaveProperty('dialogue')
+    expect(input).not.toHaveProperty('synopsis')
+    expect(req.modelId).toBe('deepseek.v3.2')
+    expect(req.toolConfig).toBeUndefined()
     expect(req.inferenceConfig).toMatchObject({ temperature: 0 })
-    expect(editRequest({ language: 'en', cues: [], dialogue: [] }, 'json').toolConfig).toBeUndefined()
+    expect((req.system![0] as { text: string }).text).toContain('{"cues":[{"cue":<number>,"text":"<the rewritten cue>"}]}')
   })
 
   it('works in windows of EDIT_CHUNK_CUES and tells the next window what the viewer just heard', async () => {
@@ -369,7 +388,8 @@ describe('edit (scene-level context pass)', () => {
     const send: EditConverse = async (i) => { seen.push(i); return toolReply([{ cue: EDIT_CHUNK_CUES - 1, text: 'The fire burns.' }])(i) }
     const r = await editScene(many, manyShots, [], 'en', send, undefined, noShorten)
     expect(seen).toHaveLength(2)
-    expect((seen[1]!.messages![0]!.content![0] as { text: string }).text).toContain('"heardJustBefore":"The fire burns."')
+    // the last NARRATIVE_CONTEXT cues as heard, the rewritten one last
+    expect((seen[1]!.messages![0]!.content![0] as { text: string }).text).toContain(`"heardJustBefore":[${Array(NARRATIVE_CONTEXT - 1).fill('"Fire burns."').join(',')},"The fire burns."]`)
     expect(r.applied).toEqual([{ i: EDIT_CHUNK_CUES - 1, from: 'Fire burns.', to: 'The fire burns.' }])
     expect(r.rejected).toEqual([{ i: EDIT_CHUNK_CUES - 1, text: 'The fire burns.', reason: 'cue outside this window' }]) // the second window named a cue of the first
     expect(r.cues).toHaveLength(many.length)

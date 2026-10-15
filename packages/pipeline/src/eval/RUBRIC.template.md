@@ -56,6 +56,10 @@ in a dialogue-free gap while the film plays) or **extended** (the film pauses wh
 - **Not voiced: empty description**: describe returned no text for a shot it did not mark same as previous. Rate it usable
   **no**, note "empty description".
 - Rate the **voiced** text. The model description is context only (it shows what was shortened).
+- **Heard just before**: each voiced cue shows the cue the viewer heard before it. The script is one connected narration, so a cue
+  may say "she", "he", "it" or "the dragon" for someone the cue before introduced. Use that line to see who is meant, then judge
+  the cue against this shot's frames: faithful fails if the person meant is not the one this shot shows. The earlier cue itself
+  is not rated here.
 
 ## Score
 

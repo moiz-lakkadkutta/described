@@ -5,13 +5,17 @@ import { resolveLanguageAndVoice } from './steps/06-voice'
 import { promptOptions, synthesizePrompts } from './promptClips'
 import { createInvalidation, getText, listKeys, putText } from './s3'
 import { stripPublishedVoiceSpans } from './voiceSpans'
+import { resolveEngine } from './voiceProfile'
+import { dryRun } from './steps'
 const program = new Command().name('described-pipeline')
 program.command('describe').requiredOption('--title <slug>').requiredOption('--source <s3uri>').option('--lang <en|de>', 'language of the title', 'en').option('--voice <name>', 'Polly voice (default: POLLY_VOICE_EN/DE, else Joanna/Vicki)').option('--from <step>', 'resume from step')
+  .option('--to <step>', 'stop after this step (e.g. validate: a dry run that publishes nothing and writes no DB rows)').option('--engine <neural|generative>', 'Polly engine (default: POLLY_ENGINE, else generative for Ruth, else neural)')
   .action(async (o) => {
     const { language, voice } = resolveLanguageAndVoice({ lang: o.lang, voice: o.voice })
-    const input = { slug: o.title, source: o.source, language, voice, fromStep: o.from }
+    const input = { slug: o.title, source: o.source, language, voice, engine: resolveEngine(voice, o.engine), fromStep: o.from, toStep: o.to }
     await runDescribe(input)
-    await persistForCli(o.title, ctxFor(input).work, { language, voice }) // the worker does this in persist('finish')
+    if (dryRun(o.to)) console.log(`stopped after ${o.to}: nothing published, no DB rows written`)
+    else await persistForCli(o.title, ctxFor(input).work, { language, voice }) // the worker does this in persist('finish'); the title's voice is stored there
     process.exit(0)
   })
 // App-voice prompt clips (DESC-010). A dry run by default: prints the texts and the Polly estimate, no AWS call. --run pays.

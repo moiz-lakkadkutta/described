@@ -65,7 +65,7 @@ describe('voice', () => {
     await voice(ctx(), f)
     expect(f.synthesize).toHaveBeenCalledTimes(1)
     expect(f.synthesize).toHaveBeenCalledWith('Smoke rises.', 'Joanna', 'en')
-    expect(JSON.parse(await readFile(`${work}/${cueSidecarFile(0)}`, 'utf8'))).toEqual({ text: 'Smoke rises.', voice: 'Joanna', language: 'en', ssml: cueSsml('Smoke rises.'), durationMs: 1200 }) // no speechMs: the speech was not measured (measureMs injected), the fallback is not stored
+    expect(JSON.parse(await readFile(`${work}/${cueSidecarFile(0)}`, 'utf8'))).toEqual({ text: 'Smoke rises.', voice: 'Joanna', engine: 'neural', language: 'en', ssml: cueSsml('Smoke rises.'), durationMs: 1200 }) // no speechMs: the speech was not measured (measureMs injected), the fallback is not stored
     // A sidecar written with another SSML wrapper (or none, before the wrapper was recorded) is a different clip.
     await writeFile(`${work}/${cueSidecarFile(0)}`, JSON.stringify({ text: 'Smoke rises.', voice: 'Joanna', language: 'en', ssml: '<speak>Smoke rises.</speak>', durationMs: 1200 }))
     const h = fakes()

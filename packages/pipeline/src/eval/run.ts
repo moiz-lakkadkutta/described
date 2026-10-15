@@ -2,9 +2,10 @@ import { execFileSync } from 'node:child_process'
 import { constants } from 'node:fs'
 import { access, copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { editModelId, LITE } from '../prompts'
+import { editFallbackModelId, editModelId, LITE } from '../prompts'
 import { BEDROCK_PRICES, meter as currentMeter, metered as runMetered, type Meter } from '../cost'
 import { ctxFor, SLUG_RE, STEPS, type Ctx, type Step } from '../steps'
+import { resolveEngine } from '../voiceProfile'
 import { glossaryFiles as catalogueGlossaryFiles, isEmpty, loadGlossary, type Glossary } from '../glossary'
 import { scenesModelId } from '../scenePrompt'
 import { CONTINUATION_CACHE_VERSION, DEFAULT_DESCRIBE_MODEL_ID, DESCRIBE_CACHE_VERSION, describeConcurrency } from '../steps/04-describe'
@@ -73,7 +74,10 @@ export function effectiveModels(steps: readonly EvalStep[]): { role: string; id:
   }
   if (steps.includes('scenes')) out.push({ role: 'scenes', id: scenesModelId() }) // 04c-scenes
   if (steps.includes('fit') || steps.includes('edit')) out.push({ role: 'shorten (fit, edit)', id: LITE() })
-  if (steps.includes('edit') && process.env.DESCRIBE_EDIT !== '0') out.push({ role: 'edit', id: editModelId() }) // 05b-edit skips its call on DESCRIBE_EDIT=0
+  if (steps.includes('edit') && process.env.DESCRIBE_EDIT !== '0') { // 05b-edit skips its call on DESCRIBE_EDIT=0
+    out.push({ role: 'edit', id: editModelId() })
+    if (editFallbackModelId() && editFallbackModelId() !== editModelId()) out.push({ role: 'edit fallback', id: editFallbackModelId() })
+  }
   return out
 }
 /**
@@ -185,9 +189,9 @@ export function runSettings(steps: readonly Step[], language: string, voice: str
   const status = gitRun(['status', '--porcelain', '--untracked-files=no'])
   return {
     commit: gitRun(['rev-parse', 'HEAD'])?.trim(), dirty: status === undefined ? undefined : status.trim().length > 0,
-    language, voice,
+    language, voice, engine: resolveEngine(voice, undefined, env),
     models: effectiveModels(steps.filter((s): s is EvalStep => (EVAL_STEPS as readonly string[]).includes(s))),
-    env: Object.fromEntries(['DESCRIBE_MODEL_ID', 'VERIFY_MODEL_ID', 'EDIT_MODEL_ID', 'NOVA_LITE_MODEL_ID', 'DESCRIBE_EDIT', 'DESCRIBE_VERIFY', 'DESCRIBE_CONCURRENCY', 'BEDROCK_REGION', 'AWS_REGION'].map((k) => [k, env[k] ?? null])),
+    env: Object.fromEntries(['DESCRIBE_MODEL_ID', 'VERIFY_MODEL_ID', 'EDIT_MODEL_ID', 'EDIT_FALLBACK_MODEL_ID', 'EDIT_SHORTEN_MODEL_ID', 'NOVA_LITE_MODEL_ID', 'POLLY_ENGINE', 'DESCRIBE_EDIT', 'DESCRIBE_VERIFY', 'DESCRIBE_CONCURRENCY', 'BEDROCK_REGION', 'AWS_REGION'].map((k) => [k, env[k] ?? null])),
     describeConcurrency: describeConcurrency(), verifyEnabled: verifyEnabled(),
     versions: { VERIFY_PROMPT_VERSION, DESCRIBE_CACHE_VERSION, CONTINUATION_CACHE_VERSION },
   }
@@ -212,7 +216,7 @@ export function describePlan(plan: Plan, sourceSlug: string, evalSlug: string): 
 }
 
 export const evalCtx = (workRoot: string, slug: string, language: 'en' | 'de', voice: string, source = '', glossary?: Glossary): Ctx =>
-  ({ ...ctxFor({ slug, source, language, voice }), work: join(workRoot, slug), ...(glossary ? { glossary } : {}) })
+  ({ ...ctxFor({ slug, source, language, voice, engine: resolveEngine(voice) }), work: join(workRoot, slug), ...(glossary ? { glossary } : {}) })
 
 /** Glossaries of evaluation segments that are not catalogue titles (sintel-90-210, the Gate C segment). */
 export const EVAL_GLOSSARY_FILE = new URL('../../../../docs/eval/gate-c-glossary.json', import.meta.url)

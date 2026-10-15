@@ -9,6 +9,7 @@ import { normalizeQuotes } from '../contentWords'
 import { EMPTY_GLOSSARY, glossaryFor, withoutWithheldNames, type Glossary } from '../glossary'
 import { foreignPlaceStems, placeKnown, sceneLine, sceneStems, settingLead, statesPlace, withoutPlacePhrases, withoutTrailingPlace, withPlace } from '../sceneSetting'
 import { freshScenes, sceneOf, type Scene } from './04c-scenes'
+import { rateFactor } from '../voiceProfile'
 
 /**
  * endMs: fit's estimate (estimateClipMs: words / WPS + CLIP_OVERHEAD_MS) until 06-voice measures the Polly clip and rewrites it as startMs + clip duration (DESC-013).
@@ -24,9 +25,9 @@ export const LEAD_SILENCE_MS = 150 // Polly's own silence before the first word
 export const TAIL_SILENCE_MS = 150 // after the last word (measured ~100 ms, up to ~150)
 export const CLIP_OVERHEAD_MS = LEAD_BREAK_MS + LEAD_SILENCE_MS + TAIL_SILENCE_MS
 /** fit's estimate of a clip's length: its words at WPS plus CLIP_OVERHEAD_MS. */
-export const estimateClipMs = (wordCount: number) => Math.round((wordCount / WPS) * 1000) + CLIP_OVERHEAD_MS
+export const estimateClipMs = (wordCount: number, wps = WPS) => Math.round((wordCount / wps) * 1000) + CLIP_OVERHEAD_MS
 /** The most words whose estimated clip fits in roomMs (the inverse of estimateClipMs; the epsilon keeps an exact fit). */
-export const wordsThatFit = (roomMs: number) => Math.max(0, Math.floor(((roomMs - CLIP_OVERHEAD_MS) / 1000) * WPS + 1e-6))
+export const wordsThatFit = (roomMs: number, wps = WPS) => Math.max(0, Math.floor(((roomMs - CLIP_OVERHEAD_MS) / 1000) * wps + 1e-6))
 /** A description may start up to 1 s after its shot ends, never later (Gate C, approved 2026-10-01). */
 export const LATE_MS = 1000
 /** Fewer words than this in a gap is no description; try the next gap in the window. */
@@ -53,6 +54,7 @@ export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, max
   const out: FitCue[] = []
   const events: EventCandidate[] = []
   const glossary = opts.glossary ?? EMPTY_GLOSSARY
+  const wps = opts.wps ?? WPS // the voice's rate (../voiceProfile rateFactor); Joanna neural's by default
   const opened = new Set<number>() // scenes whose first described shot has been placed (or tried)
   const names = glossary.characters.map((c) => c.name)
   const work = async () => {
@@ -104,7 +106,7 @@ export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, max
           const start = Math.max(g.cursor, s.startMs)
           if (start >= g.endMs) continue // gap used up, or entirely before the shot
           if (start > s.endMs + LATE_MS) break // gaps are sorted; nothing later is on time (exactly LATE_MS late is allowed)
-          const maxWords = wordsThatFit(g.endMs - start)
+          const maxWords = wordsThatFit(g.endMs - start, wps)
           if (maxWords >= MIN_WORDS) r.push({ g, start, maxWords })
         }
         return r
@@ -118,7 +120,7 @@ export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, max
         return actionSentence(text, maxWords, language)
       }
       const place = (g: (typeof free)[number], start: number, text: string) => {
-        const end = Math.min(g.endMs, start + estimateClipMs(words(text)))
+        const end = Math.min(g.endMs, start + estimateClipMs(words(text), wps))
         out.push({ startMs: start, endMs: end, text, extended: false, wordCount: words(text), shotIndex: s.index, limitMs: g.endMs })
         g.cursor = end + 150
       }
@@ -135,7 +137,7 @@ export function fit(shots: Described[], gaps: Gap[], shorten: (text: string, max
         const text = await fitted(c.rest, maxWords)
         if (text === undefined) continue
         const prevEnd = Math.max(s.startMs, ...out.filter((x) => !x.extended && x.endMs <= start).map((x) => x.endMs))
-        const { textStart, actionStart } = leadText(start, prevEnd, (later) => words(text) <= wordsThatFit(g.endMs - later))
+        const { textStart, actionStart } = leadText(start, prevEnd, (later) => words(text) <= wordsThatFit(g.endMs - later, wps))
         // an on-screen text clause is never cut (≤ MAX_TEXT_WORDS); should capExtended give no cue, the clause is used whole
         out.push({ ...extended(s), ...(await capExtended(c.clause, shorten, language)) ?? { text: c.clause, wordCount: words(c.clause) }, startMs: textStart, endMs: textStart + 100 })
         place(g, actionStart, text)
@@ -180,7 +182,7 @@ export function withoutWithheld(cues: FitCue[], shots: readonly Pick<Described, 
   })
 }
 /** fit's scene inputs (DESC-029): the scene step's scenes (04c-scenes, scenes.json) and the title's glossary; scenePauses: false skips the scene pauses. */
-export interface FitOptions { scenes?: readonly Scene[]; glossary?: Glossary; scenePauses?: boolean }
+export interface FitOptions { scenes?: readonly Scene[]; glossary?: Glossary; scenePauses?: boolean; /** words per second for this voice (WPS × ../voiceProfile rateFactor) */ wps?: number }
 /** Scene pauses are at least this far apart: at most one per title-minute (Extended mode only, so the plain AD track is unchanged). */
 export const SCENE_PAUSE_SPACING_MS = 60_000
 /**
@@ -529,7 +531,7 @@ export async function fitDescriptions(ctx: Ctx) {
   const gaps = JSON.parse(await readFile(`${ctx.work}/gaps.json`, 'utf8')) as Gap[]
   const { shortenWithNovaLite } = await import('../prompts')
   const scenes = await freshScenes(ctx) // DESC-029: groups scenes first when scenes.json is missing or stale (`--from fit`), as the worker does
-  const cues = await fit(shots, gaps, (t, n) => safeShorten(t, n, (t, n) => shortenWithNovaLite(t, n, ctx.language), ctx.language), ctx.language, { scenes, glossary: glossaryFor(ctx) })
+  const cues = await fit(shots, gaps, (t, n) => safeShorten(t, n, (t, n) => shortenWithNovaLite(t, n, ctx.language), ctx.language), ctx.language, { scenes, glossary: glossaryFor(ctx), wps: WPS * rateFactor(ctx.voice, ctx.engine) })
   const json = JSON.stringify(cues, null, 2)
   await writeFile(`${ctx.work}/cues.json`, json)
   await writeFile(`${ctx.work}/cues.fit.json`, json) // the edit step (05b) always starts from this copy, so re-running it is idempotent (DESC-018)

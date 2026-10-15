@@ -1,6 +1,7 @@
 import { parseArgs } from 'node:util'
 import { Voice, voiceLanguage } from '@described/contracts'
 import { estimateUsd, type Estimate } from './cost'
+import { resolveEngine } from './voiceProfile'
 import { SLUG_RE, type DescribeInput } from './steps'
 import { resolveLanguageAndVoice } from './steps/06-voice'
 import type { Spoken } from './cues'
@@ -148,7 +149,9 @@ export function estimateLines(e: Estimate): string[] {
     `estimate for ${(e.seconds / 60).toFixed(1)} min of film (measured per-minute rates of the five catalogue titles, src/cost.ts):`,
     `  Transcribe          ${usd(e.transcribe)}  ($0.024 per min, billed per second)`,
     `  Qwen3-VL (describe) ${usd(e.describe)}`,
-    `  Nova Lite (edit)    ${usd(e.nova)}`,
+    `  Qwen3-VL (verify)   ${usd(e.verify)}  (estimated, decision 0010)`,
+    `  Nova Lite (shorten) ${usd(e.nova)}`,
+    `  DeepSeek (narrate)  ${usd(e.narrative)}  (decision 0017)`,
     `  Polly (voice)       ${usd(e.polly)}`,
     `  total               ≈ ${usd(e.total)}  (range ${usd(e.low)}–${usd(e.high)}; list prices, not an AWS bill; S3 and CloudFront not included)`,
   ]
@@ -185,7 +188,7 @@ export async function runOwn(o: OwnOptions, d: OwnDeps) {
     if (found.length) refuse(`${found.join(', ')} already in S3 with no Title row for "${o.slug}"; choose another --slug`)
   }
 
-  const estimate = estimateUsd(span.seconds)
+  const estimate = estimateUsd(span.seconds, { engine: resolveEngine(o.voice, undefined, d.env) })
   const work = `work/${o.slug}`
   const source = `s3://${d.env.S3_BUCKET_MEDIA ?? '$S3_BUCKET_MEDIA'}/${key}`
   const invalidate = o.replace

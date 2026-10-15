@@ -8,6 +8,7 @@ import type { Shot } from './02-shots'
 import { cueAudioFile, probeDurationMs } from '../cues'
 import { meter, pollyUsd } from '../cost'
 import { polishCue } from '../polishCue'
+import type { PollyEngine } from '../voiceProfile'
 import { textSpans, withoutSpans } from '../textClause'
 import { EVENT_SPACING_MS, eventSpaced, plotEvent } from '../plotEvent'
 
@@ -19,7 +20,7 @@ export const OVERRUN_TOLERANCE_MS = 200
 /** fit's spacing between two cues in one gap (its cursor: end + 150 ms). */
 export const NEXT_CUE_SPACING_MS = 150
 /** work/{slug}/cue_{i}.json: what clip cue_{i}.mp3 says, in which voice, with which SSML (so a wrapper change re-synthesizes), and how long it is. */
-export interface CueSidecar { text: string; voice: string; language: 'en' | 'de'; ssml: string; durationMs: number; /** The clip's speech: up to its trailing silence (decision 0009). */ speechMs?: number }
+export interface CueSidecar { text: string; voice: string; /** absent in clips voiced before engines were selectable: neural */ engine?: PollyEngine; language: 'en' | 'de'; ssml: string; durationMs: number; /** The clip's speech: up to its trailing silence (decision 0009). */ speechMs?: number }
 export const cueSidecarFile = (i: number) => `cue_${i}.json`
 const CUE_FILE = /^cue_(\d+)\.(mp3|json)$/
 
@@ -35,17 +36,24 @@ export interface VoiceDeps {
   measureSpeechMs?: (file: string) => Promise<number | undefined>
 }
 
-/** SSML: a 150 ms lead-in break, then the text at normal rate (W1-E's promptClips duplicates this wrapper on purpose). */
-export const cueSsml = (text: string) => `<speak><break time="150ms"/><prosody rate="100%">${escape(text)}</prosody></speak>`
+/**
+ * SSML: a 150 ms lead-in break, then the text at normal rate (W1-E's promptClips duplicates this wrapper on purpose). Generative voices
+ * support <prosody> rate only around full sentences and no <emphasis> (https://docs.aws.amazon.com/polly/latest/dg/supportedtags.html,
+ * https://docs.aws.amazon.com/polly/latest/dg/prosody-tag.html); rate 100% changes nothing, so a generative clip has no <prosody> at all
+ * and a cue that is not yet a full sentence can never break the request. <break> is supported on every engine.
+ */
+export const cueSsml = (text: string, engine: PollyEngine = 'neural') => engine === 'generative'
+  ? `<speak><break time="150ms"/>${escape(text)}</speak>`
+  : `<speak><break time="150ms"/><prosody rate="100%">${escape(text)}</prosody></speak>`
 
 /**
  * Polly neural SynthesizeSpeech, MP3 — https://docs.aws.amazon.com/polly/latest/dg/API_SynthesizeSpeech.html
  * (Engine, VoiceId, OutputFormat mp3, TextType ssml, LanguageCode; AudioStream is the MP3). SSML tags are not billed.
  */
-export const pollySynthesize = (signal?: AbortSignal): NonNullable<VoiceDeps['synthesize']> => {
-  const polly = new PollyClient({ region: process.env.AWS_REGION ?? 'eu-central-1' })
+export const pollySynthesize = (signal?: AbortSignal, engine: PollyEngine = 'neural'): NonNullable<VoiceDeps['synthesize']> => {
+  const polly = new PollyClient({ region: process.env.AWS_REGION ?? 'eu-central-1' }) // generative en-US voices (Ruth, Joanna, …) exist in eu-central-1 too (describe-voices, 2026-10-15)
   return async (text, voice, language) => {
-    const r = await polly.send(new SynthesizeSpeechCommand({ Engine: 'neural', VoiceId: voice as never, OutputFormat: 'mp3', TextType: 'ssml', Text: cueSsml(text), LanguageCode: language === 'de' ? 'de-DE' : 'en-US' }), { abortSignal: signal })
+    const r = await polly.send(new SynthesizeSpeechCommand({ Engine: engine, VoiceId: voice as never, OutputFormat: 'mp3', TextType: 'ssml', Text: cueSsml(text, engine), LanguageCode: language === 'de' ? 'de-DE' : 'en-US' }), { abortSignal: signal })
     return r.AudioStream!.transformToByteArray()
   }
 }
@@ -120,7 +128,8 @@ const words = (t: string) => t.trim().split(/\s+/).filter(Boolean).length
  * no longer match their slots and re-synthesizes them — a cost only, the clips stay correct.
  */
 export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
-  const synthesize = deps.synthesize ?? pollySynthesize(ctx.signal)
+  const engine = ctx.engine ?? 'neural'
+  const synthesize = deps.synthesize ?? pollySynthesize(ctx.signal, engine)
   const measureMs = deps.measureMs ?? ffprobeClipMs(ctx.signal)
   const ffmpegSpeech = ffmpegSpeechMs(ctx.signal)
   const measureSpeech = deps.measureSpeechMs ? (f: string) => deps.measureSpeechMs!(f) : deps.measureMs ? async () => undefined : (f: string, d: number) => ffmpegSpeech(f, d)
@@ -147,17 +156,17 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
   const synth = async (i: number, text: string): Promise<Clip> => {
     const file = `${ctx.work}/${cueAudioFile(i)}`
     const audio = await synthesize(polishCue(text, language), ctx.voice, language) // DESC-033: capital letters and full stops, quotes untouched
-    meter()?.add(pollyUsd(text.length))
+    meter()?.add(pollyUsd(text.length, engine))
     await writeFile(file, audio)
     const durationMs = await measureMs(file)
     const { speechMs, measured } = await speechOf(file, durationMs)
     // an estimated speech end is not stored: a later run measures it again
-    await writeFile(`${ctx.work}/${cueSidecarFile(i)}`, JSON.stringify({ text, voice: ctx.voice, language, ssml: cueSsml(polishCue(text, language)), durationMs, ...(measured ? { speechMs } : {}) } satisfies CueSidecar))
+    await writeFile(`${ctx.work}/${cueSidecarFile(i)}`, JSON.stringify({ text, voice: ctx.voice, engine, language, ssml: cueSsml(polishCue(text, language), engine), durationMs, ...(measured ? { speechMs } : {}) } satisfies CueSidecar))
     return { durationMs, speechMs }
   }
   /** The stored clip of slot i when its sidecar matches (its speech measured now when the sidecar predates decision 0009). */
   const reuse = async (i: number, text: string): Promise<Clip | undefined> => {
-    const r = await reusable(ctx.work, i, { text, voice: ctx.voice, language, ssml: cueSsml(polishCue(text, language)) }) // the clip key is what Polly heard: a clip voiced before DESC-033 is re-voiced
+    const r = await reusable(ctx.work, i, { text, voice: ctx.voice, engine, language, ssml: cueSsml(polishCue(text, language), engine) }) // the clip key is what Polly heard: a clip voiced before DESC-033 is re-voiced
     return r && { durationMs: r.durationMs, speechMs: r.speechMs ?? (await speechOf(`${ctx.work}/${cueAudioFile(i)}`, r.durationMs)).speechMs }
   }
   const files = [cueAudioFile, cueSidecarFile]
@@ -410,7 +419,7 @@ interface Clip { durationMs: number; speechMs: number }
 /** The stored clip's duration (and speech, when the sidecar has it) when cue_{i}.mp3 exists and its sidecar matches; undefined otherwise. */
 async function reusable(work: string, i: number, want: Omit<CueSidecar, 'durationMs' | 'speechMs'>): Promise<{ durationMs: number; speechMs?: number } | undefined> {
   const side = await readFile(`${work}/${cueSidecarFile(i)}`, 'utf8').then((t) => { try { return JSON.parse(t) as Partial<CueSidecar> } catch { return undefined } }, () => undefined)
-  if (!side || side.text !== want.text || side.voice !== want.voice || side.language !== want.language || side.ssml !== want.ssml) return undefined
+  if (!side || side.text !== want.text || side.voice !== want.voice || (side.engine ?? 'neural') !== (want.engine ?? 'neural') || side.language !== want.language || side.ssml !== want.ssml) return undefined
   if (typeof side.durationMs !== 'number' || !(side.durationMs > 0)) return undefined
   const speechMs = typeof side.speechMs === 'number' && side.speechMs > 0 ? side.speechMs : undefined
   return (await readFile(`${work}/${cueAudioFile(i)}`).then(() => true, () => false)) ? { durationMs: side.durationMs, ...(speechMs === undefined ? {} : { speechMs }) } : undefined

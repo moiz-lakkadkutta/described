@@ -1,4 +1,4 @@
-import { runDescribe, STEPS } from '../src/steps'
+import { dryRun, runDescribe, STEPS } from '../src/steps'
 import { runJobStep } from '../src/jobs'
 import { resolveLanguageAndVoice } from '../src/steps/06-voice'
 import { waitForTranscription, TRANSCRIBE_TIMEOUT_MS } from '../src/steps/03-speech'
@@ -23,6 +23,18 @@ describe('runDescribe', () => {
     calls.length = 0
     await runDescribe({ ...input, fromStep: 'validate' }) // --from validate re-checks a packaged work dir, then publishes
     expect(calls).toEqual(['validate', 'publish'])
+    vi.restoreAllMocks()
+  })
+  it('--to stops after a step, so a dry run (--to validate) never publishes; a bad --to is refused', async () => {
+    calls.length = 0
+    vi.spyOn(console, 'log').mockImplementation(() => {}); vi.spyOn(console, 'time').mockImplementation(() => {}); vi.spyOn(console, 'timeEnd').mockImplementation(() => {})
+    await runDescribe({ ...input, fromStep: 'package', toStep: 'validate' })
+    expect(calls).toEqual(['package', 'validate'])
+    await expect(runDescribe({ ...input, fromStep: 'package', toStep: 'publsh' })).rejects.toThrow('unknown step "publsh"')
+    await expect(runDescribe({ ...input, fromStep: 'package', toStep: 'edit' })).rejects.toThrow('--to edit comes before --from package')
+    expect(dryRun('validate')).toBe(true) // the CLI writes no DB rows either
+    expect(dryRun('publish')).toBe(false)
+    expect(dryRun(undefined)).toBe(false)
     vi.restoreAllMocks()
   })
   it('returns the metered total, and a failing step carries the cost so far (DESC-025)', async () => {

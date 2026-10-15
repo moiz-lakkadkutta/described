@@ -1,5 +1,8 @@
 # 0006 — Scene-level edit pass between fit and voice
 
+> Upgraded 2026-10-15 by [0017](0017-narrative-pass.md): the same step is now the narrative pass (DeepSeek v3.2, plain JSON,
+> Nova Pro fallback); every guard below still applies, with 0017's additions.
+
 Status: accepted 2026-10-10 (human) — on by default; re-check on the DESC-010 titles. On the evaluation rerun (`sintel-90-210` run A2,
 `DESCRIBE_EDIT=0` as the control) the pass applied at most one edit: the rest were rejected over budget, or because Nova Lite's whole
 shortening reply was a word count — "(9 words)", fixed in PR #27 (`cleanShortening`). No faithfulness change was attributable to it.

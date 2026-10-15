@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { POLLY_PER_M_CHARS, type PollyEngine } from './voiceProfile'
 
 /**
  * On-demand prices in USD, the one place they live. Every number is a TODO(price): verify — aws.amazon.com is blocked from the
@@ -10,6 +11,11 @@ export const BEDROCK_PRICES: Record<string, { inputPerM: number; outputPerM: num
   'qwen.qwen3-vl-235b-a22b': { inputPerM: 0.53, outputPerM: 2.66 },
   // TODO(price): verify — Nova Lite v1
   'amazon.nova-lite-v1:0': { inputPerM: 0.06, outputPerM: 0.24 },
+  // The narrative pass (decision 0017) and its fallback. Checked 2026-10-15 with the AWS Price List API (`aws pricing get-products
+  // --service-code AmazonBedrock`, us-east-1, on-demand standard): USE1-deepseek.v3.2-input-tokens $0.00062 / output $0.00185 per 1K;
+  // USE1-NovaPro-input-tokens $0.0008 / output $0.0032 per 1K.
+  'deepseek.v3.2': { inputPerM: 0.62, outputPerM: 1.85 },
+  'amazon.nova-pro-v1:0': { inputPerM: 0.8, outputPerM: 3.2 },
 }
 /** Transcribe standard batch, tier 1, billed per second with a 15 s minimum — https://aws.amazon.com/transcribe/pricing/ TODO(price): verify (eu-central-1) */
 export const TRANSCRIBE_PER_MIN = 0.024
@@ -23,7 +29,7 @@ export function bedrockUsd(modelId: string, usage: { inputTokens?: number; outpu
   return ((usage?.inputTokens ?? 0) * p.inputPerM + (usage?.outputTokens ?? 0) * p.outputPerM) / 1e6
 }
 export const transcribeUsd = (seconds: number) => (Math.max(15, Math.ceil(seconds)) / 60) * TRANSCRIBE_PER_MIN
-export const pollyUsd = (chars: number) => (chars * POLLY_NEURAL_PER_M_CHARS) / 1e6
+export const pollyUsd = (chars: number, engine: PollyEngine = 'neural') => (chars * (engine === 'neural' ? POLLY_NEURAL_PER_M_CHARS : POLLY_PER_M_CHARS[engine])) / 1e6
 
 /**
  * Running cost of one job. Steps add to the meter of the job they run in (metered()); outside a job, meter() is undefined.
@@ -70,15 +76,29 @@ export function measuredPerMinute() {
 }
 
 /**
- * Estimated USD to describe `seconds` of film, before any AWS call: Transcribe exactly (per second, 15 s minimum), the rest as
- * minutes × the measured per-minute rates. `low`/`high` use the cheapest and dearest measured title. Excludes S3 storage,
- * CloudFront delivery and the machine running ffmpeg and Packager.
+ * Per minute of film, for the steps MEASURED_TITLES predate (they were measured before the verify pass and the narrative pass):
+ * - verify (04b, decision 0010): ≈ 2,200 input / 13 output tokens per shot on Qwen3-VL, ≈ $0.0014 per shot → ≈ $0.020 per minute
+ *   (0010 "Cost", an estimate from sintel-90-210's shots);
+ * - the narrative pass (05b, decision 0017), DeepSeek v3.2: $0.0188 for full-length Sintel (888 s; 6 calls, 19,196 input / 3,706
+ *   output tokens, docs/spikes/narrative-pass-sintel.md) → ≈ $0.00127 per minute. With Nova Pro as the fallback it is ≈ 30 % more.
  */
-export function estimateUsd(seconds: number) {
+export const VERIFY_PER_MIN = 0.020
+export const NARRATIVE_PER_MIN = 0.0188 / (888 / 60)
+
+/**
+ * Estimated USD to describe `seconds` of film, before any AWS call: Transcribe exactly (per second, 15 s minimum), the rest as
+ * minutes × the measured per-minute rates, plus verify and the narrative pass (VERIFY_PER_MIN, NARRATIVE_PER_MIN), with Polly scaled
+ * to the engine's price (generative $30 against neural's $16 per 1M characters). `low`/`high` use the cheapest and dearest measured
+ * title. Excludes S3 storage, CloudFront delivery and the machine running ffmpeg and Packager.
+ */
+export function estimateUsd(seconds: number, o: { engine?: PollyEngine } = {}) {
   const r = measuredPerMinute()
   const min = seconds / 60
   const transcribe = transcribeUsd(seconds)
-  const describe = min * r.describe, nova = min * r.nova, polly = min * r.polly
-  return { seconds, transcribe, describe, nova, polly, total: transcribe + describe + nova + polly, low: transcribe + min * r.otherLow, high: transcribe + min * r.otherHigh }
+  const pollyScale = POLLY_PER_M_CHARS[o.engine ?? 'neural'] / POLLY_NEURAL_PER_M_CHARS
+  const describe = min * r.describe, nova = min * r.nova, polly = min * r.polly * pollyScale
+  const verify = min * VERIFY_PER_MIN, narrative = min * NARRATIVE_PER_MIN
+  const extra = verify + narrative + min * r.polly * (pollyScale - 1)
+  return { seconds, transcribe, describe, verify, nova, narrative, polly, total: transcribe + describe + verify + nova + narrative + polly, low: transcribe + min * r.otherLow + extra, high: transcribe + min * r.otherHigh + extra }
 }
 export type Estimate = ReturnType<typeof estimateUsd>
