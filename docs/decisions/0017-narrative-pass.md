@@ -33,7 +33,8 @@ with the 05b guards plus three new ones, keeps about half of the cues it rewrite
      ("The dragon flies…" → "It flies…" after "The dragon soars…").
    - **Carried look.** A glossary character's look words (minus generic words and **minus place words**) count as already said once
      an earlier cue of the same scene, as heard, said one of them with a reference to the character (kind noun, pronoun, name), and
-     only while the rewrite still refers to that character. Never at the scene's first mention. `mustStillSay` leaves the same words
+     only while the rewrite still refers to that character. A glossary name the scene has said carries the same way ("She
+   stands…" after "Sintel turns…"), and "red-haired" counts as "red hair". Never at the scene's first mention. `mustStillSay` leaves the same words
      out, so the request and the guard ask for the same thing.
    - **"now", "here"** are free. **"still", "again", "meanwhile", "later", "night" ("night falls")** are facts: they trace to the
      cue's own shot descriptions or its old text, never to the previous cue, the glossary or the scene label.
@@ -41,7 +42,8 @@ with the 05b guards plus three new ones, keeps about half of the cues it rewrite
    line → not an on-screen text cue → text clauses verbatim → names (revealed, bound, not withheld, not invented) → **pronoun
    licence** → **source-only words** → faithful (every content word in the cue's shots, its own and the previous cue's text; free
    words and licensed she/he left out) → another scene's place → the scene's place said again → keeps facts (minus the previous
-   cue's words **as heard** and the **carried look**) → `editReadsAsSentences` (no new list comma, not only a subject, not only a
+   cue's words **as heard** and the **carried look**) → `editReadsAsSentences` (no new list comma — the comma closing a sentence-opening place phrase, "Back in the
+   town,", is not one —, not only a subject, not only a
    place) → budget. An over-budget rewrite gets one Nova Lite shortening, then the same guards. After every window:
    `dropRepeatedLeads`, then the **name grounding pass on every final cue** (premature and unbound names → look, `unnamedIn` →
    neutral reference) and the per-cue evidence (0012) — so a free rewrite can never voice "Scales" in 315–331, 483.7–684.4 or
