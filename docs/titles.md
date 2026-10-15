@@ -184,7 +184,8 @@ Notes for review:
 - Two cues give the name Scales to dragons that the glossary leaves unnamed: "Scales soars through pink clouds toward a ruined
   town" at 5:22.3, during the horned dragon's swoop (5:15–5:30), and the two cues at 12:10.8 and 12:18.1, which the glossary marks
   as "the baby dragon in the lair" (12:08–12:20). The look matches the small tan dragon, so the name passes the guard. A viewer
-  should check these against the frames.
+  should check these against the frames. Checked: the describer wrote the name (described.json shots 72, 75, 169, 170); the
+  glossary now withholds Scales there (`unnamedIn`, decision 0012 amendment "Name windows"); a `--from edit` re-run applies it.
 - The work dir is `packages/pipeline/work/sintel/` on the machine that ran it, and S3 does not keep `described.json`. A
   `--from` re-run needs that machine.
 

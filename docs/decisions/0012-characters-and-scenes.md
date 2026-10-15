@@ -264,3 +264,36 @@ No other voiced cue changes in either replay (19 and 24 cues; re-run on top of #
 and 22 of Sintel are unchanged: their missing articles are the describer's. The replay is evidence for these fixes, **not a gate**: the
 Gate C re-run must start **from describe**, after decision 0015's describe and verify changes (#61) are in, on `sintel-90-210` and the
 held-out `tos-390-510`, rated blind as before.
+
+## Amendment 2026-10-15 — Name windows (`unnamedIn`)
+
+The full-length `sintel` run (DESC-036, docs/titles.md) voiced "Scales" on dragons the glossary leaves unnamed: the describer
+(described.json, kept by verify) wrote "The small tan dragon, Scales, soars through pink clouds…" (shot 72) and "…Scales, flies toward a
+reaching hand" (shot 75) over the horned dragon's swoop, and "The small tan dragon, Scales, lies on the rocky ground…" / "Scales lies
+still…" (shots 169, 170) over the baby dragon at the end. Fit and the edit pass passed them: the look matches the small tan dragon, and
+a name the describer itself wrote binds (§6). The look cannot tell these dragons apart, so look binding cannot fix it.
+
+- **Contract**: a character may carry `unnamedIn: [{ fromS, toS, reason }]` (segment seconds, `fromS < toS`, both inclusive): ranges
+  where its name is never used, **whatever the look match, the describer's own text or the dialogue** (`nameWithheld`). This overrides
+  "a describer-given revealed name is bound" and "a name the dialogue has said is kept". A shot is in a range when it overlaps it; a
+  cue when its start or its shot is.
+- **Describe**: for a shot in a range the people block lists the look only ("not named in this shot … never by a name, even one the
+  dialogue has said"), and `allowedNames` (the prompt's known names, and verify's names to keep) leaves the name out.
+- **Fit**: after placement, a withheld name in a cue is replaced (`withoutWithheld`); the cue keeps its slot and estimated end, so no
+  other cue moves. Replacing it in the description before placement let a later shot take a slot and moved five cues of full-length
+  Sintel (and opened a swoop cue with a wrong scene place), so it is done after.
+- **Edit**: the model is never shown the name for a shot in a range; an edit that adds it is rejected; the final pass replaces it
+  wherever it is (`NameCheck.withheld`).
+- **Replacement**: the neutral kind noun, "the dragon" (`neutralOf`), not the editor's `short` ("the small tan dragon"). A range exists
+  because another figure there matches the look, so the look words are as wrong as the name; the kind noun is true of whichever
+  figure it is. A look phrase in apposition goes with the name: "The small tan dragon, Scales, soars" → "The dragon soars".
+
+`sintel` (apps/api/prisma/glossaries.json) withholds Scales in 315–331 s (the swoop, shots 71–75), 483.7–684.4 s (the cave: the baby
+dragon in the lair, shot 127 "The small tan dragon, Scales, walks across the cave floor", and the grey dragon she calls "Scales?"), and
+724–745 s (the ending, shots 168–170). Offline replay of fit and edit on the run's work dir with its recorded replies (fit's shortenings
+from cues.fit.json, edit's proposals from edit.json; the old glossary reproduces cues.fit.json and the edit output exactly): exactly the
+four cues change, to "The dragon soars through pink clouds toward a ruined town where a young woman stands.", "The dragon flies toward a
+reaching hand.", "The dragon lies on the rocky ground, its wing bleeding, as Sintel walks farther away." and "Back in the snowy
+mountains, the dragon lies still on the rocky ground as Sintel walks farther away into the hazy distance."; no other cue changes its
+text, names or timing. Scales stays on the beam at 4:43.3. A `--from edit` re-run is enough (the final pass removes the names from
+the run's own cues.fit.json; same result as `--from fit` in the replay).
