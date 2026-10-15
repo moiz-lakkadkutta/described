@@ -29,7 +29,7 @@ dialogue a voice tells you what is on screen: who is there, what they do, where 
 
 - **Description is on by default.** The whole app works with the D-pad, Select, Back and Menu, and every control carries a
   VoiceView label. Full VoiceView run-through ([checklist](a11y/voiceview-checklist.md); no `docs/a11y/voiceview-<date>.md` yet, TASKS.md DESC-009):
-  TODO(human): has the full VoiceView pass been run on the stick, and did it pass?
+  TODO(human): did the full VoiceView pass on the stick pass?
 - **Fire TV's own track selector is the switch.** The narration is a second audio track in the stream, marked as
   description. Menu shows Audio — Original · Audio description, and Captions — Off · Captions · Rich captions ·
   Description text.
@@ -72,8 +72,9 @@ was inconclusive on 2026-10-14 — the session stayed up but no voice command re
 the same prompt through four models, rated blind by two raters: Qwen3-VL 235B 75.9 %, TwelveLabs Pegasus 1.2 44.8 %,
 Nova Pro 17.2 %, Nova 2 Lite 3.4 %. The full pipeline with Qwen3-VL then scored **72.4 %** usable on the five-point
 rubric (faithful, on time, style, clean, fits), counting a shot only when both raters agreed
-([decision 0003](decisions/0003-gate-c.md)). The raters were Claude models (Fable, then Opus) reading frame contact
-sheets, not people — see Honest limits.
+([decision 0003](decisions/0003-gate-c.md)). That run chose the model; later re-checks of the same 29 shots, after
+further pipeline changes, scored lower — see Honest limits. The raters were Claude models (Fable, then Opus) reading frame
+contact sheets, not people.
 
 **What it costs.** Describing 2 minutes of film cost ≈ $0.03 on Bedrock (61,495 input tokens;
 [docs/aws.md](aws.md), [0003](decisions/0003-gate-c.md)). A full 2-minute run, including Transcribe and Polly, is
@@ -107,12 +108,13 @@ describer — and delivers description through the TV's own audio-track selector
 
 - **AI-drafted, not human-authored.** Described drafts description for video that has none. Human-authored description
   remains the gold standard, and Described follows its style rules rather than replacing it.
-- **The quality margin is thin.** 72.4 % clears the 70 % gate by 2.4 points. Every miss in the confirmation run was a
-  wrong detail (direction, an invented "veiled face", "wings" for "wing"); only the last, "wings", came from the
-  shortening step
-  ([0003](decisions/0003-gate-c.md)). The shortener may no longer change facts (TASKS.md DESC-015, PR #9). Later re-checks
-  of the same clip after prompt changes scored 69.0 % (run g8, [0009](decisions/0009-gate-c-fits.md)) and 14 / 29 (run g9,
-  [0010](decisions/0010-verify-pass.md)); the visual verify pass added in response (DESC-027) is not yet evaluated.
+- **Quality is below the gate on later re-checks.** 72.4 % is the model-selection run that chose Qwen3-VL
+  ([0003](decisions/0003-gate-c.md)); it cleared the 70 % gate by 2.4 points, and every miss was a wrong detail. Re-checks
+  of the same 29 shots after later pipeline changes scored lower: 69.0 % (run g8, [0009](decisions/0009-gate-c-fits.md))
+  and 14 / 29 (run g9, [0010](decisions/0010-verify-pass.md)), mostly visual details the frames do not show. We added a
+  visual verify pass (DESC-027) and a shortener that keeps sentences (DESC-028); the next re-check, after the scene
+  build-up (DESC-029), also fell short, and a fix for that regression is in progress.
+  TODO(human): Replace with the final Gate C re-check score before submitting.
 - **The raters were models.** Gate C was scored by two Claude raters against frame contact sheets. A usability session
   with a screen-reader user has also taken place. TODO(human): where are the session notes, so they can be linked here?
 - **Fire OS only.** Vega OS is experimental: no Vega SDK was installed and the media kit's Vega adapter is not finished
@@ -125,11 +127,11 @@ describer — and delivers description through the TV's own audio-track selector
 - **Switching audio takes about 450 ms**: the sound fades down, stays silent for ~150 ms while ExoPlayer resets its audio
   decoder, and fades back up (TASKS.md DESC-006). Before the fade, Gate A measured a 0.5–0.6 s stall on the stick
   ([0001](decisions/0001-week0-gates.md)).
-- **Device checks partly done.** On the stick (device run 2026-10-10, [RUN-2026-10](device-checks/RUN-2026-10.md)) the
-  Player checks 5–8 passed (DESC-006), deep links (check 12) and media keys (check 13) passed (DESC-008). Still open on
-  2026-10-15 (TASKS.md): the by-ear re-check of the audio switch (check 6), Alexa voice transport (check 14, inconclusive on
-  2026-10-14), and Extended mode (DESC-007, [device check](device-checks/DESC-007.md) not run). TODO(human): did checks 6, 14
-  and DESC-007 pass on the stick?
+- **Device checks partly done.** On the stick (device run 2026-10-10, recorded in TASKS.md; checklist
+  [RUN-2026-10](device-checks/RUN-2026-10.md)) the Player checks 5–8 passed (DESC-006), deep links (check 12) and media
+  keys (check 13) passed (DESC-008). Still open on 2026-10-15 (TASKS.md): the by-ear re-check of the faded audio switch
+  (check 6, build 788e973), Alexa voice transport (check 14, inconclusive on 2026-10-14), and Extended mode (DESC-007,
+  [device check](device-checks/DESC-007.md) not run). TODO(human): which of check 6, check 14 and DESC-007 have passed on the stick?
 - **English only** in the demo titles: all five are `en` (voices Joanna and Matthew) in `apps/api/prisma/titles.json`.
   German (`de`, Polly Vicki and Daniel) is wired but not shown.
 - All demo content is CC-BY (Blender open movies) with attribution in the app (Title screen, Settings → About & licenses). The five
@@ -142,7 +144,7 @@ Described and Lingo are substantially different entries. Different users: blind 
 versus language learners (Lingo). Different AI doing the load-bearing work: vision models and speech synthesis versus
 transcription, translation and explanation. Different interaction: listen versus pause and study. They share
 vega-media-kit the way two apps share React — it is infrastructure, published on its own.
-Lingo is submitted. TODO(human): what is Lingo's Devpost URL? (Link back to Described from Lingo's write-up too.)
+Lingo is submitted; its write-up should link back here. TODO(human): what is Lingo's Devpost URL?
 
 ## What's new since Aug 31, 2026
 
@@ -195,7 +197,7 @@ Dev tooling listed in [docs/aws.md](aws.md): Claude Code.
 | Tracks declared; Open Source section with repo, tag, handle, upstream PR | Above; tag `v0.1.0` and upstream PR #136 done; npm is TODO(human) |
 | `docs/aws.md` lists every call, purpose, cost | [docs/aws.md](aws.md) |
 | Feedback (5 answers), feature requests with priorities, ≥ 8 friction logs | ✓ — friction 20, [feedback.md](feedback.md), [feature-requests.md](feature-requests.md) |
-| Tests pass in CI on the default branch; `pnpm i && pnpm dev` shows something | CI green on main at `b0adfe2` (2026-10-15, `gh run list --branch main`); `pnpm dev` runs `turbo run dev` (API `tsx watch`, Expo `expo start`; PR #10, merged 2026-10-04). TODO(human): on the final submission commit, is CI green and does `pnpm i && pnpm dev` start the API and Expo? |
+| Tests pass in CI on the default branch; `pnpm i && pnpm dev` shows something | CI green on main at `b0adfe2` (2026-10-15, `gh run list --branch main`); `pnpm dev` runs `turbo run dev --parallel` (API `tsx watch`, Expo `expo start`; PR #10, merged 2026-10-04). TODO(human): on the final submission commit, do CI and `pnpm i && pnpm dev` (API and Expo start) both pass? |
 | All materials in English | ✓ |
 
 ## Sources
