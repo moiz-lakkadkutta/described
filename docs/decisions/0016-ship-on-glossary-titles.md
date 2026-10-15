@@ -1,6 +1,7 @@
 # 0016 — Ship on glossary titles: a Gate C exception
 
-Status: accepted 2026-10-15 (human decision, recorded as an exception; the Gate C rule text is unchanged)
+Status: accepted 2026-10-15 (human decision, recorded as an exception; the Gate C rule text is unchanged) · **Superseded 2026-10-15** by the g13
+run, which passes both clips under the rule ([0017](0017-narrative-pass.md), "Gate C after the narrative pass")
 Ticket: DESC-029 (the five-title re-run) · Follows: 0003 (Gate C), 0009 ("fits"), 0012 (characters and scenes), 0015 (complete
 sentences) · Results: [docs/evaluation.md#gate-c-results](../evaluation.md#gate-c-results)
 

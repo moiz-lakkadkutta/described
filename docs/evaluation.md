@@ -102,6 +102,8 @@ Voiced-usable, not voiced and plot events lost are informational; they do not ch
 | `tos-390-510-g11` (2026-10-15, same code; no glossary) | held out | 30 (shot 16 skipped) | 19 / 20 / 20 | **20 / 30 = 66.7 %** (bar 21) | 16 / 24 | 6 | 2 (shots 26, 27) | $0.101 | FAIL |
 | `sintel-90-210-g12` (2026-10-15, main `748e2ef` after #61 / #62; from describe, glossary) | primary (tuned) | 29 | 19 / 20 / 22 | **21 / 29 = 72.4 %** (bar 21; all raters 16) | 13 / 17 | 12 | 5 (shots 7, 11, 14, 27, 28) | $0.099 | PASS |
 | `tos-390-510-g12` (2026-10-15, same code; no glossary) | held out | 31 (none skipped) | 17 / 18 / 18 | **18 / 31 = 58.1 %** (bar 22; all raters 16) | 17 / 27 | 4 | 3 (shots 23, 26, 30) | $0.103 | FAIL |
+| `sintel-90-210-g13` (2026-10-15, main `0bed29c` after #80: narrative pass on DeepSeek v3.2, Ruth generative; fit → edit → voice on the clip's existing describe output, glossary) | primary (tuned) | 29 | 24 / 22 / 23 | **24 / 29 = 82.8 %** (bar 21; all raters 20) | 11 / 15 | 14 | 10 (shots 3, 5, 7, 8, 11, 14, 24, 26, 27, 28) | $0.028 | PASS |
+| `tos-390-510-g13` (2026-10-15, same code; fit → edit → voice on the clip's existing describe output; no glossary) | held out | 31 (none skipped) | 26 / 23 / 25 | **24 / 31 = 77.4 %** (bar 22; all raters 23) | 20 / 26 | 5 | 1 (shot 7) | $0.048 | PASS |
 
 **g10 and g11 are not strictly comparable.** The g10 packets rated an unvoiced shot on its raw described.json text (g10 shot 28
 "… inside the tent"); from g11 on, the text to rate is fit's grounded description (step 3 above; 0012 amendment of 2026-10-15).
@@ -168,9 +170,52 @@ shots):
 - faithful: the hand at his cheek, not the eyepiece (5), robots that charge rather than clash, with no crumbling pillars (20),
   not all four figures in white (21), and on 24 (one rater) a drop into a dark shaft rather than a climb.
 
-**Under the rule, Gate C is not passed.** A run passes at ≥ 70 % majority-usable (The bar); each clip is reported on its own (step 6); the
+**`sintel-90-210-g13`** and **`tos-390-510-g13`** (decision [0017](decisions/0017-narrative-pass.md): the 05b narrative pass on
+DeepSeek v3.2 and the Ruth generative voice; `pnpm gate-c run … --steps fit,edit,voice` on copies of each clip's existing
+`described.json`, with no describe call, so only placement, the narrative pass and the voice changed). **Both clips pass**, with the official
+scorer (`pnpm gate-c score`, no corrections file):
+
+| Clip | rater 1 | rater 2 | rater 3 | Majority-usable | All raters usable | Raters agree | g12 |
+|---|---|---|---|---|---|---|---|
+| `sintel-90-210-g13` | 24 / 29 (82.8 %) | 22 / 29 (75.9 %) | 23 / 29 (79.3 %) | **24 / 29 = 82.8 %** | 20 / 29 = 69.0 % | 24 / 29 | 21 / 29 |
+| `tos-390-510-g13` | 26 / 31 (83.9 %) | 23 / 31 (74.2 %) | 25 / 31 (80.6 %) | **24 / 31 = 77.4 %** | 23 / 31 = 74.2 % | 27 / 31 | 18 / 31 |
+
+This is the first run in which the held-out clip passes. Rater outputs: `~/gate-c/g13/rater{1,2,3}/scores.md` and
+`~/gate-c/g13-heldout/rater{1,2,3}/scores.md`; run dirs `~/gate-c/work-g13/` (commit `0bed29c`, clean tree).
+
+The Sintel pass still comes with few shots voiced: 15 of 29 (17 in g12), so 14 are not voiced, and a majority listed 10 plot
+events lost (`score` count; 5 in g12). Voiced-usable is 11 / 15. The held-out clip voices 26 of 31 and loses 1 plot event (7).
+
+Disagreements (majority verdict first):
+
+- Sintel: 4 usable (rater 2: a curved blade, not a staff), 7 usable (rater 3: "steaming" invented), 14 usable (rater 2: verbless
+  "The town, sunlit, …"), 16 not usable (raters 1 and 2: a dark cloth or awning, not a "sleeve"), 17 usable (rater 3: the fruit is
+  grey-brown, not green).
+- Held out: 7 not usable (raters 1 and 2: the young man is called "a boy"), 14 usable (rater 2: no hand lifts the lid), 21 not
+  usable (raters 2 and 3: not all four kneeling figures wear white), 24 not usable (raters 2 and 3: he grabs the rope to go down,
+  he does not climb, and it is not a sunlit ruin).
+
+Failed by all three raters: Sintel 3, 9, 15, 21; held out 5, 6, 11, 20. Recurring failure kinds:
+
+- **Details borrowed from adjacent shots** (describe): Sintel 3 gives the old man a grey beard and red face paint that only shot 4
+  shows (his face is in shadow); held-out 24's "sunlit industrial ruin" and climb, 21's four white suits, 20's clash and crumbling
+  pillars, 5's "adjusts eyepiece" (he rubs his cheek below it).
+- **Verbless or article-less fragments**: Sintel 9, extended cue ending "An old man with a grey beard, in red-brown robes." (fit's
+  shortening cut his action); Sintel 15, "Woman lifts a wooden plank." (no article, and it passed the sentence guard); held-out 5,
+  "Man adjusts eyepiece."; Sintel 14 (one rater) "The town, sunlit, …".
+- **A label leak**: held-out 11 opens "Ruin:", which all three raters read as a leaked location label, not narration.
+- **Wrong referent**: held-out 6 says "the man" right after "Man adjusts eyepiece.", so it points at the eyepiece man; the shot
+  shows the red-haired woman touching the young dark-haired man's face. This is the narrative pass's kind-noun / one-candidate
+  risk named in 0017 Consequences.
+- Faithfulness carried from g12: Sintel 16 ("sleeve"), 21 ("stands in the town" for a woman crouched on a rooftop).
+
+**After g12, under the rule, Gate C was not passed.** A run passes at ≥ 70 % majority-usable (The bar); each clip is reported on its own (step 6); the
 primary clip is tuned, and "a change that helps only the tuned clip is not an improvement"; the five-title re-run from describe
 (DESC-029) is on hold until Gate C passes on **both** clips. g12 passes on the tuned clip only, so the re-run stays on hold.
+
+**g13 passes both clips (2026-10-15)**: `sintel-90-210-g13` 24 / 29 = 82.8 % and the held-out `tos-390-510-g13` 24 / 31 =
+77.4 %. The rule is met as written, so the 0016 exception below is superseded ([decision 0017](decisions/0017-narrative-pass.md),
+"Gate C after the narrative pass"). The paragraphs above it record g12 as it stood.
 
 **Exception for glossary titles ([decision 0016](decisions/0016-ship-on-glossary-titles.md), human, 2026-10-15).** The rule
 above is unchanged. As a human exception, Gate C counts as passed for **curated titles with a glossary**, on the tuned clip

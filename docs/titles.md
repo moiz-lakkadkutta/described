@@ -61,14 +61,44 @@ What is live now for the six published titles. Checked read-only against the loc
 the local database (Title, DescriptionCue and TextTrack rows), the run logs and the work dirs. The sections below this one are the
 history; where they disagree with this table, this table is current.
 
-| Title | Version live | Description cues (extended) | Text tracks (cues) | Badges |
+| Title | Version live | Voice | Description cues (extended) | Text tracks (cues) | Badges |
+|---|---|---|---|---|---|
+| sintel-90-150-r2 | 2026-10-14, restored (Ruth re-run validated, not published) | Joanna neural | 11 (2) | Captions 11, Rich captions 12, Description text 11 | `ad sdh extended` |
+| tears-of-steel-40-100 | 2026-10-14, restored (Ruth re-run validated, not published) | Matthew neural | 15 (5) | Captions 4, Description text 15 | `ad extended` |
+| big-buck-bunny-0-60 | 2026-10-15 `--from fit`, narrative pass + Ruth | Ruth generative | 9 (0) | Captions 1, Description text 9 | `ad` |
+| elephants-dream-0-60 | 2026-10-15 `--from fit`, narrative pass + Ruth | Ruth generative | 7 (1) | Captions 12, Description text 7 | `ad extended` |
+| caminandes-35-95 | 2026-10-15 `--from fit`, narrative pass + Ruth | Ruth generative | 11 (1) | Description text 11 (no speech, so no Captions) | `ad extended` |
+| sintel (full length) | 2026-10-15 `--from fit`, narrative pass + Ruth | Ruth generative | 117 (18) | Captions 37, Description text 117 | `ad extended` |
+
+**The Ruth re-publish (2026-10-15, after #80 and Gate C g13).** The four titles above marked "narrative pass + Ruth" were re-run
+`pnpm pipeline describe --title <slug> --voice Ruth --engine generative --from fit` with `PUBLISH_INVALIDATE=1` (no describe,
+verify or Transcribe call; fit re-placed every cue at Ruth's slower rate, 0017 "Voice"). Each work dir and its database rows (Title,
+DescriptionCue, TextTrack, Rendition, Asset, Shot, Gap, Job) were backed up first to
+`described-backups/2026-10-15-pre-ruth/<slug>/` on the machine that ran it, with the run logs in `logs/`. `validate` reported no
+problems on all six. The hosted API is not re-seeded by this run.
+
+| Title | Cost | Edits kept / rejected | Voice drops | App clips |
 |---|---|---|---|---|
-| sintel-90-150-r2 | 2026-10-14, restored | 11 (2) | Captions 11, Rich captions 12, Description text 11 | `ad sdh extended` |
-| tears-of-steel-40-100 | 2026-10-14, restored | 15 (5) | Captions 4, Description text 15 | `ad extended` |
-| big-buck-bunny-0-60 | 2026-10-15 re-run | 9 (0) | Captions 1, Description text 9 | `ad` |
-| elephants-dream-0-60 | 2026-10-15 re-run | 6 (0) | Captions 12, Description text 6 | `ad` |
-| caminandes-35-95 | 2026-10-15 re-run after #68 | 12 (1) | Description text 12 (no speech, so no Captions) | `ad extended` |
-| sintel (full length) | 2026-10-15 `--from edit` re-run after #71 | 127 (17) | Captions 37, Description text 127 | `ad extended` |
+| big-buck-bunny-0-60 | $0.0204 | 3 of 10 revised / 3 rejected | "Darkness." at 0 ms (322 ms over) | **not levelled**: loudnorm fell back to dynamic, so the 9 clips went up as Polly made them (no extended cue, so no pause plays them) |
+| elephants-dream-0-60 | $0.0127 | 2 of 7 / 1 | none | 7 levelled (linear, −3.46 dB) |
+| caminandes-35-95 | $0.0190 | 5 of 12 / 3 | "Darkness." at 41.1 s (322 ms over) | 11 levelled (linear, −7.72 dB) |
+| sintel (full length) | $0.2568 (fit + edit $0.0246, voice $0.2309, text $0.0013) | 53 of 118 / 34 | 1 pause 1849 ms after its shot ("Now she stands on a ruined rooftop at sunset, …", 5:44.1); 3 credit cues became extended | 117 levelled (linear, −5.69 dB) |
+| sintel-90-150-r2 (`--to validate`) | $0.0128 | 2 of 8 / 1 | none | 8 levelled (linear, +1.32 dB) |
+| tears-of-steel-40-100 (`--to validate`) | $0.0348 | 2 of 14 / 5 | none | 14 levelled (linear, −3.71 dB) |
+
+Total $0.3565 against the approved $0.50 cap. Notes:
+- **sintel-90-150-r2 and tears-of-steel-40-100 were not published**: they would replace the 2026-10-14 versions the user chose, so
+  they ran `--to validate` only (no S3 upload, no DB rows) and wait for the user's go-ahead (`--from publish` from the same work dir
+  then costs $0). At Ruth's rate r2 goes from 11 cues to 8 ("Fire burns.", "Tent glows." and "Faint red sparks drift downward." are
+  gone; "Red-haired girl accepts bowl." becomes "Girl accepts bowl."; the "SINTEL" card joins the first cue); Tears of Steel goes from 15 cues to
+  14 (the "SIMULATION READY... LOCKED." pause and "Two people at tables." become one extended cue; "Ship deck." is gone).
+- Full-length `sintel` went from 127 cues (17 extended) to 117 (18). In the edit output 26 cues use she / he and 16 still say
+  "short red hair" (52 before the narrative pass, decision 0017). Scales is named at 3:57.5, 4:05.8 and 4:40.3, none in an
+  `unnamedIn` window.
+- Elephants Dream gained a cue (6 → 7): "In the chamber, a bald figure rises from a hole in the tiled wall." (extended). Emo is
+  still never named.
+- Caminandes still says "creature" twice and ends on the article-less extended cue "Creature leaps through electric fence at night."
+- Big Buck Bunny still ends on an article-less cue, "Huge round rabbit stretches and yawns."
 
 **The 2026-10-15 re-run.** The five 60 s titles were re-run from describe with the DESC-029 glossary and scene build-up and with
 #61 (complete sentences). On Sintel and Tears of Steel the result was worse than what it replaced, so both were restored.
