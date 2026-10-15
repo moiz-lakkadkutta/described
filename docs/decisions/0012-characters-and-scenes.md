@@ -177,7 +177,7 @@ Nova Lite shortenings, recorded edits; no AWS call).
 | "The tent." scene pause over a close-up (shot 10) | Nova Lite split the tent into two adjacent scenes (2–9, 10–13), so the second "had no cue stating its place" and got a place-only pause | **A place is never a cue on its own.** The scene's place is merged into one sentence with the action — "In the tent, a faint fire glows …", "Back in the lab, …" (`withPlace`) — or dropped when there is no room; a shot's own setting sentence is no longer kept alone. A scene pause says the place with the action of the shot under it (that shot's event has priority), and there is none when that shot is voiced or has no action. **Adjacent scenes in the same place are one scene** (unless the second opens with a time jump). Without a glossary, the place is said over a shot only when its words are in that shot's description or in two of the scene's (`placeKnown`), so tos does not get "In the tower," from shot 13's clock tower. |
 | "Dim." lead (shot 2), tos "Towering." | shot 2: the describer wrote "Dim." as its own sentence (0009's "say dim"); tos: the deterministic fallback label took "towering" (Porter stem "tower", a place noun) and fit put it in front | `stripBareLead` removes a one-word light / condition sentence ("Dim.", "Dark.", "Towering.") before the rest (describe, fit, edit); "Night." and "Darkness." stay. `placeStems` ignores -ing / -ed forms. |
 | "Darkness." over a sunlit walled town (shot 14) | the describer's own reply: shot 14 is the second part of a split camera shot (a fade from black); its six key frames measure YAVG 0, 0, 107, 152, 139, 126, and Qwen3-VL answered "Darkness." anyway. Nova Lite then labelled the scene "darkness", which `groundLabel` accepted because the description has the word. The 0012 prompt does not mention darkness; #47's line ("Write only "Darkness." when the frames are black and nothing can be made out") was not followed, not the cause | **A label is a place noun phrase** (`placeLabelProblem`): a place noun (or a glossary setting word), no verb, not only light / time / condition words ("darkness", "dim", "night"); otherwise the fallback label under the same rule, else none. **Describe**: a "Darkness." reply while some key frames are not dark (mean luma ≥ 40, ffmpeg `signalstats`) is asked once more with those frames only, and used when it is not "Darkness." again. This needs a describe re-run: the offline replay still has shot 14's recorded "Darkness." |
-| Late extended cues (g10 shots 19, 24: 1575 / 1025 ms; tos shot 13: 1397 ms) | an extended or event pause may not start inside an earlier shot's placed cue (0009), so it started after shot 18's / 22's long estimated cue, past its own shot end + LATE_MS; nothing checked lateness. The scene-pause folding was not involved | **No pause starts more than LATE_MS after its shot ends**: fit makes no pause then; 06-voice drops a pause that the measured clips push past it. Placed cues already never overlap (an extended cue pauses the film). |
+| Late extended cues (g10 shots 19, 24: 1575 / 1025 ms; tos shot 13: 1397 ms) | an extended or event pause may not start inside an earlier shot's placed cue (0009), so it started after shot 18's / 22's long estimated cue, past its own shot end + LATE_MS; nothing checked lateness. The scene-pause folding was not involved | **No pause starts more than LATE_MS after its shot ends.** fit keeps the pause at its estimate; 06-voice moves a pause that would be late to max(its shot's start, the measured ends of earlier shots' placed cues) — earlier as well as later — then an event pause still late shortens the placed cue that blocks it, and only then is dropped; a pause that is only on-screen text is never dropped (DESC-017). The check runs whether or not anything moved. Placed cues already never overlap (an extended cue pauses the film). |
 | Shot 28 "inside the tent" (a stone den, in the town scene) | the describer's own draft (verify kept it): with the glossary's places in the prompt, Qwen3-VL named the listed tent for a fire-lit den. Not a carried "Back in …", not the edit pass | **A place word is grounded in its own scene**: a description's place phrase naming another scene's place (another scene's label or a glossary setting name, not this scene's) is removed before fit and the edit pass read it (`groundedDescription`, `foreignPlaceStems`), and the edit guard rejects an edit that adds one ("another scene's place: tent"). |
 | Cue 2 edit rejected "drops a fact: s" | `contentWords` stripped the curly ’ as punctuation: "tent’s" became "tent" + "s" | Apostrophes and quotes are normalised (`normalizeQuotes`) before every guard tokenises: contentWords (05b-edit, glossary evidence), fit's `preservesFacts`, sentenceGuard, plotEvent, glossary mentions. |
 
@@ -185,11 +185,29 @@ Also: a cut that keeps "while" / "as" / "who" … but drops that clause's verb i
 25-word cut of shot 5 ended "… while a young woman with short red hair."). #56's `cutsNeutral` is unchanged and runs first; "Words
 appear." kept whole is still accepted.
 
-Replay (offline, recorded responses): g10 no longer voices "In the tent.", "The tent.", "Dim." or "A woman with red hair."; every cue starts
-within LATE_MS of its shot; shot 27 is "A small tan dragon roars."; shot 8's "A young woman … accepts a bowl from a figure." becomes its
-event pause. Shots 4, 5 and 7 are not voiced in the replay: their 3-word slots need a model shortening that keeps the verb ("Man grips
-staff."), and the recorded Nova Lite replies were for the old text — a live run decides. tos-390-510-g10 loses its late shot 13 pause, the
-"Towering." lead and its two description-as-label scene pauses (shots 7 and 29).
+Replay (offline, recorded responses; fit → edit → 06-voice with Polly faked and the run's recorded clip lengths, 282 ms a word + 781 ms
+for a text the run did not voice): g10 no longer voices "In the tent.", "The tent.", "Dim." or "A woman with red hair."; every cue starts
+within LATE_MS of its shot; shots 19 and 24 are voiced on time (92174 ms, 132 ms after shot 19; 103046 ms, inside shot 24, still its
+plot-event pause); shot 27 is "A small tan dragon roars."; shot 8's "A young woman … accepts a bowl from a figure." becomes its event pause. Shots 4, 5 and 7 are not voiced in the replay: their 3-word slots need a model shortening that keeps the verb ("Man grips
+staff."), and the recorded Nova Lite replies were for the old text — a live run decides. Voiced shots: g10 18 of 29 (was 22), tos-390-510-g10 26 of 31 (was 26). tos keeps shot 13 (now on time, 50784 ms), loses the "Towering."
+lead, and keeps its action-label pauses (shots 7 and 29).
 
 Consequences: the Gate C re-run is from **describe** (the darkness re-ask changes shot 14; `stripBareLead` and the place grounding are
 deterministic and also apply from fit), on `sintel-90-210` and the held-out `tos-390-510`, rated as before.
+
+### Review round (2026-10-15)
+
+- **Late pauses are moved, not dropped, in fit** (above). Tests: g10 shots 19 and 24 and tos shot 13 voiced on time with the recorded
+  clips; shot 24 keeps its plot event; the not-moved path; a text cue is never dropped.
+- **An action label stays a pause.** A scene label Nova Lite gave that is grounded but names no place ("Man in glasses shouts") is kept as
+  the scene's `action`: when the shot under the scene's start is not voiced, the label keeps that shot's action and reads as a shortening
+  of its description, it is the pause it was before (tos shot 29, passed by its raters).
+- **`keepsAction`**: a plural noun after "preposition + word", in a sentence that already has a verb, is not a verb ("near organ pipes",
+  "on stone steps"; "Man in glasses shouts" keeps its verb). Verbs match by stem in the shot's own description; a synonym does not count
+  (a shortening only removes words).
+- **Where the shot's own setting sentence alone used to be voiced**, fit voices the shortest sentence of the rest that keeps its action.
+  tos shots 15, 22 and 24: fit's text is the same as the recorded run's cues.fit.json; their shorter voiced forms came from 06-voice's
+  overrun shortening, which is unchanged — the offline replay's clip estimate is too short to reproduce it.
+- **Packets** rate fit's grounded description for a shot that is not voiced (docs/evaluation.md); **`gate-c score`** also prints, for
+  information only, voiced-usable / voiced, the shots not voiced and the plot events lost. g10 as rated: voiced-usable 10 / 22 =
+  45.5 %, 7 shots not voiced, 3 plot events lost (shots 3, 11, 28).
