@@ -10,7 +10,7 @@ import { SEEK_COMMIT_MS } from '../src/playback'
 import { configurePlatform, createNowPlayingSink, type SystemCaptions } from '../src/platform'
 import { strings } from '../src/strings'
 import { tokens } from '../src/theme/tokens'
-import { a11yCalls, back } from './stubs/react-native'
+import { a11yCalls, appState, back } from './stubs/react-native'
 import { kit } from './stubs/kit'
 import { remote } from './stubs/space-navigation'
 import { title } from './fixtures'
@@ -739,6 +739,15 @@ describe('caption style (Settings → Caption style)', () => {
       expect(overlay()).toMatchObject({ primaryColor: 'rgba(255,255,0,1)', userScale: 1.5 })
       act(() => { r.unmount(); r = TestRenderer.create(<></>) })
       expect(unsubscribed).toBe(1)
+    })
+    it('re-reads Fire TV settings when the app comes back to the foreground (changed while away, no listener event)', () => {
+      let now = fireTv({ enabled: false })
+      configurePlatform({ captioning: { current: () => now, subscribe: () => () => {} } })
+      mount({ prefs: { ...prefs, captionStyle: 'system' } })
+      expect(overlay()).toMatchObject({ boxColor: tokens.color.cueBox })
+      now = fireTv()
+      act(() => { appState.set('background'); appState.set('active') })
+      expect(overlay()).toMatchObject({ primaryColor: 'rgba(255,255,0,1)', userScale: 1.5 })
     })
     it('Box chosen in Settings wins', () => {
       bind(fireTv())

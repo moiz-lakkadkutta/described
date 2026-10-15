@@ -31,6 +31,9 @@ describe('colour helpers', () => {
   it("the app's own Box passes the floor over the brightest picture", () => {
     expect(captionContrast(parseColor(tokens.color.text), parseColor(tokens.color.cueBox))).toBeGreaterThanOrEqual(tokens.contrast.min)
   })
+  it('the brightest picture is true white (a white frame), not the text token', () => {
+    expect(tokens.color.pictureBright).toBe('#FFFFFF')
+  })
 })
 
 describe('precedence', () => {
@@ -95,6 +98,21 @@ describe('colours and the box', () => {
 })
 
 describe('contrast clamp (tokens.contrast.min)', () => {
+  /** The contrast over a pure white frame, measured independently of captionContrast's own extremes. */
+  const overWhite = (fg: string, box: string) => {
+    const f = parseColor(fg), b = parseColor(box), w = { r: 255, g: 255, b: 255, a: 1 }
+    const mix = (t: typeof f, u: typeof f) => ({ r: t.r * t.a + u.r * (1 - t.a), g: t.g * t.a + u.g * (1 - t.a), b: t.b * t.a + u.b * (1 - t.a), a: 1 })
+    const under = mix(b, w)
+    return contrastRatio(mix(f, under), under)
+  }
+  it.each([
+    ['white on a clear box', WHITE, argb(0x00000000)],
+    ['yellow on a clear box', YELLOW, argb(0x00000000)],
+    ['white on 40 % black', WHITE, argb(0x66000000)],
+  ])('%s reaches the floor over a white frame', (_, fg, bg) => {
+    const t = captionTheme(follow, sys({ foregroundColor: fg, backgroundColor: bg }))
+    expect(overWhite(t.primaryColor, t.boxColor)).toBeGreaterThanOrEqual(tokens.contrast.min)
+  })
   const check = (fg: number, bg: number) => {
     const t = captionTheme(follow, sys({ foregroundColor: fg, backgroundColor: bg }))
     return { t, c: captionContrast(parseColor(t.primaryColor), parseColor(t.boxColor)) }

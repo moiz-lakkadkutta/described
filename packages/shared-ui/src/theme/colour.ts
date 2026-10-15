@@ -27,8 +27,8 @@ const lum = (c: Rgba) => {
   return 0.2126 * ch(c.r) + 0.7152 * ch(c.g) + 0.0722 * ch(c.b)
 }
 export const contrastRatio = (a: Rgba, b: Rgba) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x! + 0.05) / (y! + 0.05) }
-/** The picture's extremes: the darkest and the brightest colour in the palette. */
-const PICTURE = [parseColor(tokens.color.video), parseColor(tokens.color.text)]
+/** The picture's extremes: a black frame and a white frame. */
+const PICTURE = [parseColor(tokens.color.video), parseColor(tokens.color.pictureBright)]
 /** Caption text against its box, over the worst picture behind a see-through box. */
 export function captionContrast(fg: Rgba, box: Rgba): number {
   return Math.min(...PICTURE.map((p) => { const under = over(box, p); return contrastRatio(over(fg, under), under) }))

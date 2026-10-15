@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from 'node:fs'
+import path from 'node:path'
 import { tokens } from '../src/theme/tokens'
 // WCAG relative luminance contrast — keeps the palette honest as it evolves.
 function lum(hex: string) {
@@ -14,6 +16,13 @@ describe('palette contrast', () => {
     expect(contrast(tokens.color.badge, tokens.color.ground)).toBeGreaterThanOrEqual(3)
   })
   it('focus outline ≥ 3:1 against cards', () => { expect(contrast(tokens.color.focus, tokens.color.surface2)).toBeGreaterThanOrEqual(3) })
-  it('no pure white anywhere', () => { for (const v of Object.values(tokens.color)) expect(v.toLowerCase()).not.toBe('#ffffff') })
+  // pictureBright is a measuring point, never drawn: the white frame caption contrast is checked over (DESC-035).
+  it('no pure white anywhere', () => { for (const [k, v] of Object.entries(tokens.color)) if (k !== 'pictureBright') expect(v.toLowerCase()).not.toBe('#ffffff') })
+  it('pictureBright is only used by the contrast clamp, never drawn', () => {
+    const src = path.resolve(__dirname, '../src')
+    const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]))
+    const users = walk(src).filter((f) => readFileSync(f, 'utf8').includes('pictureBright')).map((f) => path.relative(src, f))
+    expect(users.sort()).toEqual([path.join('theme', 'colour.ts'), path.join('theme', 'tokens.ts')])
+  })
   it('type floor respected', () => { for (const [k, t] of Object.entries(tokens.type)) if (k !== 'count' && typeof t === 'object') expect(t.size).toBeGreaterThanOrEqual(tokens.type.floor) })
 })

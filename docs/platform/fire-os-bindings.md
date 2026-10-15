@@ -227,8 +227,9 @@ paused after the clip.
   the type floor (`tokens.type.floor` / caption size).
 - Captions are on by default (Rich captions); "off" is only ever an in-app choice, so it is kept whatever Fire TV says.
   So "system captions on and no in-app choice → captions on" holds without extra code.
-- Migration `20261015120000_caption_style_system`: default `system`; stored `box` (the old default, never a choice)
-  becomes `system`; `shadow` stays.
+- Migration `20261015120000_caption_style_system`: new profiles default to `system`. Existing rows keep their value
+  (a stored `box` may be a real choice and cannot be told apart from the old default), so an existing profile turns on
+  Match Fire TV in Settings.
 
 **Colours.** System colours are the viewer's choice, so they are used as given and are not tokens. They are clamped
 so text never drops under `tokens.contrast.min` (4.5:1, WCAG AA) against its box over both the darkest and brightest

@@ -11,7 +11,8 @@ export const tokens = {
     scrimTop: 'rgba(13,18,21,0)', scrimBottom: 'rgba(13,18,21,0.92)',
     cueBox: 'rgba(0,0,0,0.65)',
     cueShadowBox: 'rgba(13,18,21,0.4)', // caption style "Shadow": a lighter box (ground at 40 %) until the kit draws a text shadow
-    video: '#000000',            // letterbox behind the picture only
+    video: '#000000',            // letterbox behind the picture only; also the darkest frame captions are checked over
+    pictureBright: '#FFFFFF',    // never drawn: the brightest frame captions are checked over (contrast clamp, DESC-035)
   },
   type: {
     floor: 28,

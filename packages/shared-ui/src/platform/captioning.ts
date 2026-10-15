@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { AppState } from 'react-native'
 import type { Prefs } from '@described/contracts'
 import { tokens } from '../theme/tokens'
 import { css, fromArgb, parseColor, readable } from '../theme/colour'
@@ -55,8 +56,13 @@ export function useSystemCaptions(): SystemCaptions | null {
   const [s, setS] = useState<SystemCaptions | null>(() => safe(() => binding?.current() ?? null))
   useEffect(() => {
     if (!binding) return
-    setS(safe(() => binding.current())) // a change between the first render and this effect
-    return binding.subscribe(setS)
+    const read = () => setS(safe(() => binding.current()))
+    read() // a change between the first render and this effect
+    const off = binding.subscribe(setS)
+    // The viewer changes Fire TV's caption settings with the app in the background; re-read on return, so a change
+    // the listener did not report (or that came while it was not registered) still applies.
+    const app = AppState.addEventListener('change', (st) => { if (st === 'active') read() })
+    return () => { off(); app.remove() }
   }, [binding])
   return s
 }

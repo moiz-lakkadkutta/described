@@ -17,8 +17,8 @@ what you actually saw where it differs; failures go to a friction log (`pnpm fri
 
 ## 1. Captions follow the Fire TV caption style
 
-- [ ] In the app: Settings → "Caption style" reads **Match Fire TV** (the default; an existing profile that was on Box
-      is now Match Fire TV). "Caption size" is 100 %.
+- [ ] In the app: Settings → set "Caption style" to **Match Fire TV** (the default for new profiles; an existing profile
+      keeps Box or Shadow until you change it). "Caption size" is 100 %.
 - [ ] Home on the remote → Fire TV **Settings › Accessibility › Captions** (on some builds: Settings › Accessibility ›
       Closed Captioning). Turn **Captions On**. Set, writing down the menu names you used:
       - text size: **Large** (or the largest offered),

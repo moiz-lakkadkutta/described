@@ -25,6 +25,8 @@ import java.util.Locale
 class DescribedCaptioningModule : Module() {
   private val main = Handler(Looper.getMainLooper())
   private var listener: CaptioningManager.CaptioningChangeListener? = null
+  /** The manager the listener was registered on: stop() unregisters through it, even if the React context is gone by then. */
+  private var registeredOn: CaptioningManager? = null
 
   private fun manager(): CaptioningManager? {
     val context = appContext.reactContext ?: return null
@@ -76,6 +78,7 @@ class DescribedCaptioningModule : Module() {
         }
         cm.addCaptioningChangeListener(l)
         listener = l
+        registeredOn = cm
       }
     }
 
@@ -85,8 +88,10 @@ class DescribedCaptioningModule : Module() {
 
   private fun stop() {
     val l = listener ?: return
+    val cm = registeredOn
     listener = null
-    runCatching { manager()?.removeCaptioningChangeListener(l) }
+    registeredOn = null
+    runCatching { cm?.removeCaptioningChangeListener(l) }
   }
 
   companion object { private const val TAG = "DescribedCaptioning" }

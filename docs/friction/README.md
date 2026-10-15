@@ -4,7 +4,7 @@ One file per incident, created with `pnpm friction "<short title>"`. Format foll
 expected vs actual, severity, workaround, suggestion). Target: 8–12 per submission. Link the relevant ones from
 `docs/feedback.md`. These logs earn up to a 10 % bonus in judging and are the raw material for the required feedback.
 
-## Index (20)
+## Index (22)
 
 | Date | Log | Area | Severity |
 |---|---|---|---|
@@ -28,3 +28,5 @@ expected vs actual, severity, workaround, suggestion). Target: 8–12 per submis
 | 2026-10-10 | [Fire OS drops `Log.d`: a native module's debug logs never reach logcat](2026-10-10-fire-os-drops-log-d.md) | Fire OS tooling | Medium |
 | 2026-10-14 | [Nova Lite at temperature 0 gives different replies to the same request](2026-10-14-nova-lite-temperature-0-is-not-deterministic.md) | Bedrock / Nova | Medium |
 | 2026-10-14 | [Gate C re-run: no stop-before-publish in the CLI; earlier rater packets lost with the scratchpad](2026-10-14-gate-c-re-run-no-cli-stop-before-publish-and-previous-rater-packets-lost-with-the-scratchpad.md) | Pipeline / evaluation | Low |
+| 2026-10-15 | [Fire TV Recommendations retired May 2025; docs 404, only on the Wayback Machine](2026-10-15-fire-tv-recommendations-retired-may-2025-docs-404-only-on-wayback.md) | Fire TV discovery | Medium |
+| 2026-10-15 | [CaptioningManager style has no typeface name; the kit draws no caption edge](2026-10-15-captioningmanager-style-has-no-typeface-name-and-the-kit-draws-no-caption-edge.md) | Fire OS / captions | Low |
