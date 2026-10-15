@@ -9,6 +9,7 @@ import type { Shot } from './steps/02-shots'
 import type { Gap } from './steps/03-speech'
 import type { Described } from './steps/04-describe'
 import type { PackageReport } from './steps/09-package'
+import { resolveEngine } from './voiceProfile'
 import type { ManifestProblems } from './validate'
 
 /** One pg-boss job per step 1–5; `finish` runs every step after fit (edit, voice … package, validate, publish) in one job (open question Q4 / decision pending). */
@@ -89,7 +90,7 @@ export async function handleJob(step: JobStep, job: StepJob, { boss, db, run = r
     if (!t.assets[0]) throw new Error(`title ${titleId} has no source asset`)
     if (!SLUG_RE.test(t.slug)) throw new Error(`title ${titleId}: invalid slug "${t.slug}" (work dir and S3 keys): must match ${SLUG_RE.source}`)
     await db.title.update({ where: { id: titleId }, data: { status: 'processing' } })
-    const ctx: Ctx = { ...ctxFor({ slug: t.slug, source: `s3://${process.env.S3_BUCKET_MEDIA}/${t.assets[0].s3Key}`, language: t.language as 'en' | 'de', voice: t.voice }), signal }
+    const ctx: Ctx = { ...ctxFor({ slug: t.slug, source: `s3://${process.env.S3_BUCKET_MEDIA}/${t.assets[0].s3Key}`, language: t.language as 'en' | 'de', voice: t.voice, engine: resolveEngine(t.voice) }), signal }
     const { costUsd } = await metered(() => untilAborted(async () => { await run(step, ctx); signal.throwIfAborted(); await persist(step, titleId, ctx.work, db) }, signal), signal)
     signal.throwIfAborted()
     // Done first, then enqueue: if this update fails, the retry re-runs an idempotent step instead of starting a second chain.

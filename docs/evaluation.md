@@ -36,6 +36,8 @@ A run passes when **at least 70 % of the shots are majority-usable**: rated usab
 3. **Build blind packets.** `pnpm gate-c packets <eval> <out> --raters 3` gives each rater an identical folder: contact sheets and
    frames per shot, dialogue ±2 s, the gaps, the numbers "fits" needs (limit, clip end, speech end, next dialogue word, next placed
    cue), the voiced text or "Not voiced" with the text it would have voiced. Packets name no model or run.
+   **Each voiced cue also shows the cue heard just before it** (context only): the narrative pass (decision 0017) carries
+   referents, so "She kneels beside the bleeding dragon." is judged knowing who "she" is, against this shot's frames.
    **Text to rate for an unvoiced shot = fit's grounded description** (`groundedDescription` in 05-fit, the function fit reads every
    description through; the packet calls it, there is no separate cleanup): what the pipeline would voice if the shot got a slot —
    "Darkness." whole or absent, no bare light-word lead ("Dim."), no place carried from another scene. A shot fit placed but voice

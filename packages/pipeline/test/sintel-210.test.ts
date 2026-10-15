@@ -104,9 +104,9 @@ describe('sintel-90-210 run A2 golden replay', () => {
     const seen: string[] = []
     const send: EditConverse = async (i) => { seen.push((i.messages![0]!.content![0] as { text: string }).text); return { output: { message: { role: 'assistant', content: [{ toolUse: { toolUseId: 't', name: 'emit_edits', input: { edits: [{ cue: at, text: 'Red-haired girl accepts the bowl.' }, { cue: at + 1, text: 'Tent glows. Girl accepts bowl.' }] } } }] } }, usage: { inputTokens: 1, outputTokens: 1 } } as unknown as Awaited<ReturnType<EditConverse>> }
     const r = await editScene(cues, described, words, 'en', send, undefined, (t) => t)
-    const input = JSON.parse(seen[0]!.slice(seen[0]!.indexOf('{'), seen[0]!.lastIndexOf('}') + 1)) as { cues: Array<{ cue: number; missedJustBefore?: string[]; wordsYouMayAdd?: number }> }
-    expect(input.cues[at]).toMatchObject({ cue: at, wordsYouMayAdd: 0 })
-    expect(input.cues[at + 1]!.missedJustBefore).toBeUndefined() // shot 8 is voiced (as a pause): not a dropped shot for the next cue
+    const input = JSON.parse(seen[0]!.slice(seen[0]!.indexOf('{'), seen[0]!.lastIndexOf('}') + 1)) as { cues: Array<{ cue: number; sources: string[]; maxWords?: number }> }
+    expect(input.cues[at]).toMatchObject({ cue: at, maxWords: 4 })
+    expect(input.cues[at + 1]!.sources).not.toContain(described.find((d) => d.index === 8)!.description) // shot 8 is voiced (as a pause): not a source of the next cue
     expect(r.rejected.map((x) => x.reason)).toEqual(['over budget (5 > 4 words)', 'over budget (5 > 2 words)']) // the event cue may not grow; the next cue may say what it said (continuity) but has no room
     expect(r.cues[at]).toEqual(event)
   })

@@ -99,6 +99,14 @@ describe('withoutName, withheld: the neutral reference', () => {
     // not withheld: the editor's short, as before
     expect(withoutName('Scales sleeps.', 'Scales', SINTEL)).toBe('The small tan dragon sleeps.')
   })
+  it('takes a possessive with the name: Scales\', Scales\'s and Scales’s become "the dragon\'s" (review of #80)', () => {
+    for (const p of ["Scales'", "Scales's", 'Scales’s']) {
+      expect(withoutName(`The girl strokes ${p} wing.`, 'Scales', SINTEL, { withheld: true })).toBe("The girl strokes the dragon's wing.")
+      expect(withoutName(`${p} wing bleeds.`, 'Scales', SINTEL, { withheld: true })).toBe("The dragon's wing bleeds.")
+    }
+    expect(withoutName("Scales' wing bleeds.", 'Scales', SINTEL)).toBe("The small tan dragon's wing bleeds.")
+    expect(withoutName('Scales sleeps.', 'Scales', SINTEL, { withheld: true })).toBe('The dragon sleeps.') // no possessive: none added
+  })
   it('withoutWithheldNames leaves a text outside every range alone', () => {
     expect(withoutWithheldNames(fitCue(62).text, SINTEL, fitCue(62).startMs)).toBe(fitCue(62).text)
   })

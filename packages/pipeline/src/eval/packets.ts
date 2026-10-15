@@ -13,6 +13,7 @@ import { groundedDescription, type FitCue } from '../steps/05-fit'
 import { readScenes, type Scene } from '../steps/04c-scenes'
 import { EMPTY_GLOSSARY, type Glossary } from '../glossary'
 import { evalGlossary } from './run'
+import { isTextCue } from '../steps/05b-edit'
 import { ffmpegSpeechMs, ffprobeClipMs, NEXT_CUE_SPACING_MS, OVERRUN_TOLERANCE_MS } from '../steps/06-voice'
 
 /**
@@ -84,6 +85,16 @@ export function nextSpeech(words: readonly Word[], unlabelled: readonly Segment[
   return w === undefined ? undefined : { ms: w, kind: 'word' }
 }
 
+/**
+ * The action cue the viewer heard just before cue k, on-screen text cues skipped (decision 0017): the narrative pass carries referents ("she", "the dragon") from it, so
+ * a rater needs it to resolve a pronoun. Context only: the rater still judges cue k against this shot's frames. [] for the first cue.
+ */
+export function heardBefore(cues: readonly FitCue[], k: number): string[] {
+  let j = k - 1
+  while (j >= 0 && isTextCue(cues[j]!)) j-- // the previous voiced action cue: an on-screen text cue names no one
+  const p = cues[j]
+  return p ? [`  - Heard just before (context only, to tell who "she", "he", "it" or "the …" is): "${p.text}" — starts ${p.startMs} ms`] : []
+}
 /** The label of a shot that is not rated (decision 0003: score = usable / (shots − same-as-previous)). */
 export const SKIP_LABEL = 'Same as previous shot — not rated'
 /**
@@ -131,10 +142,12 @@ export function shotsMd(d: PacketData, speechMs: ReadonlyMap<number, number | un
     for (const { c, k } of voiced) {
       if (c.extended) {
         md.push(`- **Voiced — rate this:** "${c.text}" — ${c.startMs}–${c.endMs} ms (audio length), EXTENDED${c.event ? ' (plot event)' : ''} (the film pauses while it plays), ${c.text.split(/\s+/).filter(Boolean).length} words`)
+        md.push(...heardBefore(d.cues, k))
         continue
       }
       const lim = limitOf(c, d.cues), sp = speechMs.get(k), ns = nextSpeech(d.words, d.unlabelled ?? [], c.startMs), np = placedAfter(c, d.cues)
       md.push(`- **Voiced — rate this:** "${c.text}" — placed in a gap, starts ${c.startMs} ms`)
+      md.push(...heardBefore(d.cues, k))
       md.push(`  - Limit: ${lim ?? 'none'}${lim === undefined ? '' : ' ms'} · clip end: ${c.endMs} ms${lim === undefined ? '' : ` (limit + ${OVERRUN_TOLERANCE_MS} ms = ${lim + OVERRUN_TOLERANCE_MS})`}`
         + ` · speech end: ${sp === undefined ? c.endMs : c.startMs + sp} ms · next speech: ${ns === undefined ? 'none' : `${ns.ms} ms (${ns.kind})`}`
         + ` · next placed cue: ${np ? `${np.startMs} ms` : 'none'}`)

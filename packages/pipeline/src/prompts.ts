@@ -306,8 +306,19 @@ export const stripFence = (t: string) => t.trim().replace(/^[\s\S]*?```(?:json)?
 
 // ─── DESC-018: scene-level edit pass (steps/05b-edit.ts; docs/decisions/0006-scene-edit-pass.md) ─────────────────────────────
 
-/** EDIT_MODEL_ID overrides; default Nova Lite (the probe winner: forced tool, no invented facts, ≈ $0.0002 per window). */
-export const editModelId = () => process.env.EDIT_MODEL_ID ?? LITE()
+/**
+ * The narrative pass's model (docs/decisions/0017-narrative-pass.md): EDIT_MODEL_ID overrides; default DeepSeek v3.2 on Bedrock
+ * (`deepseek.v3.2`, on-demand in us-east-1 — `aws bedrock list-foundation-models`, 2026-10-15: inferenceTypesSupported ON_DEMAND, no
+ * inference profile needed), the spike's best: the most natural prose and the most cues kept (docs/spikes/narrative-pass-sintel.md).
+ * https://docs.aws.amazon.com/bedrock/latest/userguide/models-supported.html · https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html
+ */
+export const DEFAULT_EDIT_MODEL_ID = 'deepseek.v3.2'
+export const editModelId = () => process.env.EDIT_MODEL_ID ?? DEFAULT_EDIT_MODEL_ID
+/** Asked once when the first model's call fails or its reply is unreadable: EDIT_FALLBACK_MODEL_ID, default Amazon Nova Pro ('' turns it off). */
+export const DEFAULT_EDIT_FALLBACK_MODEL_ID = 'amazon.nova-pro-v1:0'
+export const editFallbackModelId = () => process.env.EDIT_FALLBACK_MODEL_ID ?? DEFAULT_EDIT_FALLBACK_MODEL_ID
+/** The over-budget shortening call of the edit pass stays on Nova Lite (EDIT_SHORTEN_MODEL_ID overrides), as before the narrative pass. */
+export const editShortenModelId = () => process.env.EDIT_SHORTEN_MODEL_ID ?? LITE()
 /** The Converse call the edit pass makes; injectable so tests replay recorded replies. */
 export type EditConverse = (input: ConverseCommandInput) => Promise<Pick<ConverseCommandOutput, 'output' | 'usage'>>
 export const bedrockEditSend: EditConverse = (i) => client().send(new ConverseCommand(i), { abortSignal: meter()?.signal })
@@ -320,7 +331,7 @@ export const bedrockEditSend: EditConverse = (i) => client().send(new ConverseCo
  */
 export function shortenEditRequest(text: string, maxWords: number, keep: string, mustSay: readonly string[], language: 'en' | 'de'): ConverseCommandInput {
   return {
-    modelId: editModelId(),
+    modelId: editShortenModelId(),
     system: [{ text: [
       `Shorten an audio description line. The shortened line must still contain ${mustSay.length ? `these words (another form of the same word is fine): ${mustSay.join(', ')} — and ` : ''}every fact of this line: "${keep}". You may reword it; never drop a fact from it. Compress or drop the other part first.`,
       `At most ${maxWords} words. Present tense, no new facts. ${language === 'de' ? 'German.' : 'English.'}`,
@@ -334,85 +345,60 @@ export function shortenEditRequest(text: string, maxWords: number, keep: string,
 /** One Nova Lite call for shortenEditRequest; the edit step cleans the reply and re-runs its guards on it, and adds the usage to edit.json. */
 export async function shortenEditWithNovaLite(text: string, maxWords: number, keep: string, mustSay: readonly string[], language: 'en' | 'de'): Promise<{ text: string; usage?: { inputTokens?: number; outputTokens?: number } }> {
   const r = await client().send(new ConverseCommand(shortenEditRequest(text, maxWords, keep, mustSay, language)), { abortSignal: meter()?.signal })
-  meter()?.bedrock(editModelId(), r.usage)
+  meter()?.bedrock(editShortenModelId(), r.usage)
   return { text: (r.output?.message?.content?.find((c) => c.text)?.text ?? '').trim(), usage: r.usage }
 }
 
-/**
- * DESC-029 (docs/decisions/0012-characters-and-scenes.md): the rules for a window that is one scene, and for a title with a glossary.
- * Voice: a describer guiding a listener through the story — connective, story-aware, in the film's tone (Netflix AD style guide §1.2,
- * §5.2; Walczak & Fryer 2017 on creative AD) — inside the guardrails: nothing not visible, no thoughts, no foreshadowing (§1.4, DCMP).
- */
-export function sceneRules(scene: EditInput['scene'], people: EditInput['people']): string[] {
-  const out: string[] = []
-  if (scene) {
-    out.push(scene.placeAlreadySaid
-      ? `8. These cues continue one scene, set in ${JSON.stringify(scene.setting)}; an earlier cue already said where it is. Do not say the place again.`
-      : `8. These cues are one scene, set in ${JSON.stringify(scene.setting)}${scene.looks ? ` (${scene.looks})` : ''}. If no cue says where we are, say it briefly at the start of the first cue that carries action, in the words of the setting, when the words fit; ${scene.returning ? `this scene returns to an earlier place, so it may open "Back in ${scene.setting.replace(/^(?:the|a|an)\s+/i, 'the ')}". ` : ''}Never say the place twice in the scene.`)
-  }
-  if (people?.length) out.push('9. People: refer to a person listed under people by their look. Use a name only in a cue whose mayName lists it; the first time, say the look and the name ("the bald old man, Proog"). Never name anyone else, never use a name before mayName allows it, and never give a name to a figure whose description does not match that person\'s look.')
-  if (scene || people?.length) out.push(`${people?.length ? 10 : 9}. Voice: guide the listener through the story as a film's describer would: connect the cues ("Back in the lab, the man…", "then"), choose what matters to the story, and match the film's tone. Never say what anyone thinks, wants or feels, never hint at what happens later, and say nothing that is not visible in the cues and their missedJustBefore.`)
-  return out
-}
+// ─── The narrative pass (05b, docs/decisions/0017-narrative-pass.md; spike docs/spikes/narrative-pass-sintel.md) ───────────────────
 
-/** JSON Schema for the forced emit_edits tool's input (Nova: top level object with type, properties, required only). */
-export const EDIT_TOOL_SCHEMA = {
-  type: 'object', required: ['edits'],
-  properties: { edits: { type: 'array', description: 'Revised voiced cues only; omit every cue you leave unchanged.', items: { type: 'object', required: ['cue', 'text'], properties: { cue: { type: 'integer', description: 'The cue number from the input' }, text: { type: 'string', description: 'The whole revised cue text, one line' } } } } },
-}
-
-/** One cue as the edit step hands it to the request: its index in cues.json, budget, whether it is a frozen on-screen text cue, and the dropped descriptions just before it. */
-export interface EditCueInput { i: number; startMs: number; text: string; wordCount: number; budget: number; extended: boolean; onScreenText: boolean; missed: string[]; /** the cue's facts the guard requires the edit to keep (05b-edit factWords) */ mustSay?: string[]; /** DESC-029: the names this cue may use (glossary names revealed by its start, and names the dialogue has said) */ mayName?: string[] }
-export interface EditInput {
+/** One cue as the narrative request shows it. A fixed cue is on-screen text: shown, never returned. */
+export type NarrativeCueInput =
+  | { cue: number; at: string; fixed: true; text: string }
+  | { cue: number; at: string; extended?: true; newScene?: { place: string; returning?: true }; text: string; sources: string[]; mustStillSay: string[]; maxWords: number; mayName: string[] }
+export interface NarrativeInput {
   language: 'en' | 'de'
-  cues: readonly EditCueInput[]
-  dialogue: readonly { start: number; end: number; speaker?: string; text: string }[]
-  /** The last cue of the previous window, already revised: what the viewer heard just before this window. */
-  heard?: string
-  /** DESC-029: the scene these cues belong to (04c-scenes): its place, the glossary look of that place, whether it returns to an earlier place, and whether an earlier cue already said where it is. */
-  scene?: { setting: string; looks?: string; returning: boolean; placeAlreadySaid: boolean }
-  /** DESC-029: the title's people (glossary): the look always; the name once revealed (namedFrom: segment seconds). Never the role (0012). */
-  people?: readonly { look: string; name?: string; namedFrom?: number }[]
+  /** Glossary people: the look and the short reference always, the name once revealed in this window. Never the role (0012). */
+  people?: readonly { look: string; short: string; name?: string }[]
+  /** The last cues before this window as the viewer hears them (already rewritten), oldest first. */
+  heardJustBefore?: readonly string[]
+  cues: readonly NarrativeCueInput[]
 }
 
 /**
- * One window's request: the system prompt states the rules; the data goes first in the user turn and the task last (as sdhRequest
- * found Nova Lite needs). `tool` forces emit_edits (toolChoice); `json` asks for the same object as plain text — the edit step's retry
- * when Nova's forced tool call fails.
- * The cues are listed as heard, each with its word count, how many words may be added, and — under missedJustBefore — the descriptions
- * of the shots dropped between the previous cue and this one. Dropped shots are shown only under the cue that may absorb them, so "fold
- * into the next cue" has one reading (round 4: a flat timeline had Nova fold the shot after a cue into it); a voiced shot's full
- * description is left out, because shown next to its shortened cue both models "restored" it (round 2). An on-screen text cue
- * (DESC-017) is listed as fixed, with no room and no dropped shots: the viewer hears it, the model may not touch it.
- * https://docs.aws.amazon.com/nova/latest/userguide/tool-use-definition.html · https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ToolChoice.html
+ * The system prompt (the spike's, with the scene rules of 0012 kept). No synopsis, no roles and no dialogue: "story so far" is only the
+ * cues as heard, so the model has nothing to leak about what happens next or what anyone wants.
  */
-export function editRequest({ language, cues, dialogue, heard, scene, people }: EditInput, mode: 'tool' | 'json' = 'tool'): ConverseCommandInput {
-  const s = (ms: number) => Math.round(ms / 100) / 10
-  const items = cues.map((c) => c.onScreenText
-    ? { cue: c.i, start: s(c.startMs), text: c.text, onScreenText: true, fixed: true }
-    : { cue: c.i, start: s(c.startMs), ...(c.extended ? { extended: true } : {}), ...(c.missed.length ? { missedJustBefore: c.missed } : {}), text: c.text, ...(c.mustSay?.length ? { mustStillSay: c.mustSay } : {}), ...(c.mayName ? { mayName: c.mayName } : {}), words: c.wordCount, wordsYouMayAdd: c.budget - c.wordCount })
-  const input = JSON.stringify({ language, ...(heard ? { heardJustBefore: heard } : {}), ...(scene ? { scene } : {}), ...(people?.length ? { people } : {}), cues: items, dialogue })
+export const narrativeSystemPrompt = (language: 'en' | 'de') => `You are the narrator of an audio description track for blind and low-vision viewers of a film, in ${language === 'de' ? 'German' : 'English'}. Each shot was described on its own, so the script reads as a list of separate observations. Rewrite it so it flows as ONE connected narration, the way a nature-documentary narrator carries the listener from moment to moment — while staying a strict audio description.
+
+The input gives, per cue: its number, time, the text as now voiced, under "sources" the checked descriptions of the shots this cue covers (the only evidence of what is on screen), "mustStillSay" (facts this cue must still state; another form of the word is fine — it already leaves out the look of anyone the viewer met earlier in this scene, so refer to them as "she" or "the dragon"), "maxWords" (hard limit: count your words), "mayName" (the only names allowed in this cue), and "newScene" with the place when the cue opens a new scene ("returning" when the film comes back to a place it showed before). "people" lists who appears in the film by look. "heardJustBefore" is what the viewer heard just before these cues, already rewritten. A cue marked fixed is on-screen text: do not return it.
+
+Continuity — do this:
+- Carry referents. Once a person or creature was introduced in the previous cue or two, call them "she", "he", "it" (only when they were in one of the last two cues and no one else could be meant), or "the young woman", "the dragon" — never repeat the full look every cue. Give the look again only when a new scene starts or when two similar figures could be confused.
+- Use "the" for anything already introduced, "a" the first time.
+- Link cues with plain connectives: "then", "now", "as", "while", "and". Use "again", "still", "meanwhile" or "later" only when this cue's own sources say so.
+- Open a new scene by saying where we are, in the words of its place, once ("Back in …" only when it is returning). Never say the place again later in the same scene, and never make a cue that is only a place.
+- Vary the openings: lead with the action verb or the place, not always with the person. Mix one short sentence with a longer one.
+- Warmth comes from precise, vivid verbs and concrete nouns already in the sources, and from rhythm — never from adjectives of feeling or judgement.
+
+Audio description rules — never break these:
+1. Every fact comes from this cue's sources or text, or from an earlier cue (for who someone is). Never add a person, object, action, colour, body part, place, time of day, weather or on-screen text the sources do not state.
+2. Never say what anyone thinks, feels, wants, intends or remembers; no "seems", no "as if", no metaphors; never hint at what happens later; no "we see", no camera words.
+3. Keep every word of mustStillSay (or a form of it). A dropped fact is never allowed.
+4. At most maxWords words. Fewer is fine. If you cannot improve a cue within maxWords, return it unchanged.
+5. Present tense, active voice, complete sentences with a capital letter and a full stop.
+6. Names: only the ones in that cue's mayName; otherwise the look, "she" or "the dragon".
+7. Keep any "Words appear: …" clause exactly as written.
+8. Do not merge, split, reorder, add or drop cues.
+
+Reply with one JSON object only, no prose, no code fence: {"cues":[{"cue":<number>,"text":"<the rewritten cue>"}]} — one entry for every cue that is not fixed, in order.`
+
+/** One window's Converse request: plain JSON text, no forced tool (Nova Lite's ModelErrorException on forced tool use is avoided entirely). */
+export function narrativeRequest(input: NarrativeInput, modelId = editModelId()): ConverseCommandInput {
+  const { language, ...data } = input
   return {
-    modelId: editModelId(),
-    system: [{ text: [
-      `You edit an audio description script for blind and low-vision viewers, in ${language === 'de' ? 'German' : 'English'}. Each shot was described on its own, then the cues were shortened and placed in the pauses of the dialogue. The viewer hears only the cues, in order. Your job is continuity between cues.`,
-      'The input lists the cues in order: the text as the viewer hears it, under mustStillSay the words of that cue your text must still contain, how many words you may add (the pause allows no more), and under missedJustBefore the descriptions of shots that were dropped between the previous cue and this one (never heard: there was no pause), plus the dialogue. A cue marked fixed is on-screen text read out as written: never return it.',
-      mode === 'tool'
-        ? 'Return, through the emit_edits tool, the revised text of voiced cues only, and only the cues you change. Returning no edits is a valid answer.'
-        : 'Reply with one JSON object only, exactly {"edits":[{"cue":<number>,"text":"<revised cue>"}]} — no prose, no code fence — holding the revised text of voiced cues only, and only the cues you change. {"edits":[]} is a valid answer.',
-      'Rules, in order of importance:',
-      '0. A revised cue must still contain every word of its mustStillSay (another form of the same word is fine, e.g. pour → pours). A fold adds the dropped shot to the cue; it never replaces the cue\'s own action. If that does not fit, leave the cue unchanged.',
-      '1. Facts come only from the cues and their missedJustBefore descriptions. Never add a person, object, action, colour, place or on-screen text that is not stated there. No interpretation, no emotion or motivation.',
-      '2. wordsYouMayAdd is exact: count the words of your text (whitespace-separated); a cue with wordsYouMayAdd 0 may only be reworded or shortened. If a change does not fit, leave the cue unchanged.',
-      '3. When a cue\'s missedJustBefore states something the viewer needs (a new person, an object, an action), fold it into THAT cue, before the cue\'s own action, when the words fit: e.g. missedJustBefore ["Man stirs pot over fire."] and text "Old man pours broth." (wordsYouMayAdd 7) → "The man stirs a pot over the fire, then pours broth." Never fold anything into another cue.',
-      '4. Remove only what the previous cue already told the viewer (a repeated place, a repeated descriptor); keep every other fact of the cue word for word — dropping a fact is never allowed. Say "the" for a person or thing an earlier cue introduced and "a" the first time; use "the same …" only when it helps the viewer follow.',
-      '5. Keep the house style: present tense, active voice, third person, short sentences, no film language ("the camera"), no "we see". One line per cue.',
-      '6. Keep any "Words appear: …" clause exactly as written, and never add one.',
-      '7. Do not add, remove, merge, split or reorder cues, and do not mention timing; it is fixed.',
-      ...sceneRules(scene, people),
-    ].join('\n') }],
-    messages: [{ role: 'user', content: [{ text: `Input:\n${input}\n\n${mode === 'tool' ? 'Use the emit_edits tool to return the revised cues.' : 'Reply with the JSON object {"edits":[…]} only.'}` }] }],
-    ...(mode === 'tool' ? { toolConfig: { tools: [{ toolSpec: { name: 'emit_edits', description: 'Return the revised text of the voiced cues you change', inputSchema: { json: EDIT_TOOL_SCHEMA } } }], toolChoice: { tool: { name: 'emit_edits' } } } } : {}),
-    inferenceConfig: { maxTokens: 2000, temperature: 0 },
+    modelId,
+    system: [{ text: narrativeSystemPrompt(language) }],
+    messages: [{ role: 'user', content: [{ text: `Input:\n${JSON.stringify(data)}\n\nReply with the JSON object only.` }] }],
+    inferenceConfig: { maxTokens: 4000, temperature: 0 },
   }
 }

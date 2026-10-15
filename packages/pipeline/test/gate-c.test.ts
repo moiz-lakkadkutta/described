@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { meter, metered, Meter } from '../src/cost'
 import type { Ctx, Step } from '../src/steps'
 import type { FitCue } from '../src/steps/05-fit'
-import { buildPackets, limitOf, loadPacketData, nextSpeech, rubricMd, RUBRIC_TEMPLATE, scoresMd, shotsMd, skipShots, tc, type PacketData } from '../src/eval/packets'
+import { buildPackets, heardBefore, limitOf, loadPacketData, nextSpeech, rubricMd, RUBRIC_TEMPLATE, scoresMd, shotsMd, skipShots, tc, type PacketData } from '../src/eval/packets'
 import { BASE_INPUTS, CapExceeded, effectiveModels, evalCtx, evalGlossary, EVAL_STEPS, parseSteps, pipelineQualitySteps, runGateC, runSettings, type EvalDeps } from '../src/eval/run'
 import { defaultCredit, preparePlan, prepareGateC, PREPARE_STEPS, type PrepareDeps } from '../src/eval/prepare'
 import { editModelId, LITE } from '../src/prompts'
@@ -79,7 +79,7 @@ describe('gate-c run: input copying', () => {
     expect(manifest.versions).toEqual(expect.objectContaining({ VERIFY_PROMPT_VERSION: expect.any(Number), DESCRIBE_CACHE_VERSION: expect.any(Number) }))
     expect(Object.keys(manifest.env)).toEqual(expect.arrayContaining(['DESCRIBE_MODEL_ID', 'VERIFY_MODEL_ID', 'EDIT_MODEL_ID', 'DESCRIBE_EDIT', 'DESCRIBE_VERIFY', 'DESCRIBE_CONCURRENCY']))
     expect(typeof manifest.dirty).toBe('boolean')
-    expect(manifest.models.map((m: { role: string }) => m.role)).toEqual(['describe', 'verify', 'scenes', 'shorten (fit, edit)', 'edit'])
+    expect(manifest.models.map((m: { role: string }) => m.role)).toEqual(['describe', 'verify', 'scenes', 'shorten (fit, edit)', 'edit', 'edit fallback'])
   })
   // DESC-032 / decision 0014: a source dir made before the voice-activity check has Transcribe-only gaps; the copy's are rebuilt.
   it('rebuilds the copy\'s gaps (regap) after the copy and before the first step, and records gapsSource', async () => {
@@ -156,7 +156,10 @@ describe('gate-c run: model prices', () => {
     vi.stubEnv('VERIFY_MODEL_ID', 'x.verify')
     vi.stubEnv('EDIT_MODEL_ID', 'x.edit')
     const m = effectiveModels(['describe', 'fit', 'edit', 'voice'])
-    expect(m).toEqual([{ role: 'describe', id: 'us.qwen.qwen3-vl-235b-a22b' }, { role: 'verify', id: verifyModelId('us.qwen.qwen3-vl-235b-a22b') }, { role: 'shorten (fit, edit)', id: LITE() }, { role: 'edit', id: editModelId() }])
+    expect(m).toEqual([{ role: 'describe', id: 'us.qwen.qwen3-vl-235b-a22b' }, { role: 'verify', id: verifyModelId('us.qwen.qwen3-vl-235b-a22b') }, { role: 'shorten (fit, edit)', id: LITE() }, { role: 'edit', id: editModelId() }, { role: 'edit fallback', id: 'amazon.nova-pro-v1:0' }])
+    vi.stubEnv('EDIT_FALLBACK_MODEL_ID', '')
+    expect(effectiveModels(['edit']).map((x) => x.role)).toEqual(['shorten (fit, edit)', 'edit']) // '' turns the fallback off
+    vi.stubEnv('EDIT_FALLBACK_MODEL_ID', undefined)
     vi.stubEnv('VERIFY_MODEL_ID', undefined)
     vi.stubEnv('EDIT_MODEL_ID', undefined)
     vi.stubEnv('DESCRIBE_VERIFY', '0')
@@ -167,8 +170,8 @@ describe('gate-c run: model prices', () => {
   })
   it('refuses a model with no price before anything is copied (the meter would count it as $0)', async () => {
     await sourceDir()
-    vi.stubEnv('EDIT_MODEL_ID', 'amazon.nova-pro-v1:0')
-    await expect(runGateC(opts(), deps())).rejects.toThrow(/no price .*amazon\.nova-pro-v1:0 \(edit\)/)
+    vi.stubEnv('EDIT_MODEL_ID', 'amazon.nova-premier-v1:0')
+    await expect(runGateC(opts(), deps())).rejects.toThrow(/no price .*amazon\.nova-premier-v1:0 \(edit\)/)
     expect(existsSync(join(root, 'eval-1'))).toBe(false)
     await expect(runGateC(opts({ steps: parseSteps('describe,scenes,fit'), dryRun: true }), deps())).resolves.toBeTruthy() // edit not run: its model does not matter
     vi.stubEnv('DESCRIBE_MODEL_ID', 'us.anthropic.unknown')
@@ -279,6 +282,18 @@ describe('gate-c packets: shots.md', () => {
     expect(md).toContain('"Door shuts."')
     expect(md).toContain('(spk_0): "Hello"')
     expect(tc(0, 90_000)).toBe('1:30.000')
+  })
+  // decision 0017: the narrative pass carries referents across cues, so a rater sees the cue heard before each voiced one
+  it('shows the cue heard just before each voiced cue, so "she" can be resolved; none before the first', () => {
+    const md = shotsMd({ ...data, cues: [...data.cues, cue({ startMs: 8200, endMs: 8300, extended: true, shotIndex: 2, text: 'It shuts.' })] }, new Map(), { title: 'T', offsetMs: 0 })
+    expect(md.split('## Shot 0')[1]!.split('## Shot 1')[0]).not.toContain('Heard just before')
+    expect(md.split('## Shot 1')[1]).toContain('  - Heard just before (context only, to tell who "she", "he", "it" or "the …" is): "A man walks." — starts 500 ms')
+    expect(md.split('## Shot 2')[1]).toContain('Heard just before (context only, to tell who "she", "he", "it" or "the …" is): "She runs." — starts 4000 ms') // an extended cue too
+    expect(heardBefore(data.cues, 0)).toEqual([])
+    // the previous voiced ACTION cue: an on-screen text cue in between names no one (review of #80)
+    const withText = [data.cues[0]!, cue({ startMs: 3000, endMs: 3100, extended: true, text: 'Words appear: SINTEL.' }), data.cues[1]!]
+    expect(heardBefore(withText, 2)).toEqual(['  - Heard just before (context only, to tell who "she", "he", "it" or "the …" is): "A man walks." — starts 500 ms'])
+    expect(heardBefore(withText, 1)).toEqual(['  - Heard just before (context only, to tell who "she", "he", "it" or "the …" is): "A man walks." — starts 500 ms'])
   })
   // DESC-032 / decision 0014: speech Transcribe missed is shown per shot and counts as the next speech for "fits".
   it('lists unlabelled speech near each shot and takes it as the next speech when it comes before the next word', () => {

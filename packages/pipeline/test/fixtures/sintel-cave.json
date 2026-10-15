@@ -1,0 +1,803 @@
+{
+ "note": "full-length sintel, the cave scene (scene 10, shots 113-159): cues.json as published after #71 (cues 75-105), their described shots, scenes.json scene 10. Cue i here is cue i+75 of the title.",
+ "offset": 75,
+ "cues": [
+  {
+   "startMs": 494159,
+   "endMs": 500159,
+   "text": "The red-haired young woman, Sintel, holds a curved blade, facing glowing crystals in the dark cave.",
+   "extended": false,
+   "wordCount": 16,
+   "shotIndex": 113,
+   "limitMs": 502400
+  },
+  {
+   "startMs": 507000,
+   "endMs": 511968,
+   "text": "The red-haired young woman, Sintel, touches a dark scaled creature in dim light.",
+   "extended": false,
+   "wordCount": 13,
+   "shotIndex": 116,
+   "limitMs": 538100
+  },
+  {
+   "startMs": 512475,
+   "endMs": 515307,
+   "text": "A vast cave with glowing crystals on its floor.",
+   "extended": false,
+   "wordCount": 9,
+   "shotIndex": 117,
+   "limitMs": 538100
+  },
+  {
+   "startMs": 516450,
+   "endMs": 520458,
+   "text": "The red-haired young woman, Sintel, stares wide-eyed in dim light.",
+   "extended": false,
+   "wordCount": 10,
+   "shotIndex": 118,
+   "limitMs": 538100
+  },
+  {
+   "startMs": 520800,
+   "endMs": 525912,
+   "text": "The red-haired young woman, Sintel, runs across a massive root bridge in a dark cave.",
+   "extended": false,
+   "wordCount": 15,
+   "shotIndex": 119,
+   "limitMs": 538100
+  },
+  {
+   "startMs": 527025,
+   "endMs": 531369,
+   "text": "The red-haired young woman, Sintel, leaps down a dark cave with her staff.",
+   "extended": false,
+   "wordCount": 13,
+   "shotIndex": 120,
+   "limitMs": 538100
+  },
+  {
+   "startMs": 532500,
+   "endMs": 534564,
+   "text": "Sintel walks toward a dragon.",
+   "extended": false,
+   "wordCount": 5,
+   "shotIndex": 121,
+   "limitMs": 538100
+  },
+  {
+   "startMs": 534975,
+   "endMs": 537039,
+   "text": "Sintel crouches in dim light.",
+   "extended": false,
+   "wordCount": 5,
+   "shotIndex": 122,
+   "limitMs": 538100
+  },
+  {
+   "startMs": 546250,
+   "endMs": 549202,
+   "text": "Sintel climbs a cave wall, gripping a sword.",
+   "extended": false,
+   "wordCount": 8,
+   "shotIndex": 126,
+   "limitMs": 550150
+  },
+  {
+   "startMs": 549700,
+   "endMs": 560068,
+   "text": "The red-haired woman, Sintel, touches glowing crystals on a cave wall. She turns, wielding a blade. A dark grey dragon lunges. She dodges.",
+   "extended": true,
+   "wordCount": 23,
+   "shotIndex": 128,
+   "event": true
+  },
+  {
+   "startMs": 560400,
+   "endMs": 563160,
+   "text": "The huge dark grey dragon looms in the cave.",
+   "extended": false,
+   "wordCount": 9,
+   "shotIndex": 129,
+   "limitMs": 565750
+  },
+  {
+   "startMs": 572500,
+   "endMs": 576604,
+   "text": "The red-haired woman, Sintel, clutches a staff and a tattered cloth.",
+   "extended": false,
+   "wordCount": 11,
+   "shotIndex": 132,
+   "limitMs": 579300
+  },
+  {
+   "startMs": 577225,
+   "endMs": 579169,
+   "text": "Sintel crawls on rocks.",
+   "extended": false,
+   "wordCount": 4,
+   "shotIndex": 133,
+   "limitMs": 579300
+  },
+  {
+   "startMs": 582250,
+   "endMs": 584218,
+   "text": "Sintel lunges at the dragon.",
+   "extended": false,
+   "wordCount": 5,
+   "shotIndex": 135,
+   "limitMs": 585600
+  },
+  {
+   "startMs": 591650,
+   "endMs": 594938,
+   "text": "A creature with ram's horns and wings stands in darkness.",
+   "extended": false,
+   "wordCount": 10,
+   "shotIndex": 137,
+   "limitMs": 600450
+  },
+  {
+   "startMs": 596000,
+   "endMs": 598064,
+   "text": "A dragon looms over Sintel.",
+   "extended": false,
+   "wordCount": 5,
+   "shotIndex": 139,
+   "limitMs": 600450
+  },
+  {
+   "startMs": 607700,
+   "endMs": 611876,
+   "text": "The red-haired young woman, Sintel, grips her staff in a dark cave.",
+   "extended": false,
+   "wordCount": 12,
+   "shotIndex": 143,
+   "limitMs": 621050
+  },
+  {
+   "startMs": 612800,
+   "endMs": 616568,
+   "text": "The red-haired young woman, Sintel, grips her staff tightly.",
+   "extended": false,
+   "wordCount": 9,
+   "shotIndex": 144,
+   "limitMs": 621050
+  },
+  {
+   "startMs": 616775,
+   "endMs": 620951,
+   "text": "The red-haired young woman, Sintel, faces a dark scaled dragon.",
+   "extended": false,
+   "wordCount": 10,
+   "shotIndex": 145,
+   "limitMs": 621050
+  },
+  {
+   "startMs": 622309,
+   "endMs": 624109,
+   "text": "Sintel stares wide-eyed.",
+   "extended": false,
+   "wordCount": 3,
+   "shotIndex": 147,
+   "limitMs": 625380
+  },
+  {
+   "startMs": 626619,
+   "endMs": 629355,
+   "text": "A huge dark grey dragon rests in the cave.",
+   "extended": false,
+   "wordCount": 9,
+   "shotIndex": 148,
+   "limitMs": 674250
+  },
+  {
+   "startMs": 630594,
+   "endMs": 635394,
+   "text": "The red-haired young woman, Sintel, lies on the cave floor, staring upward.",
+   "extended": false,
+   "wordCount": 12,
+   "shotIndex": 149,
+   "limitMs": 674250
+  },
+  {
+   "startMs": 635694,
+   "endMs": 640230,
+   "text": "Sintel touches her cheek, eyes wide, as the cave darkens around her.",
+   "extended": false,
+   "wordCount": 12,
+   "shotIndex": 150,
+   "limitMs": 674250
+  },
+  {
+   "startMs": 641000,
+   "endMs": 646952,
+   "text": "The young woman, Sintel, stares at her gloved hand, then looks up, her face bruised and tense.",
+   "extended": false,
+   "wordCount": 17,
+   "shotIndex": 151,
+   "limitMs": 674250
+  },
+  {
+   "startMs": 647975,
+   "endMs": 655343,
+   "text": "The red-haired young woman, Sintel, stands in the cave, facing the huge dark grey dragon’s head, her hands open before her.",
+   "extended": false,
+   "wordCount": 21,
+   "shotIndex": 152,
+   "limitMs": 674250
+  },
+  {
+   "startMs": 656450,
+   "endMs": 661202,
+   "text": "The red-haired young woman, Sintel, looks down, then lifts her gaze upward.",
+   "extended": false,
+   "wordCount": 12,
+   "shotIndex": 153,
+   "limitMs": 674250
+  },
+  {
+   "startMs": 661550,
+   "endMs": 665414,
+   "text": "The red-haired young woman, Sintel, climbs a dark cave wall.",
+   "extended": false,
+   "wordCount": 10,
+   "shotIndex": 154,
+   "limitMs": 674250
+  },
+  {
+   "startMs": 665900,
+   "endMs": 671060,
+   "text": "The huge dark grey dragon lies still, its eye dimming, as Sintel stands over it.",
+   "extended": false,
+   "wordCount": 15,
+   "shotIndex": 155,
+   "limitMs": 674250
+  },
+  {
+   "startMs": 672125,
+   "endMs": 673853,
+   "text": "Sintel stares ahead.",
+   "extended": false,
+   "wordCount": 3,
+   "shotIndex": 156,
+   "limitMs": 674250
+  },
+  {
+   "startMs": 673853,
+   "endMs": 678893,
+   "text": "The red-haired young woman, Sintel, runs through a dark cave as rocks fall around her.",
+   "extended": true,
+   "wordCount": 15,
+   "shotIndex": 158,
+   "event": true
+  },
+  {
+   "startMs": 677500,
+   "endMs": 678556,
+   "text": "Darkness.",
+   "extended": false,
+   "wordCount": 1,
+   "shotIndex": 159,
+   "limitMs": 703589
+  }
+ ],
+ "described": [
+  {
+   "index": 110,
+   "startMs": 478583,
+   "endMs": 483708,
+   "description": "The red-haired young woman, Sintel, holds a staff under a full moon beside a gnarled tree.",
+   "sameAsPrev": false,
+   "tokens": 6281,
+   "outputTokens": 59
+  },
+  {
+   "index": 111,
+   "startMs": 483708,
+   "endMs": 487500,
+   "description": "The red-haired young woman, Sintel, stands in the cave’s mouth under a full moon.",
+   "sameAsPrev": false,
+   "tokens": 5378,
+   "outputTokens": 55
+  },
+  {
+   "index": 112,
+   "startMs": 487500,
+   "endMs": 490958,
+   "description": "A boot steps onto dark, gritty ground near glowing hexagons.",
+   "sameAsPrev": false,
+   "tokens": 4472,
+   "outputTokens": 42
+  },
+  {
+   "index": 113,
+   "startMs": 490958,
+   "endMs": 496708,
+   "description": "The red-haired young woman, Sintel, holds a curved blade, facing glowing crystals in the dark cave.",
+   "sameAsPrev": false,
+   "tokens": 7180,
+   "outputTokens": 57
+  },
+  {
+   "index": 114,
+   "startMs": 496708,
+   "endMs": 502458,
+   "description": "A large dragon lies on a ledge, clutching a red object in its claws.",
+   "sameAsPrev": false,
+   "tokens": 7227,
+   "outputTokens": 48
+  },
+  {
+   "index": 115,
+   "startMs": 502458,
+   "endMs": 505792,
+   "description": "A huge dark grey dragon with torn wings eats raw meat in a cave; the red-haired young woman, Sintel, watches from a distance.",
+   "sameAsPrev": false,
+   "tokens": 4487,
+   "outputTokens": 81
+  },
+  {
+   "index": 116,
+   "startMs": 505792,
+   "endMs": 508750,
+   "description": "The red-haired young woman, Sintel, touches a dark scaled creature in dim light.",
+   "sameAsPrev": false,
+   "tokens": 4475,
+   "outputTokens": 59
+  },
+  {
+   "index": 117,
+   "startMs": 508750,
+   "endMs": 512667,
+   "description": "A vast cave with glowing crystals on its floor.",
+   "sameAsPrev": false,
+   "tokens": 5369,
+   "outputTokens": 41
+  },
+  {
+   "index": 118,
+   "startMs": 512667,
+   "endMs": 516458,
+   "description": "The red-haired young woman, Sintel, stares wide-eyed in dim light.",
+   "sameAsPrev": false,
+   "tokens": 5374,
+   "outputTokens": 45
+  },
+  {
+   "index": 119,
+   "startMs": 516458,
+   "endMs": 523417,
+   "description": "The red-haired young woman, Sintel, runs across a massive root bridge in a dark cave.",
+   "sameAsPrev": false,
+   "tokens": 7178,
+   "outputTokens": 53
+  },
+  {
+   "index": 120,
+   "startMs": 523417,
+   "endMs": 526583,
+   "description": "The red-haired young woman, Sintel, leaps down a dark cave with her staff.",
+   "sameAsPrev": false,
+   "tokens": 4476,
+   "outputTokens": 49
+  },
+  {
+   "index": 121,
+   "startMs": 526583,
+   "endMs": 533625,
+   "description": "The red-haired young woman, Sintel, walks toward a small pale dragon curled up asleep in the dark cave.",
+   "sameAsPrev": false,
+   "tokens": 7181,
+   "outputTokens": 59
+  },
+  {
+   "index": 122,
+   "startMs": 533625,
+   "endMs": 536333,
+   "description": "The red-haired young woman, Sintel, crouches in dim cave light.",
+   "sameAsPrev": false,
+   "tokens": 4474,
+   "outputTokens": 47
+  },
+  {
+   "index": 123,
+   "startMs": 536333,
+   "endMs": 539333,
+   "description": "The small pale dragon stirs, opens its eyes, and lifts its head.",
+   "sameAsPrev": false,
+   "tokens": 4473,
+   "outputTokens": 46
+  },
+  {
+   "index": 124,
+   "startMs": 539333,
+   "endMs": 541083,
+   "description": "The red-haired young woman, Sintel, stares wide-eyed in dim cave.",
+   "sameAsPrev": false,
+   "tokens": 4473,
+   "outputTokens": 45
+  },
+  {
+   "index": 125,
+   "startMs": 541083,
+   "endMs": 543625,
+   "description": "Sintel stabs the dragon. Fire erupts from its chest. She walks toward the cave mouth.",
+   "sameAsPrev": false,
+   "tokens": 4481,
+   "outputTokens": 65
+  },
+  {
+   "index": 126,
+   "startMs": 543625,
+   "endMs": 547083,
+   "description": "The red-haired young woman, Sintel, climbs a dark cave wall, gripping a sword.",
+   "sameAsPrev": false,
+   "tokens": 4476,
+   "outputTokens": 51
+  },
+  {
+   "index": 127,
+   "startMs": 547083,
+   "endMs": 549125,
+   "description": "The small tan dragon, Scales, walks across the cave floor.",
+   "sameAsPrev": false,
+   "tokens": 4471,
+   "outputTokens": 56
+  },
+  {
+   "index": 128,
+   "startMs": 549125,
+   "endMs": 554958,
+   "description": "The red-haired young woman, Sintel, touches glowing crystals on a cave wall. She turns, wielding a large blade. A huge dark grey dragon lunges. She dodges, swings her blade at its wing. The dragon rears back, roaring.",
+   "sameAsPrev": false,
+   "tokens": 7209,
+   "outputTokens": 119
+  },
+  {
+   "index": 129,
+   "startMs": 554958,
+   "endMs": 559708,
+   "description": "The huge dark grey dragon looms in the cave.",
+   "sameAsPrev": false,
+   "tokens": 6267,
+   "outputTokens": 36
+  },
+  {
+   "index": 130,
+   "startMs": 559708,
+   "endMs": 561208,
+   "description": "Sintel crawls on dark ground, fire blazing beside her.",
+   "sameAsPrev": false,
+   "tokens": 4469,
+   "outputTokens": 40
+  },
+  {
+   "index": 131,
+   "startMs": 561208,
+   "endMs": 568750,
+   "description": "The red-haired young woman, Sintel, fights a huge dark grey dragon in the cave.",
+   "sameAsPrev": false,
+   "tokens": 7177,
+   "outputTokens": 51
+  },
+  {
+   "index": 132,
+   "startMs": 568750,
+   "endMs": 572958,
+   "description": "The red-haired young woman, Sintel, clutches a staff and a tattered cloth, then falls through a dark cave, landing beside a large creature with spread wings.",
+   "sameAsPrev": false,
+   "tokens": 5392,
+   "outputTokens": 86
+  },
+  {
+   "index": 133,
+   "startMs": 572958,
+   "endMs": 576250,
+   "description": "The red-haired young woman, Sintel, crawls on dark rocks in a cave.",
+   "sameAsPrev": false,
+   "tokens": 4476,
+   "outputTokens": 51
+  },
+  {
+   "index": 134,
+   "startMs": 576250,
+   "endMs": 578875,
+   "description": "The red-haired young woman, Sintel, dodges the huge dark grey dragon's swipe.",
+   "sameAsPrev": false,
+   "tokens": 4476,
+   "outputTokens": 61
+  },
+  {
+   "index": 135,
+   "startMs": 578875,
+   "endMs": 581708,
+   "description": "The red-haired young woman, Sintel, lunges at the huge dark grey dragon with her staff in the cave.",
+   "sameAsPrev": false,
+   "tokens": 4481,
+   "outputTokens": 62
+  },
+  {
+   "index": 136,
+   "startMs": 581708,
+   "endMs": 589167,
+   "description": "The red-haired young woman, Sintel, lies prone on dark rock as a huge dragon looms overhead.",
+   "sameAsPrev": false,
+   "tokens": 7179,
+   "outputTokens": 57
+  },
+  {
+   "index": 137,
+   "startMs": 589167,
+   "endMs": 590708,
+   "description": "A creature with ram's horns and wings stands in darkness.",
+   "sameAsPrev": false,
+   "tokens": 4480,
+   "outputTokens": 80
+  },
+  {
+   "index": 138,
+   "startMs": 590708,
+   "endMs": 593667,
+   "description": "A huge dark grey dragon stares forward.",
+   "sameAsPrev": false,
+   "tokens": 4464,
+   "outputTokens": 30
+  },
+  {
+   "index": 139,
+   "startMs": 593667,
+   "endMs": 595333,
+   "description": "A dragon looms over Sintel.",
+   "sameAsPrev": false,
+   "tokens": 4470,
+   "outputTokens": 45
+  },
+  {
+   "index": 140,
+   "startMs": 595333,
+   "endMs": 598958,
+   "description": "The red-haired young woman, Sintel, lies motionless as a huge dark grey dragon looms over her.",
+   "sameAsPrev": false,
+   "tokens": 5381,
+   "outputTokens": 70
+  },
+  {
+   "index": 141,
+   "startMs": 598958,
+   "endMs": 603917,
+   "description": "The red-haired young woman, Sintel, lies still as a huge dark grey dragon looms over her.",
+   "sameAsPrev": true,
+   "tokens": 6279,
+   "outputTokens": 61
+  },
+  {
+   "index": 142,
+   "startMs": 603917,
+   "endMs": 606333,
+   "description": "A large creature with leathery wings and a long tail flies low over a dark, rocky surface, its body glinting faintly in dim light.",
+   "sameAsPrev": false,
+   "tokens": 4490,
+   "outputTokens": 80
+  },
+  {
+   "index": 143,
+   "startMs": 606333,
+   "endMs": 611875,
+   "description": "The red-haired young woman, Sintel, grips her staff in a dark cave.",
+   "sameAsPrev": false,
+   "tokens": 7175,
+   "outputTokens": 47
+  },
+  {
+   "index": 144,
+   "startMs": 611875,
+   "endMs": 613792,
+   "description": "The red-haired young woman, Sintel, grips her staff tightly.",
+   "sameAsPrev": false,
+   "tokens": 4470,
+   "outputTokens": 44
+  },
+  {
+   "index": 145,
+   "startMs": 613792,
+   "endMs": 616750,
+   "description": "The red-haired young woman, Sintel, faces a dark scaled dragon.",
+   "sameAsPrev": false,
+   "tokens": 4473,
+   "outputTokens": 55
+  },
+  {
+   "index": 146,
+   "startMs": 616750,
+   "endMs": 619833,
+   "description": "The red-haired young woman, Sintel, stands near a huge dark grey dragon in the cave.",
+   "sameAsPrev": false,
+   "tokens": 4478,
+   "outputTokens": 53
+  },
+  {
+   "index": 147,
+   "startMs": 619833,
+   "endMs": 621750,
+   "description": "The red-haired young woman, Sintel, stares wide-eyed in dim light.",
+   "sameAsPrev": false,
+   "tokens": 4473,
+   "outputTokens": 46
+  },
+  {
+   "index": 148,
+   "startMs": 621750,
+   "endMs": 628167,
+   "description": "A huge dark grey dragon rests in the cave.",
+   "sameAsPrev": false,
+   "tokens": 7166,
+   "outputTokens": 34
+  },
+  {
+   "index": 149,
+   "startMs": 628167,
+   "endMs": 634583,
+   "description": "The red-haired young woman, Sintel, lies on the cave floor, staring upward.",
+   "sameAsPrev": false,
+   "tokens": 7216,
+   "outputTokens": 54
+  },
+  {
+   "index": 150,
+   "startMs": 634583,
+   "endMs": 641000,
+   "description": "Sintel touches her cheek, eyes wide, as the cave darkens around her.",
+   "sameAsPrev": false,
+   "tokens": 7233,
+   "outputTokens": 49
+  },
+  {
+   "index": 151,
+   "startMs": 641000,
+   "endMs": 647458,
+   "description": "The young woman, Sintel, stares at her gloved hand, then looks up, her face bruised and tense.",
+   "sameAsPrev": false,
+   "tokens": 7185,
+   "outputTokens": 69
+  },
+  {
+   "index": 152,
+   "startMs": 647458,
+   "endMs": 654958,
+   "description": "The red-haired young woman, Sintel, stands in the cave, facing the huge dark grey dragon’s head, her hands open before her.",
+   "sameAsPrev": false,
+   "tokens": 7187,
+   "outputTokens": 78
+  },
+  {
+   "index": 153,
+   "startMs": 654958,
+   "endMs": 659375,
+   "description": "The red-haired young woman, Sintel, looks down, then lifts her gaze upward.",
+   "sameAsPrev": false,
+   "tokens": 5380,
+   "outputTokens": 59
+  },
+  {
+   "index": 154,
+   "startMs": 659375,
+   "endMs": 662542,
+   "description": "The red-haired young woman, Sintel, climbs a dark cave wall.",
+   "sameAsPrev": false,
+   "tokens": 4473,
+   "outputTokens": 43
+  },
+  {
+   "index": 155,
+   "startMs": 662542,
+   "endMs": 667667,
+   "description": "The huge dark grey dragon lies still, its eye dimming, as Sintel stands over it.",
+   "sameAsPrev": false,
+   "tokens": 6278,
+   "outputTokens": 54
+  },
+  {
+   "index": 156,
+   "startMs": 667667,
+   "endMs": 671208,
+   "description": "The young woman, Sintel, stares ahead in dim light.",
+   "sameAsPrev": false,
+   "tokens": 5373,
+   "outputTokens": 45
+  },
+  {
+   "index": 157,
+   "startMs": 671208,
+   "endMs": 673750,
+   "description": "The red-haired young woman, Sintel, stumbles in a dark cave.",
+   "sameAsPrev": false,
+   "tokens": 4473,
+   "outputTokens": 45
+  },
+  {
+   "index": 158,
+   "startMs": 673750,
+   "endMs": 676125,
+   "description": "The red-haired young woman, Sintel, runs through a dark cave as rocks fall around her.",
+   "sameAsPrev": false,
+   "tokens": 4477,
+   "outputTokens": 53
+  },
+  {
+   "index": 159,
+   "startMs": 676125,
+   "endMs": 680271,
+   "description": "Darkness.",
+   "sameAsPrev": false,
+   "tokens": 5360,
+   "outputTokens": 20
+  }
+ ],
+ "scenes": [
+  {
+   "id": 10,
+   "shots": [
+    113,
+    114,
+    115,
+    116,
+    117,
+    118,
+    119,
+    120,
+    121,
+    122,
+    123,
+    124,
+    125,
+    126,
+    127,
+    128,
+    129,
+    130,
+    131,
+    132,
+    133,
+    134,
+    135,
+    136,
+    137,
+    138,
+    139,
+    140,
+    141,
+    142,
+    143,
+    144,
+    145,
+    146,
+    147,
+    148,
+    149,
+    150,
+    151,
+    152,
+    153,
+    154,
+    155,
+    156,
+    157,
+    158,
+    159
+   ],
+   "startMs": 490958,
+   "endMs": 680271,
+   "setting": "the cave",
+   "settingName": "the cave",
+   "returning": false,
+   "evidence": [
+    {
+     "word": "cave",
+     "source": "description",
+     "shot": 113
+    }
+   ]
+  }
+ ]
+}

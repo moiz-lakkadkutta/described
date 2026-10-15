@@ -13,8 +13,13 @@ import { publish } from './10-publish'
 import { validateWork } from '../validate'
 import { metered } from '../cost'
 import type { Glossary } from '../glossary'
+import type { PollyEngine } from '../voiceProfile'
 
-export interface DescribeInput { slug: string; source: string; language: 'en' | 'de'; voice: string; fromStep?: string }
+/**
+ * engine: the Polly engine (../voiceProfile resolveEngine: --engine, POLLY_ENGINE, else generative for Ruth, else neural); fit and the
+ * edit pass budget at its rate. toStep: the last step to run (inclusive), e.g. `validate` for a dry run that never publishes.
+ */
+export interface DescribeInput { slug: string; source: string; language: 'en' | 'de'; voice: string; engine?: PollyEngine; fromStep?: string; toStep?: string }
 /** `edit` (05b-edit.ts, DESC-018) revises fit's cue text with scene context before voice; file numbers stay, so --from names are stable. */
 export const STEPS = ['probe', 'shots', 'speech', 'describe', 'scenes', 'fit', 'edit', 'voice', 'mix', 'text', 'package', 'validate', 'publish'] as const
 export type Step = typeof STEPS[number]
@@ -37,9 +42,12 @@ export async function runDescribe(input: DescribeInput): Promise<number> {
   if (!SLUG_RE.test(input.slug)) throw new Error(`invalid slug "${input.slug}": must match ${SLUG_RE.source}`)
   const start = input.fromStep ? STEPS.indexOf(input.fromStep as Step) : 0
   if (start < 0) throw new Error(`unknown step "${input.fromStep}"; valid steps: ${STEPS.join(', ')}`)
+  const end = input.toStep ? STEPS.indexOf(input.toStep as Step) : STEPS.length - 1
+  if (end < 0) throw new Error(`unknown step "${input.toStep}"; valid steps: ${STEPS.join(', ')}`)
+  if (end < start) throw new Error(`--to ${input.toStep} comes before --from ${input.fromStep ?? STEPS[0]}`)
   const ctx = ctxFor(input)
   let total = 0
-  for (const s of STEPS.slice(start)) {
+  for (const s of STEPS.slice(start, end + 1)) {
     console.time(s)
     const { costUsd } = await metered(() => runStep(s, ctx)).catch((e: unknown) => {
       if (e && typeof e === 'object') (e as { costUsd?: number }).costUsd = total + ((e as { costUsd?: number }).costUsd ?? 0)
@@ -52,6 +60,8 @@ export async function runDescribe(input: DescribeInput): Promise<number> {
   console.log(`total: $${total.toFixed(4)}`)
   return total
 }
+/** A run stopped before publish (--to validate …) writes no DB rows either: the CLI persists only what it published. */
+export const dryRun = (toStep?: string) => !!toStep && toStep !== 'publish'
 /** signal: aborted when the job's time is up (src/jobs.ts); steps that loop or wait stop early, ffmpeg is killed. */
 /** glossary: the title's people and places (DESC-029, ../glossary); when absent, steps read the slug's entry in titles.json. */
 export type Ctx = DescribeInput & { work: string; signal?: AbortSignal; glossary?: Glossary }

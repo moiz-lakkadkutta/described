@@ -36,8 +36,8 @@ One stack, `described-media-<stage>` (`infra/bin/app.ts`, `infra/lib/media-stack
 - CloudFront distribution: `/published/*` behaviour (OAC, CORS with preflight, `CORS-S3Origin` origin request policy,
   price class 100); default behaviour a CloudFront Function that returns 403.
 - `PipelineRole`: read-write on the bucket; `transcribe:StartTranscriptionJob`, `transcribe:GetTranscriptionJob`,
-  `polly:SynthesizeSpeech`; `bedrock:InvokeModel` on two models only (Nova Lite foundation model and its `us.` inference profile,
-  Qwen3-VL 235B), all in us-east-1; CreateInvalidation on this distribution.
+  `polly:SynthesizeSpeech`; `bedrock:InvokeModel` on four models only (Nova Lite foundation model and its `us.` inference profile,
+  Qwen3-VL 235B, and for the narrative pass of decision 0017 DeepSeek v3.2 and its fallback Nova Pro), all in us-east-1; CreateInvalidation on this distribution.
 - Outputs: `MediaBucket`, `CdnDomain`, `CdnId`, `PipelineRoleArn` → copy into `.env`.
 
 The `described-nova-<stage>` stack (us-east-1, Nova video ingest for the old Nova Pro describe path) was removed from the CDK
@@ -116,10 +116,10 @@ figures come from its printed totals.
 | Measured: describe on 29 shots / 2 min (0003) | $0.034 Qwen3-VL |
 | Per minute of film, from the prices in `cost.ts` | Transcribe $0.024 + describe ≈ $0.017 + Polly ≈ $0.006 + Nova Lite < $0.002 ≈ **$0.05** |
 | Per minute, measured mean (DESC-025: `estimateUsd` in `cost.ts`, from the five titles' rows; measured before the verify pass — describe figures measured after DESC-027 include the verify call) | Transcribe $0.024 + Qwen3-VL $0.0191 + Polly $0.0112 + Nova Lite $0.0003 = **$0.0546** ($0.0514–0.0586) |
-| Per minute with the verify pass (DESC-027, estimate, not yet measured; `estimateUsd` does not include it) | $0.0546 + ≈ $0.020 ≈ **$0.075** |
-| 12-minute short | ≈ $0.66 |
-| One hour of film | ≈ $3.28 ($3.08–3.52); derivation in the README, "Cost per hour of film" |
-| 90-minute feature | ≈ $4.92 |
+| Per minute with the verify pass (DESC-027, estimate) and the narrative pass (decision 0017, DeepSeek v3.2, measured on full-length Sintel); both in `estimateUsd` | $0.0546 + ≈ $0.020 + $0.0013 ≈ **$0.076** (generative voice: + $0.0098) |
+| 12-minute short | ≈ $0.91 |
+| One hour of film | ≈ $4.55 ($4.36–4.79); derivation in the README, "Cost per hour of film" |
+| 90-minute feature | ≈ $6.83 |
 
 Extended cues add one Polly clip each (decision 0007: at most one added event cue per 30 s). Re-runs from a later step
 (`--from`) reuse the transcript and the describe cache, so they pay only for the steps they re-run.
