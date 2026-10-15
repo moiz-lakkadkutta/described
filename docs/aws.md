@@ -8,9 +8,9 @@ there until checked against the AWS pricing pages.
 
 - **eu-central-1 (Frankfurt):** S3, CloudFront origin, Transcribe, Polly — `AWS_REGION` (`.env.example`; default in
   `packages/pipeline/src/steps/03-speech.ts`, `06-voice.ts`, `src/s3.ts`).
-- **us-east-1:** Bedrock — `BEDROCK_REGION` (`04-describe.ts`, `prompts.ts`). Qwen3-VL 235B is called in-Region there
-  ([model card](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-qwen-qwen3-vl-235b-a22b.html)). No stack is
-  deployed in us-east-1. CloudFront's API (invalidations) is global and is called through us-east-1.
+- **us-east-1:** the hosted API for the release APK (stack `described-viewer-<stage>`, DESC-034; see "Hosted API" below).
+  Bedrock — `BEDROCK_REGION` (`04-describe.ts`, `prompts.ts`). Qwen3-VL 235B is called in-Region there
+  ([model card](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-qwen-qwen3-vl-235b-a22b.html)). CloudFront's API (invalidations) is global and is called through us-east-1.
 
 ## Services
 
@@ -23,7 +23,10 @@ there until checked against the AWS pricing pages.
 | Amazon S3 | eu-central-1 | Sources, `work/<slug>/` (mezzanine, transcript, key frames, caches) and `published/<slug>/` (HLS, VTTs, cue clips, art). Playlists, VTTs and art `max-age=60`; segments, init files and MP3s a year + immutable (`src/s3.ts` `cacheControl`) | cents |
 | Amazon CloudFront | global (origin eu-central-1) | HLS delivery to the TV over HTTPS. Serves only `/published/*`: the default behaviour returns 403 from a CloudFront Function, and the bucket policy denies Origin Access Control reads outside `published/*`. CORS preflights cached with Origin / Access-Control-Request-* in the key ([doc](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/header-caching.html#header-caching-web-cors)) | cents |
 | Amazon CloudFront — CreateInvalidation | global | Invalidate `/published/<slug>/*` after a re-run republishes a title: by hand (`aws cloudfront create-invalidation`, `CLOUDFRONT_DISTRIBUTION_ID`), or by the pipeline when `PUBLISH_INVALIDATE=1` (PR #16). The pipeline role may invalidate this distribution only ([API](https://docs.aws.amazon.com/cloudfront/latest/APIReference/API_CreateInvalidation.html)) | first 1,000 paths a month free, then $0.005 each; one wildcard path per re-run |
-| AWS CDK | eu-central-1 | Infra as code (`infra/`) | — |
+| AWS Lambda + function URL (Node.js 22, arm64, 512 MB) | us-east-1 | The hosted API (DESC-034): Express in viewer mode (`apps/api/src/lambda.ts`) behind an HTTPS function URL, so the release APK needs no cleartext and no developer machine; `migrate` / `seed` operations by direct `aws lambda invoke` only ([function URLs](https://docs.aws.amazon.com/lambda/latest/dg/urls-configuration.html), [VPC](https://docs.aws.amazon.com/lambda/latest/dg/configuration-vpc.html)) | $0.20 per 1M requests + $0.0000133 per GB-s (arm64); judging traffic stays inside the monthly free allowance (1M requests, 400,000 GB-s): ≈ $0 |
+| Amazon RDS for PostgreSQL 17 (db.t4g.micro, single-AZ, gp3 20 GiB) | us-east-1 | The hosted copy's database: catalogue rows (seeded from the developer's published titles) and per-device prefs, progress, My list. Isolated subnets, reachable only from the function's security group ([RDS in a VPC](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_VPC.WorkingWithRDSInstanceinaVPC.html)) | $0.016 / h → $11.68 / month; gp3 $0.115 / GiB-month → $2.30; 1-day backups within the free backup allowance |
+| AWS Secrets Manager | us-east-1 | The database password, generated at deploy; reaches the function as a CloudFormation dynamic reference, so no endpoint is needed at run time ([doc](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/dynamic-references-secretsmanager.html)) | $0.40 / month |
+| AWS CDK | eu-central-1, us-east-1 | Infra as code (`infra/`) | — |
 
 ## Stacks (`infra/`)
 
@@ -45,6 +48,45 @@ ingest-bucket permissions.
 cd infra && pnpm synth
 AWS_PROFILE=<profile> pnpm run deploy:stack described-media-dev -c stage=dev --outputs-file cdk-outputs.json
 ```
+
+## Hosted API (DESC-034)
+
+`described-viewer-<stage>` (`infra/lib/viewer-stack.ts`), us-east-1, synthesised only with `-c viewer=1`:
+
+- VPC with two isolated subnets: no NAT gateway, no internet gateway, no public IPv4 address (none of them billed).
+- Lambda function `Api` (Node.js 22, arm64, 512 MB, 20 s), code `apps/api/dist-lambda` (`pnpm --filter @described/api build:lambda`:
+  esbuild bundle + Prisma's `linux-arm64-openssl-3.0.x` engine + `prisma/migrations`). `API_MODE=viewer`: `/admin` is not mounted.
+  Function URL, auth type `NONE`: HTTPS, CORS from Express. Logs kept one week.
+- RDS PostgreSQL 17 db.t4g.micro, single-AZ, 20 GiB gp3, encrypted, not public; ingress 5432 from the function's security group
+  only. `DESTROY` on stack deletion outside `prod` (the catalogue is re-seeded; device prefs and lists are lost).
+- Outputs: `ViewerApiUrl` (the APK's API), `ApiFunctionName` (for `aws lambda invoke`), `DbEndpoint`.
+
+No pg-boss, worker, Socket.IO, Bedrock, Polly or Transcribe in the hosted copy: it serves what the TV app reads, and
+media stays on CloudFront. Seeding: `pnpm --filter @described/api export:catalogue` writes `{ "op": "seed", "catalogue": … }`
+(Title, Asset, Rendition, TextTrack, DescriptionCue of published titles; no Profile, Progress, ListItem, Job, Shot, Gap);
+`aws lambda invoke --payload fileb://…` runs the migrations and imports it in one transaction (titles matched by slug; a
+hosted title missing from the export goes back to draft). Commands: README, "Try it".
+
+| Hosted API, monthly (us-east-1, list prices from the AWS Price List API, 2026-10-15) | USD |
+|---|---|
+| RDS db.t4g.micro single-AZ PostgreSQL, $0.016 / h × 730 h | 11.68 |
+| RDS gp3 storage, 20 GiB (the minimum) × $0.115 | 2.30 |
+| Secrets Manager, one secret | 0.40 |
+| Lambda requests and compute, function URL, CloudWatch Logs (≈ 1 KB a request), data out | < 0.05 |
+| VPC, subnets, security groups, backups (1 day, ≤ 20 GiB) | 0 |
+| **Total** | **≈ 14.40** |
+
+Why this shape (cheapest that answers the first request in time):
+
+- Frankfurt, same setup: db.t4g.micro $0.019 / h and gp3 $0.137 / GiB → ≈ $16.60 a month. us-east-1 is cheaper and close to most
+  judges; the API only returns JSON and redirects, so the media region does not matter.
+- Aurora Serverless v2 with automatic pause (0 ACU): ≈ $0 idle, but a paused instance takes about 15 s to resume
+  ([doc](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-serverless-v2-auto-pause.html)), longer than the
+  app's 10 s `FETCH_TIMEOUT_MS`: a judge's first launch would show "Can't reach the library". Kept warm at 0.5 ACU it is
+  $0.07 / h → ≈ $51 a month.
+- App Runner instead of Lambda: still needs the same database, and bills provisioned memory around the clock.
+- Aurora DSQL: no foreign keys or enum types, which the Prisma schema uses.
+- The account's AWS Free Tier credits, if any are left, apply to these charges too; the figures above ignore them.
 
 ## Cost per title
 

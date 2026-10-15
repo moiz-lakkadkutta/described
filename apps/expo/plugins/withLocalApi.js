@@ -1,8 +1,9 @@
-// The API runs on the developer's machine over http:// (no deployed HTTPS endpoint yet), and release builds target
-// API 28+, which blocks cleartext. Allow cleartext for the API host only, through a network security config:
+// A developer build talks to the API on the developer's machine over http://, and release builds target API 28+, which
+// blocks cleartext. (The judges' build uses the hosted API, an https function URL, DESC-034: for it this plugin adds nothing.)
+// Allow cleartext for the API host only, through a network security config:
 // https://developer.android.com/privacy-and-security/security-config#CleartextTrafficPermitted
 // The host is read from EXPO_PUBLIC_API_URL at prebuild time; an https URL adds nothing. Changing the IP needs
-// `npx expo prebuild --clean`. Remove this plugin once the API is served over HTTPS (media is already HTTPS).
+// `npx expo prebuild --clean` (scripts/build-apk.js does both). Media is already HTTPS.
 // Debug builds get a variant config (src/debug/res/xml overrides src/main) that keeps cleartext open, as Expo's
 // debug manifest does, so the Metro dev server (localhost via adb reverse, 10.0.2.2, or the Mac's IP) still loads.
 const fs = require('fs')

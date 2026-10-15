@@ -6,7 +6,10 @@
     "typecheck": "tsc --noEmit",
     "synth": "cdk synth",
     "deploy:stack": "cdk deploy --require-approval never",
-    "diff": "cdk diff"
+    "diff": "cdk diff",
+    "build:api": "pnpm --filter @described/api build:lambda",
+    "synth:viewer": "pnpm build:api && cdk synth described-viewer-${STAGE:-dev} -c viewer=1 -c stage=${STAGE:-dev}",
+    "deploy:viewer": "pnpm build:api && cdk deploy described-viewer-${STAGE:-dev} -c viewer=1 -c stage=${STAGE:-dev} --outputs-file cdk-outputs-viewer.json"
   },
   "dependencies": {
     "aws-cdk-lib": "^2.170.0",
