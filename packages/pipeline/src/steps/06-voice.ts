@@ -7,6 +7,7 @@ import { byStart, capExtended, introducesNew, LATE_MS, leadText, shortenDetermin
 import type { Shot } from './02-shots'
 import { cueAudioFile, probeDurationMs } from '../cues'
 import { meter, pollyUsd } from '../cost'
+import { polishCue } from '../polishCue'
 import { textSpans, withoutSpans } from '../textClause'
 import { EVENT_SPACING_MS, eventSpaced, plotEvent } from '../plotEvent'
 
@@ -145,7 +146,7 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
   /** Synthesizes text into slot i (overwriting it) and returns the clip's duration and speech length. */
   const synth = async (i: number, text: string): Promise<Clip> => {
     const file = `${ctx.work}/${cueAudioFile(i)}`
-    const audio = await synthesize(text, ctx.voice, language)
+    const audio = await synthesize(polishCue(text, language), ctx.voice, language) // DESC-033: capital letters and full stops, quotes untouched
     meter()?.add(pollyUsd(text.length))
     await writeFile(file, audio)
     const durationMs = await measureMs(file)

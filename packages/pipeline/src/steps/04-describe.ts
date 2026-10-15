@@ -146,7 +146,8 @@ export interface RawReply { text: string; usage: { inputTokens: number; outputTo
 
 /** Bump when buildDescribeRequest's fixed parts (user text, inferenceConfig) or replyText change, so old replies stop matching. */
 /** 2: DESC-031 (on-screen text quoted only when fully legible). The prompt is hashed too; the bump makes the break explicit. */
-export const DESCRIBE_CACHE_VERSION = 2
+/** 3: DESC-033 (complete sentences with articles, a verb, a capital letter and a full stop). */
+export const DESCRIBE_CACHE_VERSION = 3
 /** Bump when the continuation text (buildDescribeRequest with `said`) changes; hashed only for later parts, so whole shots keep their replies. */
 export const CONTINUATION_CACHE_VERSION = 1
 /**

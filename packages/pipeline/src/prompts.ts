@@ -20,6 +20,8 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
  * carries "People and places in this film" — looks always, names once revealed; never roles — and the stable-descriptor rule points at
  * it; `knownNames` is then the glossary's revealed names plus the dialogue's. Without a glossary (own videos) the prompt is unchanged.
  * DESC-031 (docs/decisions/0013-legible-text.md): on-screen text is quoted only when every word is legible (ON_SCREEN_TEXT_RULE).
+ * DESC-033 (docs/decisions/0015-complete-sentences.md): complete sentences with articles and a verb, a capital letter and a full stop
+ * (Gate C g11: "Man holds staff."). No example sentence: only single words are quoted.
  */
 /**
  * The on-screen text rule (DESC-031, docs/decisions/0013-legible-text.md): a quote only when every word is clearly legible; text that
@@ -28,11 +30,15 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
  */
 export const ON_SCREEN_TEXT_RULE = 'On-screen text (titles, captions, signs, headlines, screens): quote it only when every word is clearly legible in the frames; then quote it verbatim after "Words appear:" — always this label, never "headline:" or "a sign reads". If any part of the text is hidden, cut off or blurred, do not quote any of it: say in your own words only what kind of text it is and what it is on (for example handwriting, print, a sign, a screen, a newspaper). If no text is visible, do not mention text at all. Never invent or guess text.'
 
+/** DESC-033 (docs/decisions/0015-complete-sentences.md): Gate C g11 failed telegraphic and verbless cues. Only single words are quoted. */
+export const COMPLETE_SENTENCES_RULE = 'Write complete present-tense sentences: each has a verb and its articles ("a", "the"), starts with a capital letter and ends with a full stop.'
+
 export function describeSystemPrompt({ maxWords, knownNames, language, people = '' }: { maxWords: number; knownNames: string[]; language: 'en' | 'de'; people?: string }) {
   const known = knownNames.join(', ') || 'none'
   return [
     `You write audio description for blind and low-vision viewers. Reply in ${language === 'de' ? 'German' : 'English'}. Follow these rules exactly.`,
     '- Present tense, active voice, third person. Describe only what is visible; never motivation or emotion words: write "clenches her fists", not "is angry".',
+    `- ${COMPLETE_SENTENCES_RULE}`,
     people
       ? `- Name a character only when the list below gives the name or the dialogue has said it; otherwise refer to a listed person by their look from the list, and to anyone else by one short visible descriptor. Known names so far: ${known}.`
       : `- Do not name a character until the dialogue has named them; until then use one stable visible descriptor (e.g. "the woman in the red coat"). Known names so far: ${known}.`,

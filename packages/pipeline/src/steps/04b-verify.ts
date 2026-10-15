@@ -5,7 +5,7 @@ import { dirname } from 'node:path'
 import { z } from 'zod'
 import { meter } from '../cost'
 import { collapseNeutral, NEUTRAL_TEXT, neutralSpans, TEXT_LABEL, textSpans, withoutSpans, type TextSpan } from '../textClause'
-import { COPULA, GENERAL, LINKING, PLURAL_GENERAL, VERIFY_PROMPT_VERSION, VISIBLE, verifySystemPrompt, verifyUserText } from '../verifyPrompt'
+import { COPULA, GENERAL, GRAMMAR, LINKING, PLURAL_GENERAL, VERIFY_PROMPT_VERSION, VISIBLE, verifySystemPrompt, verifyUserText } from '../verifyPrompt'
 import { parseDescription, replyText, type Converse, type RawReply } from './04-describe'
 
 /**
@@ -178,7 +178,8 @@ export interface CheckOptions { maxWords: number; names: readonly string[]; lang
  *    in for exactly one draft word in place (not a linking word, a negation or a protected word; a plural general word only for a plural word); and
  *    an added "visible" only right after is / are, for a subject that is the opening of a draft sentence (only linking words
  *    before it): "A girl searches for her dragon." may become "A girl is visible.", never "Her dragon is visible.";
- * 7. more than wordCap(draft, maxWords) words.
+ * 7. more than wordCap(draft, maxWords) words — except a pure grammar fix (DESC-033): a reply whose only added words are GRAMMAR words
+ *    (a, an, the, is, are) does not count them, up to MAX_ADDED_WORDS over the draft's own length.
  */
 export function checkVerified(draft: string, v: Verified, o: CheckOptions): { text: string; applied: boolean; reason?: string; textRemoved?: string[] } {
   const lang = o.language ?? 'en'
@@ -237,8 +238,15 @@ export function checkVerified(draft: string, v: Verified, o: CheckOptions): { te
   // (linking words are left out: "a" matches the draft's first "a", wherever it was)
   const pd = unitPositions(textCheck.wordsDraft), pr = unitPositions(text)
   if (pd.length !== pr.length || pr.some((p, u) => align.some((k, i) => k !== undefined && !freeAt(r, i) && (i < p) !== (k < pd[u]!)))) return keep('on-screen text changed')
+  // DESC-033: a pure grammar fix — the reply adds only GRAMMAR words (articles, is / are), no other linking word and no "visible" —
+  // may go past the cap by those words, up to MAX_ADDED_WORDS over the draft: a telegraphic draft at its word budget ("Man holds
+  // staff.") may still become "A man holds a staff.". Any other reply keeps the shot's cap.
   const cap = wordCap(draft, o.maxWords)
-  if (words(text) > cap) return keep(`more than ${cap} words`)
+  const addedOf = (ws: readonly string[]) => ws.reduce((n, w) => n + Math.max(0, count(r, w) - count(dw, w)), 0)
+  const grammar = new Set<string>(GRAMMAR[lang])
+  const pureGrammar = addedOf([...linking].filter((w) => !grammar.has(w))) + addedOf([visible]) === 0
+  const grammarAdded = pureGrammar ? addedOf([...grammar]) : 0
+  if (words(text) - grammarAdded > cap || words(text) > Math.max(cap, words(draft) + MAX_ADDED_WORDS)) return keep(`more than ${cap} words`)
   return { text: collapseNeutral(text), applied: true, ...(textCheck.replaced.length ? { textRemoved: textCheck.replaced } : {}) }
 }
 
