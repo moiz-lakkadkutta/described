@@ -15,10 +15,10 @@ source; anything that needs a person is marked **TODO(human)**. Sources are list
 | Tracks | **Fire TV** · **AWS Builder** mini-challenge · **Open Source** mini-challenge (runbook §1, §2) |
 | Platform | Fire OS (Fire TV Stick, Fire OS 7). Vega OS: experimental, not built ([decision 0004](decisions/0004-vega-deferred.md)) |
 | Repository | https://github.com/moiz-lakkadkutta/described (public, MIT `LICENSE` at the root) |
-| Demo video | TODO(human): what is the demo video's YouTube URL (< 3:00, upload Oct 20), and is it public — runbook §9 asks for public — or unlisted? |
-| Team members | moiz-lakkadkutta (GitHub; the only human contributor on the repo). TODO(human): are there teammates, and what are everyone's Devpost handles? |
+| Demo video | Unlisted on YouTube, < 3:00 (upload Oct 20). TODO(human): what is the video's URL? |
+| Team members | Moiz — solo entry (GitHub `moiz-lakkadkutta`). TODO(human): what is Moiz's Devpost handle? |
 | Built with | Amazon Bedrock (Qwen3-VL 235B, Nova Lite), Amazon Polly, Amazon Transcribe, Amazon S3, Amazon CloudFront, AWS CDK, React Native, Expo, react-native-video, Shaka Packager, ffmpeg, Express, Prisma, PostgreSQL, pg-boss, TypeScript |
-| Try it | TODO(human): how do judges try it — README "Run it", an APK to sideload, or the video only? |
+| Try it | Sideload the release APK onto a Fire TV (APK attached to the GitHub release of this repo), or watch the demo video. No release exists on 2026-10-15 (`gh release list`). TODO(human): what is the URL of the GitHub release with the APK attached? |
 
 ---
 
@@ -114,7 +114,7 @@ describer — and delivers description through the TV's own audio-track selector
   of the same clip after prompt changes scored 69.0 % (run g8, [0009](decisions/0009-gate-c-fits.md)) and 14 / 29 (run g9,
   [0010](decisions/0010-verify-pass.md)); the visual verify pass added in response (DESC-027) is not yet evaluated.
 - **The raters were models.** Gate C was scored by two Claude raters against frame contact sheets. A usability session
-  with a screen-reader user is planned. TODO(human): did the session with a screen-reader user happen, and where are the notes?
+  with a screen-reader user has also taken place. TODO(human): where are the session notes, so they can be linked here?
 - **Fire OS only.** Vega OS is experimental: no Vega SDK was installed and the media kit's Vega adapter is not finished
   ([decision 0004](decisions/0004-vega-deferred.md)).
 - **No Fire TV search yet.** Catalog integration is available to select partners only; the feed is drafted and the request
@@ -142,8 +142,7 @@ Described and Lingo are substantially different entries. Different users: blind 
 versus language learners (Lingo). Different AI doing the load-bearing work: vision models and speech synthesis versus
 transcription, translation and explanation. Different interaction: listen versus pause and study. They share
 vega-media-kit the way two apps share React — it is infrastructure, published on its own.
-TODO(human): what is Lingo's Devpost URL? (If Lingo is not submitted, delete this section; if it is, link back from
-Lingo's write-up.)
+Lingo is submitted. TODO(human): what is Lingo's Devpost URL? (Link back to Described from Lingo's write-up too.)
 
 ## What's new since Aug 31, 2026
 
@@ -191,7 +190,7 @@ Dev tooling listed in [docs/aws.md](aws.md): Claude Code.
 | Public repo, MIT at root, README ≤ 10 steps, architecture, "what's new since Aug 31" | README has all three; repo is public |
 | Runs on Fire OS; Vega documented as experimental | Fire OS; Vega in [0004](decisions/0004-vega-deferred.md) |
 | ≥ 3 Fire TV platform integrations, each with a screenshot or log in the README | **At risk — 2 implemented** (launch intents / deep links; MediaSession). Deep links and media keys passed on the stick (device run 2026-10-10, checks 12–13); Alexa voice transport inconclusive (2026-10-14); catalog integration is partner-only (draft feed only); Personalization is not feasible on Fire OS before the freeze ([fire-os-bindings](platform/fire-os-bindings.md)). The audio-track selector is not counted: it is HLS playback, not a platform integration. The README has no evidence section yet. TODO(human): which photos or logcat lines from the device runs go in the README as evidence? |
-| Video < 3:00, public, on the device; Vega moment | [video-script.md](video-script.md); no Vega moment, by decision 0004. Runbook §9 says "public on YouTube/Vimeo": see the Demo video TODO above |
+| Video < 3:00, public, on the device; Vega moment | [video-script.md](video-script.md); no Vega moment, by decision 0004. **Known risk:** runbook §9 says "public on YouTube/Vimeo"; our upload is unlisted |
 | Text: what, how, who, impact with a cited number | This file |
 | Tracks declared; Open Source section with repo, tag, handle, upstream PR | Above; tag `v0.1.0` and upstream PR #136 done; npm is TODO(human) |
 | `docs/aws.md` lists every call, purpose, cost | [docs/aws.md](aws.md) |
