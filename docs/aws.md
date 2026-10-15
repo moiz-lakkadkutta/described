@@ -59,6 +59,18 @@ AWS_PROFILE=<profile> pnpm run deploy:stack described-media-dev -c stage=dev --o
   Function URL, auth type `NONE`: HTTPS, CORS from Express. Logs kept one week.
 - RDS PostgreSQL 17 db.t4g.micro, single-AZ, 20 GiB gp3, encrypted, not public; ingress 5432 from the function's security group
   only. `DESTROY` on stack deletion outside `prod` (the catalogue is re-seeded; device prefs and lists are lost).
+- Guards (review of PR #66): `x-device-id` must match `^[A-Za-z0-9_-]{1,64}$` (else 400, in both modes) and only writes create
+  a Profile row (GET `/me/prefs` answers the defaults, GET `/me/list` an empty list), so a public URL cannot be made to
+  store arbitrary strings; CloudWatch alarm `DbFreeStorageLow` below 2 GiB free; viewer mode logs only 4xx (warn) and 5xx
+  (error) requests. With `alertEmail` (`-c alertEmail=…` or `ALERT_EMAIL`): an SNS topic emails the alarm, and an AWS
+  Budgets cost budget of USD 25 a month for the **whole account** (pipeline runs included) emails at 80 % actual and 100 %
+  forecast ([doc](https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-create.html)). Without it, synth warns
+  and neither the budget nor the topic is made. Confirm the two subscription emails AWS sends after the deploy.
+- The database password is in the function's environment (resolved from Secrets Manager at deploy, shown in the Lambda
+  console to anyone allowed `lambda:GetFunctionConfiguration`). Acceptable here: the database answers only the function's
+  security group inside isolated subnets with no route from outside, so the password alone opens nothing; reading it at
+  run time instead would need a Secrets Manager VPC endpoint (≈ $7.30 a month per AZ) or a NAT gateway (≈ $33), double the
+  stack's cost. Environment variables are encrypted at rest with the Lambda service key.
 - Outputs: `ViewerApiUrl` (the APK's API), `ApiFunctionName` (for `aws lambda invoke`), `DbEndpoint`.
 
 No pg-boss, worker, Socket.IO, Bedrock, Polly or Transcribe in the hosted copy: it serves what the TV app reads, and
@@ -72,9 +84,11 @@ hosted title missing from the export goes back to draft). Commands: README, "Try
 | RDS db.t4g.micro single-AZ PostgreSQL, $0.016 / h × 730 h | 11.68 |
 | RDS gp3 storage, 20 GiB (the minimum) × $0.115 | 2.30 |
 | Secrets Manager, one secret | 0.40 |
-| Lambda requests and compute, function URL, CloudWatch Logs (≈ 1 KB a request), data out | < 0.05 |
+| CloudWatch alarm on FreeStorageSpace (one standard metric alarm) | 0.10 |
+| Lambda requests and compute, function URL, CloudWatch Logs (4xx / 5xx only), data out | < 0.05 |
+| SNS email alerts, AWS Budgets budget | 0 |
 | VPC, subnets, security groups, backups (1 day, ≤ 20 GiB) | 0 |
-| **Total** | **≈ 14.40** |
+| **Total** | **≈ 14.50** |
 
 Why this shape (cheapest that answers the first request in time):
 

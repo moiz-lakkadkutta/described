@@ -15,6 +15,7 @@ if (app.node.tryGetContext('viewer')) {
   if (!cdnDomain) throw new Error('viewer stack: pass -c cdnDomain=<CdnDomain output of described-media-' + stage + '> or set CLOUDFRONT_DOMAIN')
   new ViewerStack(app, `described-viewer-${stage}`, {
     env: { region: 'us-east-1' }, stage, cdnDomain,
+    alertEmail: app.node.tryGetContext('alertEmail') ?? process.env.ALERT_EMAIL,
     bundleDir: fileURLToPath(new URL('../../apps/api/dist-lambda', import.meta.url)),
   })
 }

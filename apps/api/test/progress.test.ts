@@ -1,7 +1,7 @@
 import { serve } from './serve'
 const db = {
   profile: { upsert: vi.fn(async (_a: { where: object }) => ({ id: 'p1' })) },
-  title: { findUniqueOrThrow: vi.fn(async () => ({ id: 't1' })) },
+  title: { findUnique: vi.fn(async () => ({ id: 't1' })) },
   progress: { upsert: vi.fn(async (a: { create: object }) => a.create) },
 }
 vi.mock('../src/lib/db', () => ({ db }))

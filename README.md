@@ -42,6 +42,7 @@ Each step below is paid or public: run it only with the owner's go-ahead.
 
 ```sh
 set -a; source .env; set +a                      # CLOUDFRONT_DOMAIN: the media stack's CdnDomain
+export ALERT_EMAIL=<you@example.com>             # USD 25/month budget + low-storage alarm emails (confirm both subscriptions)
 cd infra && AWS_PROFILE=described-dev pnpm deploy:viewer && cd ..   # builds apps/api/dist-lambda, deploys described-viewer-dev, writes infra/cdk-outputs-viewer.json
 pnpm --filter @described/api export:catalogue    # published titles from your DATABASE_URL → apps/api/.hosted/seed-event.json (no device data)
 FN=$(node -p "require('./infra/cdk-outputs-viewer.json')['described-viewer-dev'].ApiFunctionName")

@@ -1,9 +1,14 @@
 import { existsSync } from 'node:fs'
-import { CfnOutput, Duration, Fn, RemovalPolicy, Stack, Tags, type StackProps } from 'aws-cdk-lib'
+import { Annotations, CfnOutput, Duration, Fn, RemovalPolicy, Stack, Tags, type StackProps } from 'aws-cdk-lib'
+import * as budgets from 'aws-cdk-lib/aws-budgets'
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch'
+import * as cwActions from 'aws-cdk-lib/aws-cloudwatch-actions'
 import * as ec2 from 'aws-cdk-lib/aws-ec2'
 import * as lambda from 'aws-cdk-lib/aws-lambda'
 import * as logs from 'aws-cdk-lib/aws-logs'
 import * as rds from 'aws-cdk-lib/aws-rds'
+import * as sns from 'aws-cdk-lib/aws-sns'
+import * as subs from 'aws-cdk-lib/aws-sns-subscriptions'
 import type { Construct } from 'constructs'
 
 export interface ViewerStackProps extends StackProps {
@@ -12,13 +17,15 @@ export interface ViewerStackProps extends StackProps {
   cdnDomain: string
   /** Folder built by `pnpm --filter @described/api build:lambda` (apps/api/dist-lambda). */
   bundleDir: string
+  /** Where the cost budget and the storage alarm send email (`-c alertEmail=…` or ALERT_EMAIL). Without it: no budget, alarm without action. */
+  alertEmail?: string
 }
 
 /**
  * The hosted copy of the API for judges' sticks (DESC-034): one Lambda function behind a function URL (HTTPS, no API
  * Gateway), and PostgreSQL on RDS db.t4g.micro, both in isolated subnets of a VPC with no NAT gateway and no public IPv4
  * address. Read-mostly: the catalogue, plus per-device prefs, progress and My list. No queue, worker or admin routes.
- * Estimated USD 14.40 a month in us-east-1 (docs/aws.md, "Hosted API").
+ * Estimated USD 14.50 a month in us-east-1 (docs/aws.md, "Hosted API"), guarded by a USD 25 budget and a storage alarm.
  *
  * - Function URLs: https://docs.aws.amazon.com/lambda/latest/dg/urls-configuration.html (auth type NONE:
  *   https://docs.aws.amazon.com/lambda/latest/dg/urls-auth.html)
@@ -74,6 +81,32 @@ export class ViewerStack extends Stack {
     fn.node.addDependency(db)
     const url = fn.addFunctionUrl({ authType: lambda.FunctionUrlAuthType.NONE })
 
+
+    // Guards (DESC-034 review M1, M2). The storage alarm: device ids are bounded and reads insert nothing, but the API is
+    // public, so a flood of writes is still possible; 2 GiB free of 20 is the point to look. CloudWatch alarm on
+    // FreeStorageSpace (bytes): https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-metrics.html
+    const alarm = new cloudwatch.Alarm(this, 'DbFreeStorageLow', {
+      alarmDescription: 'Described hosted DB: less than 2 GiB free (of 20 GiB)',
+      metric: db.metricFreeStorageSpace({ period: Duration.minutes(5), statistic: 'Minimum' }),
+      threshold: 2 * 1024 ** 3, comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+      evaluationPeriods: 1, treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    })
+    if (props.alertEmail) {
+      const topic = new sns.Topic(this, 'Alerts', { displayName: 'Described hosted API alerts' })
+      topic.addSubscription(new subs.EmailSubscription(props.alertEmail))
+      alarm.addAlarmAction(new cwActions.SnsAction(topic))
+      // A monthly cost budget for the whole account (it also carries the pipeline's Bedrock, Polly and Transcribe runs):
+      // email at 80 % of USD 25 actual and at 100 % forecast. https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-create.html
+      new budgets.CfnBudget(this, 'MonthlyCost', {
+        budget: { budgetName: `described-${props.stage}-monthly`, budgetType: 'COST', timeUnit: 'MONTHLY', budgetLimit: { amount: 25, unit: 'USD' } },
+        notificationsWithSubscribers: [
+          { notification: { notificationType: 'ACTUAL', comparisonOperator: 'GREATER_THAN', threshold: 80, thresholdType: 'PERCENTAGE' }, subscribers: [{ subscriptionType: 'EMAIL', address: props.alertEmail }] },
+          { notification: { notificationType: 'FORECASTED', comparisonOperator: 'GREATER_THAN', threshold: 100, thresholdType: 'PERCENTAGE' }, subscribers: [{ subscriptionType: 'EMAIL', address: props.alertEmail }] },
+        ],
+      })
+    } else {
+      Annotations.of(this).addWarningV2('described:no-alert-email', 'No alertEmail: no USD 25 cost budget, and the free-storage alarm has no action. Pass -c alertEmail=<address> or set ALERT_EMAIL.')
+    }
 
     new CfnOutput(this, 'ViewerApiUrl', { value: url.url, description: 'EXPO_PUBLIC_API_URL for the judges\' APK (trailing slash is stripped by the build script)' })
     new CfnOutput(this, 'ApiFunctionName', { value: fn.functionName, description: 'aws lambda invoke target for the migrate and seed operations' })

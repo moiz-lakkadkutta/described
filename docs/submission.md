@@ -179,7 +179,7 @@ Services and why each is load-bearing — the full table with costs is [docs/aws
   `E2P33RN2ZSRFN0` has one `/published/*` behaviour, the default behaviour runs the `DenyUnpublished` viewer-request function,
   the bucket policy denies CloudFront `s3:GetObject` outside `published/*`, and any other path answers 403.
 - **AWS Lambda + Amazon RDS for PostgreSQL** (hosted API, DESC-034): the release APK's API — Express in viewer mode behind an
-  HTTPS function URL, RDS db.t4g.micro in isolated subnets with no NAT, ≈ $14.40 a month (`infra/lib/viewer-stack.ts`,
+  HTTPS function URL, RDS db.t4g.micro in isolated subnets with no NAT, ≈ $14.50 a month (`infra/lib/viewer-stack.ts`,
   [docs/aws.md](aws.md#hosted-api-desc-034)). TODO(human): deployed? (not on 2026-10-15)
 - **AWS CDK**: the whole stack as code in `infra/`.
 
