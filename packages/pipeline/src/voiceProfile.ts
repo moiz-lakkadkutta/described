@@ -1,7 +1,7 @@
 /**
  * Polly voice + engine: the speaking rate fit (05-fit WPS) and the edit pass (05b-edit EDIT_WPS) budget with, and the price per
  * character. fit's WPS (2.67) and 05b's EDIT_WPS (2.2) were calibrated on Joanna neural (decision 0009); any other voice scales
- * them by its measured file rate over Joanna neural's, so a slower voice gets fewer words in the same pause.
+ * them by its measured rate over Joanna neural's (rateFactor), so a slower voice gets fewer words in the same pause.
  *
  * Measured rates: docs/spikes/narrative-pass-sintel.md "Voice" (2026-10-15, the same 6 Sintel cues 4:49–5:29, 06-voice's SSML,
  * decision 0009's silencedetect). Speech = words over speech length; file = words over the whole clip (lead break, tails included).
@@ -23,13 +23,14 @@ export const VOICE_RATES: Record<string, VoiceRate> = {
 export const REFERENCE_VOICE = 'Joanna/neural'
 
 /**
- * fit's and the edit pass's words-per-second, as a factor of the Joanna neural calibration: the voice's file rate over Joanna's,
- * never above 1 (a faster voice keeps today's budgets: 06-voice measures every clip anyway). An unmeasured voice: 1, with no change.
+ * fit's and the edit pass's words-per-second, as a factor of the Joanna neural calibration: the more conservative of the voice's file
+ * rate and speech rate over Joanna's (Ruth generative: 2.79 / 3.05 = 0.915 and 2.98 / 3.40 = 0.876 → 0.876), never above 1 (a
+ * faster voice keeps today's budgets: 06-voice measures every clip anyway). An unmeasured voice: 1, with no change.
  */
 export function rateFactor(voice: string, engine: PollyEngine = 'neural'): number {
-  const r = VOICE_RATES[`${voice}/${engine}`]
+  const r = VOICE_RATES[`${voice}/${engine}`], ref = VOICE_RATES[REFERENCE_VOICE]!
   if (!r) return 1
-  return Math.min(1, r.fileWps / VOICE_RATES[REFERENCE_VOICE]!.fileWps)
+  return Math.min(1, r.fileWps / ref.fileWps, r.speechWps / ref.speechWps)
 }
 
 /** USD per 1M characters (SSML tags are not billed). */

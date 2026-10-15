@@ -246,4 +246,22 @@ describe('the new checks against the raters', () => {
     }
     expect(hits).toEqual(['tos-390-510-g10 22: Dark, rope-laced industrial shaft.', 'tos-390-510-g10 25: Man in blue and yellow gear swings near organ pipes.'])
   })
+  // decision 0017 (review of #80): the narrative pass's sentence check, editReadsAsSentences (with the opening-phrase comma rule), over
+  // the same rater-passed cues, each against its own shot description: it rejects none of the 33.
+  it('editReadsAsSentences rejects none of the 33 rater-passed cues', () => {
+    const hits: string[] = []
+    let checked = 0
+    for (const [name, passed] of Object.entries(rated)) {
+      const shots = fixture<Described[]>(`${name}.described.json`), cues = fixture<FitCue[]>(`${name}.cues.json`)
+      for (const c of cues) {
+        const d = shots.find((x) => x.index === c.shotIndex)?.description
+        if (!d || d.includes(c.text) || !passed.includes(c.shotIndex)) continue
+        checked++
+        const why = editReadsAsSentences(d, c.text, [d])
+        if (why) hits.push(`${name} ${c.shotIndex}: ${c.text} (${why})`)
+      }
+    }
+    expect(checked).toBe(33)
+    expect(hits).toEqual([])
+  })
 })

@@ -290,6 +290,10 @@ describe('gate-c packets: shots.md', () => {
     expect(md.split('## Shot 1')[1]).toContain('  - Heard just before (context only, to tell who "she", "he", "it" or "the …" is): "A man walks." — starts 500 ms')
     expect(md.split('## Shot 2')[1]).toContain('Heard just before (context only, to tell who "she", "he", "it" or "the …" is): "She runs." — starts 4000 ms') // an extended cue too
     expect(heardBefore(data.cues, 0)).toEqual([])
+    // the previous voiced ACTION cue: an on-screen text cue in between names no one (review of #80)
+    const withText = [data.cues[0]!, cue({ startMs: 3000, endMs: 3100, extended: true, text: 'Words appear: SINTEL.' }), data.cues[1]!]
+    expect(heardBefore(withText, 2)).toEqual(['  - Heard just before (context only, to tell who "she", "he", "it" or "the …" is): "A man walks." — starts 500 ms'])
+    expect(heardBefore(withText, 1)).toEqual(['  - Heard just before (context only, to tell who "she", "he", "it" or "the …" is): "A man walks." — starts 500 ms'])
   })
   // DESC-032 / decision 0014: speech Transcribe missed is shown per shot and counts as the next speech for "fits".
   it('lists unlabelled speech near each shot and takes it as the next speech when it comes before the next word', () => {

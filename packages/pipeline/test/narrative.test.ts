@@ -68,6 +68,25 @@ describe('pronoun licence', () => {
     const t = title([DRAGON, 'A young woman with short red hair kneels and reaches toward the dragon.'])
     expect(edit(t, 1, 'A young woman with short red hair kneels, and she reaches toward the dragon.').applied).toHaveLength(1)
   })
+  it('a pronoun never licenses itself: hyphens and apostrophes do not shift the words before it (review of #80)', () => {
+    const t = title(['A small tan dragon sleeps.', 'A red-haired dragon lunges and dodges.'])
+    expect(reasons(edit(t, 1, 'A red-haired dragon lunges and she dodges.'))).toEqual(['pronoun "she" with no referent in the last 2 cues (20 s, same scene)'])
+    const apos = title(['A small tan dragon sleeps.', "The dragon's wing twitches and the dragon's eye opens."])
+    expect(reasons(edit(apos, 1, "The dragon's wing twitches and she opens the dragon's eye."))[0]).toMatch(/^pronoun "she" with no referent/)
+    const ok = title([DRAGON, 'A red-haired woman kneels and reaches toward the dragon.'])
+    expect(edit(ok, 1, 'A red-haired woman kneels, and she reaches toward the dragon.').applied).toHaveLength(1) // a noun before it does
+    // 25 s apart: no referent in the window, so only the name before "her" can license it (the look carries within the scene)
+    const named = title(['The red-haired young woman, Sintel, walks under a full moon.', 'The red-haired young woman, Sintel, holds a staff under a full moon.'], { startMs: 480_000, gapMs: 25_000 })
+    expect(edit(named, 1, 'Sintel holds her staff under a full moon.').applied).toHaveLength(1) // a name before it does too (Sintel dry run from fit, cue 71)
+  })
+  it('two singular women in one cue nearby make "she" ambiguous (review of #80)', () => {
+    const t = title(['A woman and an old woman talk.', 'A woman walks away.'])
+    expect(reasons(edit(t, 1, 'She walks away.'))).toEqual(['pronoun "she" could mean more than one person'])
+    const other = title(['A woman watches as another woman runs.', 'A woman walks away.'])
+    expect(reasons(edit(other, 1, 'She walks away.'))).toEqual(['pronoun "she" could mean more than one person'])
+    const same = title(['A young woman runs.', 'The woman stops.', 'A woman walks away.'])
+    expect(edit(same, 2, 'She walks away.').applied).toHaveLength(1) // one per cue: the same woman again
+  })
   it('one candidate only: two women nearby, or two glossary men, make "she"/"he" ambiguous', () => {
     const t = title(['Two women run across a rooftop.', 'A woman climbs a rooftop.'])
     expect(reasons(edit(t, 1, 'She climbs a rooftop.'))).toEqual(['pronoun "she" could mean more than one person'])
@@ -124,6 +143,16 @@ describe('carried look', () => {
     expect([...carriedLook(view(t), 1).keys()]).not.toContain('cave')
     expect(charRefs(SINTEL).find((c) => c.name === 'the baby dragon in the lair')!.look.has('cave')).toBe(false)
   })
+  it('without scenes.json the carry reaches back only as far as the referent window (last 2 cues, 20 s), not the whole title', () => {
+    const t = title([WOMAN, DRAGON, DRAGON, DRAGON, 'A young woman with short red hair smiles.'])
+    expect([...carriedLook(view(t), 4).keys()]).toContain('red') // one scene: cue 0 counts
+    const none: NarrativeView = { ...view(t), scenes: undefined }
+    expect([...carriedLook(none, 4).keys()]).not.toContain('red') // no scenes: only cues 2 and 3
+    const near = title([DRAGON, WOMAN, 'A young woman with short red hair smiles.'])
+    expect([...carriedLook({ ...view(near), scenes: undefined }, 2).keys()]).toContain('red')
+    const late = title([WOMAN, 'A young woman with short red hair smiles.'], { gapMs: 25_000 })
+    expect([...carriedLook({ ...view(late), scenes: undefined }, 1).keys()]).toEqual([])
+  })
   it('mustStillSay leaves out the carried look, so the request and the guard ask for the same thing', () => {
     const t = title([WOMAN, 'A young woman with short red hair smiles.'])
     expect(mustStillSay(t.cues, 1, (k) => t.cues[k]!.text, t.scenes, SINTEL)).toEqual(['smiles'])
@@ -138,6 +167,9 @@ describe('a sentence-opening place phrase is not a list (editReadsAsSentences)',
     expect(editReadsAsSentences('A warrior stands on a hillside.', 'On a misty green hillside, a warrior stands.', ['A warrior stands on a hillside.'])).toBeUndefined()
     expect(editReadsAsSentences('A man holds a staff.', 'In the tent, the man, a staff, a bowl.', ['A man holds a staff.'])).toMatch(/new list comma after "man"/) // only the opening comma
     expect(editReadsAsSentences('A dragon flies.', 'Scaled creature, horns, bloodied wing, stares.', ['A dragon flies.'])).toMatch(/new list comma/)
+    expect(editReadsAsSentences('A chicken runs.', 'Back, a chicken runs.', ['A chicken runs.'])).toMatch(/new list comma after "back"/) // one word is no phrase
+    expect(editReadsAsSentences('A dragon sleeps.', 'In the cave; a dragon sleeps.', ['A dragon sleeps.'])).toMatch(/new list comma after "cave"/) // a semicolon never closes one
+    expect(editReadsAsSentences('A man waits.', 'Back home, a man waits.', ['A man waits.'])).toMatch(/new list comma/) // "back" only as back in / on / at
   })
 })
 
@@ -243,6 +275,6 @@ describe('the request', () => {
     const t = title(['A woman runs.'], { gapMs: 8000 })
     const [joanna] = editBudgets(t.cues), [ruth] = editBudgets(t.cues, EDIT_WPS * rateFactor('Ruth', 'generative'))
     expect(joanna).toBe(17)
-    expect(ruth).toBe(15)
+    expect(ruth).toBe(15) // 7.9 s × 1.93 words/s
   })
 })

@@ -3,7 +3,7 @@ import { execa } from 'execa'
 import { readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { z } from 'zod'
 import type { Ctx } from './index'
-import { byStart, capExtended, introducesNew, LATE_MS, leadText, shortenDeterministic, shortenKeepingAction, TAIL_SILENCE_MS, textClauses, type FitCue } from './05-fit'
+import { assertFitVoice, byStart, capExtended, introducesNew, LATE_MS, leadText, shortenDeterministic, shortenKeepingAction, TAIL_SILENCE_MS, textClauses, type FitCue } from './05-fit'
 import type { Shot } from './02-shots'
 import { cueAudioFile, probeDurationMs } from '../cues'
 import { meter, pollyUsd } from '../cost'
@@ -128,6 +128,7 @@ const words = (t: string) => t.trim().split(/\s+/).filter(Boolean).length
  * no longer match their slots and re-synthesizes them — a cost only, the clips stay correct.
  */
 export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
+  await assertFitVoice(ctx, 'voice')
   const engine = ctx.engine ?? 'neural'
   const synthesize = deps.synthesize ?? pollySynthesize(ctx.signal, engine)
   const measureMs = deps.measureMs ?? ffprobeClipMs(ctx.signal)

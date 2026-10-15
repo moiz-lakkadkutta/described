@@ -36,8 +36,8 @@ One stack, `described-media-<stage>` (`infra/bin/app.ts`, `infra/lib/media-stack
 - CloudFront distribution: `/published/*` behaviour (OAC, CORS with preflight, `CORS-S3Origin` origin request policy,
   price class 100); default behaviour a CloudFront Function that returns 403.
 - `PipelineRole`: read-write on the bucket; `transcribe:StartTranscriptionJob`, `transcribe:GetTranscriptionJob`,
-  `polly:SynthesizeSpeech`; `bedrock:InvokeModel` on two models only (Nova Lite foundation model and its `us.` inference profile,
-  Qwen3-VL 235B), all in us-east-1; CreateInvalidation on this distribution.
+  `polly:SynthesizeSpeech`; `bedrock:InvokeModel` on four models only (Nova Lite foundation model and its `us.` inference profile,
+  Qwen3-VL 235B, and for the narrative pass of decision 0017 DeepSeek v3.2 and its fallback Nova Pro), all in us-east-1; CreateInvalidation on this distribution.
 - Outputs: `MediaBucket`, `CdnDomain`, `CdnId`, `PipelineRoleArn` → copy into `.env`.
 
 The `described-nova-<stage>` stack (us-east-1, Nova video ingest for the old Nova Pro describe path) was removed from the CDK

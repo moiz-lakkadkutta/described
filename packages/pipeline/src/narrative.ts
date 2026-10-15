@@ -35,6 +35,10 @@ const FAMILY: Record<Gender, ReadonlySet<string>> = {
 }
 /** Nouns that make a she/he referent (plus a character of that gender by name). */
 const NOUNS: Record<'she' | 'he', RegExp> = { she: /\b(woman|girl|lady|she|her)\b/i, he: /\b(man|boy|he|him|his)\b/i }
+/** The nouns (not pronouns) that introduce a she/he referent inside the rewrite itself: a pronoun cannot license itself. */
+const IN_CUE_NOUNS: Record<'she' | 'he', RegExp> = { she: /\b(woman|girl|lady)\b/i, he: /\b(man|boy)\b/i }
+/** One singular mention of a she/he noun, with up to three words before it: "an old woman", "the bald man". */
+const MENTION: Record<'she' | 'he', RegExp> = { she: /\b(woman|girl|lady)\b/gi, he: /\b(man|boy)\b/gi }
 /** Several of a gender: no single referent. */
 const PLURAL: Record<'she' | 'he', RegExp> = { she: /\b(women|girls|ladies)\b/i, he: /\b(men|boys)\b/i }
 const PERSON = new Set(['woman', 'women', 'girl', 'girls', 'man', 'men', 'boy', 'boys', 'person', 'people', 'figure', 'figures', 'lady', 'she', 'he', 'her', 'him', 'his'].map(stem))
@@ -77,14 +81,19 @@ export function referentWindow(v: NarrativeView, i: number): string[] {
  * look alone: the look matcher gives "a person … in the snow" to Sintel, and "she" after "A person walks uphill" is what the spike
  * rejected.
  */
-function refersTo(text: string, g: 'she' | 'he', chars: readonly CharRef[]): boolean {
-  if (NOUNS[g].test(text)) return true
-  return chars.some((c) => c.gender === g && isProperName({ name: c.name }) && new RegExp(`\\b${c.name}\\b`).test(text))
+function refersTo(text: string, g: 'she' | 'he', chars: readonly CharRef[], nouns: Record<'she' | 'he', RegExp> = NOUNS): boolean {
+  if (nouns[g].test(text)) return true
+  return chars.some((c) => c.gender === g && isProperName({ name: c.name }) && new RegExp(`\\b${c.name}\\b`, 'i').test(text)) // case-blind: the in-cue words are lower-cased tokens
 }
-/** More than one candidate of gender g in the texts: a plural noun, or two glossary characters of that gender. */
+/**
+ * More than one candidate of gender g in the texts: a plural noun; two singular mentions of that gender in one cue ("A woman and an
+ * old woman talk."), or "another"/"other" before one; or two glossary characters of that gender. Across cues a second mention is
+ * usually the same person again ("a young woman" … "the woman"), so only one cue's own mentions are counted.
+ */
 function ambiguous(texts: readonly string[], g: 'she' | 'he', chars: readonly CharRef[], glossary: Glossary): boolean {
   const all = texts.join(' ')
   if (PLURAL[g].test(all)) return true
+  if (texts.some((t) => (t.match(MENTION[g]) ?? []).length >= 2 || new RegExp(`\\b(another|other)\\s+(?:[a-z'-]+\\s+){0,3}${MENTION[g].source.slice(2, -2)}\\b`, 'i').test(t))) return true
   const shown = matchedCharacters(texts, glossary)
   return chars.filter((c) => c.gender === g && (shown.has(c.name) || (isProperName({ name: c.name }) && new RegExp(`\\b${c.name}\\b`).test(all)))).length > 1
 }
@@ -103,8 +112,9 @@ export function pronounProblems(v: NarrativeView, i: number, original: string, e
   for (const g of ['she', 'he'] as const) {
     if (count(edited, g) <= count(original, g)) continue
     const first = tokens(edited).findIndex((w) => FAMILY[g].has(w))
-    const before = edited.split(/\s+/).slice(0, Math.max(0, first)).join(' ')
-    const inCue = first > 0 && refersTo(before, g, chars)
+    // the words before the first new pronoun, counted in the same tokens as `first` (a whitespace split drifts on "red-haired", "dragon's")
+    const before = tokens(edited).slice(0, Math.max(0, first)).join(' ')
+    const inCue = first > 0 && refersTo(before, g, chars, IN_CUE_NOUNS)
     const near = window.some((t) => refersTo(t, g, chars) || PLURAL[g].test(t))
     if (!inCue && !near) { out.push(`pronoun "${g}" with no referent in the last ${PRONOUN_CUES} cues (${PRONOUN_WINDOW_MS / 1000} s, same scene)`); continue }
     if (!inCue && ambiguous(window, g, chars, v.glossary)) { out.push(`pronoun "${g}" could mean more than one person`); continue }
@@ -147,7 +157,10 @@ export function carriedLook(v: NarrativeView, i: number): Map<string, CharRef[]>
   const chars = charRefs(v.glossary, places)
   const out = new Map<string, CharRef[]>()
   const add = (w: string, c: CharRef) => { const l = out.get(w) ?? []; if (!l.includes(c)) l.push(c); out.set(w, l) }
-  for (let k = 0; k < i; k++) {
+  // no scenes.json (a work dir made before 04c-scenes): no scene bounds the carry, so only the referent window does (last 2 cues, 20 s)
+  const near = v.scenes?.length ? undefined : new Set(referentWindow(v, i).map((_, n) => n)).size
+  const from = near === undefined ? 0 : (() => { let k = i, seen = 0; while (k > 0 && seen < near) { k--; if (!v.isTextCue(v.cues[k]!)) seen++ } return k })()
+  for (let k = from; k < i; k++) {
     if (v.isTextCue(v.cues[k]!) || sceneId(v, k) !== sc) continue
     const text = v.heard(k), said = contentWords(hyphenHair(text)).map(stem)
     for (const c of chars) {

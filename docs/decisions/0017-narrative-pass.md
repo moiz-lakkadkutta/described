@@ -28,12 +28,15 @@ with the 05b guards plus three new ones, keeps about half of the cues it rewrite
 3. **Narrative licence** — the only new freedom, each with a deterministic check (`src/narrative.ts`):
    - **Pronoun licence.** A new she / he (one the cue's old text did not have) needs its referent — a noun of that gender or a
      glossary name — in one of the last **2** action cues as heard, starting **≤ 20 s** before, in the **same scene**, or earlier in
-     the same cue; one candidate only (a plural or two glossary characters of that gender nearby reject it); and the cue's own shots
+     the same cue (a noun before the pronoun, never a pronoun, counted in the same word split); one candidate only (a plural, two
+     singular mentions of that gender in one nearby cue, "another"/"other" before one, or two glossary characters of that gender
+     reject it); and the cue's own shots
      must show someone of that kind. A new "it" must stand for a non-person word the rewrite dropped that those 2 cues said
      ("The dragon flies…" → "It flies…" after "The dragon soars…").
    - **Carried look.** A glossary character's look words (minus generic words and **minus place words**) count as already said once
      an earlier cue of the same scene, as heard, said one of them with a reference to the character (kind noun, pronoun, name), and
-     only while the rewrite still refers to that character. A glossary name the scene has said carries the same way ("She
+     only while the rewrite still refers to that character. Without scenes.json the carry reaches back only over the referent
+   window (last 2 cues, 20 s). A glossary name the scene has said carries the same way ("She
    stands…" after "Sintel turns…"), and "red-haired" counts as "red hair". Never at the scene's first mention. `mustStillSay` leaves the same words
      out, so the request and the guard ask for the same thing.
    - **"now", "here"** are free. **"still", "again", "meanwhile", "later", "night" ("night falls")** are facts: they trace to the
@@ -42,9 +45,9 @@ with the 05b guards plus three new ones, keeps about half of the cues it rewrite
    line → not an on-screen text cue → text clauses verbatim → names (revealed, bound, not withheld, not invented) → **pronoun
    licence** → **source-only words** → faithful (every content word in the cue's shots, its own and the previous cue's text; free
    words and licensed she/he left out) → another scene's place → the scene's place said again → keeps facts (minus the previous
-   cue's words **as heard** and the **carried look**) → `editReadsAsSentences` (no new list comma — the comma closing a sentence-opening place phrase, "Back in the
-   town,", is not one —, not only a subject, not only a
-   place) → budget. An over-budget rewrite gets one Nova Lite shortening, then the same guards. After every window:
+   cue's words **as heard** and the **carried look**) → `editReadsAsSentences` (no new list comma — the comma, never a semicolon,
+   closing a sentence-opening place phrase of two to seven words, "Back in the town,", is not one; "back" only as back in / on / at
+   —, not only a subject, not only a place) → budget. An over-budget rewrite gets one Nova Lite shortening, then the same guards. After every window:
    `dropRepeatedLeads`, then the **name grounding pass on every final cue** (premature and unbound names → look, `unnamedIn` →
    neutral reference) and the per-cue evidence (0012) — so a free rewrite can never voice "Scales" in 315–331, 483.7–684.4 or
    724–745 s, or "Sintel" before 457.8 s. Later steps are unchanged: 06-voice `polishCue` (0015) and `shortenKeepingAction`
@@ -66,8 +69,10 @@ with the 05b guards plus three new ones, keeps about half of the cues it rewrite
 
 Descriptions are voiced by **Polly Ruth, generative engine**: `--voice Ruth --engine generative` (`resolveEngine`: `--engine`,
 else `POLLY_ENGINE`, else generative for Ruth, else neural; the worker derives it from the title's stored voice). Ruth generative
-measured 2.79 file words/s against Joanna neural's 3.05, so fit's `WPS` and 05b's `EDIT_WPS` are scaled by 0.915 for it (2.44 and
-2.01 words/s; `src/voiceProfile.ts`). A generative clip's SSML has no `<prosody>` (supported there only around full sentences;
+measured 2.79 file / 2.98 speech words/s against Joanna neural's 3.05 / 3.40, so fit's `WPS` and 05b's `EDIT_WPS` are scaled by the
+more conservative ratio, 0.876 (2.34 and 1.93 words/s; `src/voiceProfile.ts`). fit records the voice and engine it placed for
+(`cues.fit.voice.json`); edit and voice refuse a run with another voice or engine ("Run again from fit"), and a work dir fitted before
+that file existed counts as Joanna neural's rate. A generative clip's SSML has no `<prosody>` (supported there only around full sentences;
 rate 100 % changed nothing) and keeps the 150 ms `<break>`; the sidecar records the engine, so a changed engine re-voices.
 Polly generative is $30 per 1M characters (neural $16). Region unchanged (eu-central-1 has Ruth generative).
 Docs: https://docs.aws.amazon.com/polly/latest/dg/generative-voices.html ·

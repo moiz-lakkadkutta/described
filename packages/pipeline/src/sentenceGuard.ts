@@ -268,6 +268,9 @@ const OPENERS = new Set(['in', 'inside', 'on', 'at', 'under', 'near', 'by', 'out
 function openingPhrase(ws: readonly Word[], k: number): boolean {
   let start = k
   while (start > 0 && ws[start - 1]!.sentence === ws[k]!.sentence) start--
+  // a phrase, not one word ("Back, a chicken runs" is no opening phrase), and "back" only as "back in" / "back on" / "back at"
+  if (!/,\W*$/.test(ws[k]!.raw)) return false // a comma closes an opening phrase; a semicolon ("In the cave; a dragon sleeps.") never does
+  if (k - start < 1 || (ws[start]!.bare === 'back' && !/^(in|on|at|inside)$/.test(ws[start + 1]?.bare ?? ''))) return false
   return OPENERS.has(ws[start]!.bare) && k - start <= 6 && !ws.slice(start, k).some((x) => /[,;]\W*$/.test(x.raw))
 }
 /** Words that may follow a comma the sources did not have: they open a clause, not the next item of a list. */

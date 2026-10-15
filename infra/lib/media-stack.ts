@@ -80,17 +80,23 @@ export class MediaStack extends Stack {
     dist.grantCreateInvalidation(pipelineRole)
     // Converse is authorised by bedrock:InvokeModel; no call streams, so no InvokeModelWithResponseStream —
     // https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html
-    // Two models only: Nova Lite shortens / writes SDH (prompts.ts, NOVA_LITE_MODEL_ID); Qwen3-VL 235B describes shots (DESCRIBE_MODEL_ID),
+    // Four models: Nova Lite shortens / writes SDH (prompts.ts, NOVA_LITE_MODEL_ID); Qwen3-VL 235B describes shots (DESCRIBE_MODEL_ID),
     // in-Region us-east-1 — https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-qwen-qwen3-vl-235b-a22b.html
     // The inference-profile ARN stays because NOVA_LITE_MODEL_ID may be set to the `us.` cross-Region profile (cost.ts strips the prefix).
     // That path also needs the model ARN in every destination Region, not granted here: with a `us.` id, widen the Nova Lite ARN to
     // `arn:aws:bedrock:*::foundation-model/amazon.nova-lite-v1:0` — https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-prereq.html
+    // The narrative pass (05b, docs/decisions/0017-narrative-pass.md) calls DeepSeek v3.2 (EDIT_MODEL_ID, on-demand in us-east-1, no
+    // inference profile) and, when that fails, Nova Pro (EDIT_FALLBACK_MODEL_ID), both in BEDROCK_REGION us-east-1 —
+    // https://docs.aws.amazon.com/bedrock/latest/userguide/security_iam_id-based-policy-examples.html ·
+    // https://docs.aws.amazon.com/service-authorization/latest/reference/list_amazonbedrock.html (foundation-model ARN format)
     // Any other DESCRIBE_MODEL_ID (e.g. a Gate C bake-off model) is deliberately denied: widen this statement if the model changes.
     pipelineRole.addToPolicy(new iam.PolicyStatement({
       actions: ['bedrock:InvokeModel'],
       resources: [
         'arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-lite-v1:0',
         'arn:aws:bedrock:us-east-1::foundation-model/qwen.qwen3-vl-235b-a22b',
+        'arn:aws:bedrock:us-east-1::foundation-model/deepseek.v3.2',
+        'arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-pro-v1:0',
         `arn:aws:bedrock:us-east-1:${this.account}:inference-profile/us.amazon.nova-lite-v1:0`,
       ],
     }))

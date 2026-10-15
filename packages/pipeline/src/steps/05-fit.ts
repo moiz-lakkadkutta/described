@@ -9,7 +9,7 @@ import { normalizeQuotes } from '../contentWords'
 import { EMPTY_GLOSSARY, glossaryFor, withoutWithheldNames, type Glossary } from '../glossary'
 import { foreignPlaceStems, placeKnown, sceneLine, sceneStems, settingLead, statesPlace, withoutPlacePhrases, withoutTrailingPlace, withPlace } from '../sceneSetting'
 import { freshScenes, sceneOf, type Scene } from './04c-scenes'
-import { rateFactor } from '../voiceProfile'
+import { rateFactor, type PollyEngine } from '../voiceProfile'
 
 /**
  * endMs: fit's estimate (estimateClipMs: words / WPS + CLIP_OVERHEAD_MS) until 06-voice measures the Polly clip and rewrites it as startMs + clip duration (DESC-013).
@@ -535,4 +535,26 @@ export async function fitDescriptions(ctx: Ctx) {
   const json = JSON.stringify(cues, null, 2)
   await writeFile(`${ctx.work}/cues.json`, json)
   await writeFile(`${ctx.work}/cues.fit.json`, json) // the edit step (05b) always starts from this copy, so re-running it is idempotent (DESC-018)
+  await writeFile(`${ctx.work}/${FIT_VOICE_FILE}`, JSON.stringify(fitVoiceOf(ctx)))
+}
+
+/** work/{slug}/cues.fit.voice.json: the voice and engine fit placed the cues for (their words per second set every slot). */
+export const FIT_VOICE_FILE = 'cues.fit.voice.json'
+export interface FitVoice { voice: string; engine: PollyEngine; wps: number }
+export const fitVoiceOf = (ctx: Pick<Ctx, 'voice' | 'engine'>): FitVoice => ({ voice: ctx.voice, engine: ctx.engine ?? 'neural', wps: WPS * rateFactor(ctx.voice, ctx.engine) })
+/**
+ * Refuses a run that starts after fit with another voice or engine than fit placed the cues for: fit sized every slot at that voice's
+ * rate (Sintel, 2026-10-15: cues fitted for Joanna neural, voiced in Ruth generative, one clip ran 390 ms over and was dropped).
+ * A work dir from before this file was fitted at Joanna neural's rate: it passes only for a voice at that rate. No cues.fit.json
+ * (an older work dir, or a test): nothing to check.
+ */
+export async function assertFitVoice(ctx: Pick<Ctx, 'work' | 'voice' | 'engine'>, step: string) {
+  const want = fitVoiceOf(ctx)
+  const had = await readFile(`${ctx.work}/${FIT_VOICE_FILE}`, 'utf8').then((t) => JSON.parse(t) as Partial<FitVoice>, () => undefined)
+  if (had) {
+    if (had.voice === want.voice && (had.engine ?? 'neural') === want.engine) return
+    throw new Error(`${step}: fit placed these cues for ${had.voice} ${had.engine ?? 'neural'}; this run voices ${want.voice} ${want.engine}. Run again from fit (--from fit) so every slot is sized for this voice.`)
+  }
+  const fitted = await readFile(`${ctx.work}/cues.fit.json`, 'utf8').then(() => true, () => false)
+  if (fitted && Math.abs(want.wps - WPS) > 1e-9) throw new Error(`${step}: these cues were fitted before ${FIT_VOICE_FILE} existed, at Joanna neural's rate (${WPS.toFixed(2)} words/s); ${want.voice} ${want.engine} speaks at ${want.wps.toFixed(2)}. Run again from fit (--from fit).`)
 }

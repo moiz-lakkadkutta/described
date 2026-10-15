@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { Ctx } from './index'
 import type { Described } from './04-describe'
 import type { Word } from './03-speech'
-import { groundedDescription, textClauses, type FitCue } from './05-fit'
+import { assertFitVoice, groundedDescription, textClauses, type FitCue } from './05-fit'
 import { NEXT_CUE_SPACING_MS } from './06-voice'
 import { sentences, textSpans } from '../textClause'
 import { contentWords, stem } from '../contentWords'
@@ -46,6 +46,7 @@ export const FIT_CUES_FILE = 'cues.fit.json'
  * A work dir without scenes.json (made before 04c-scenes) is one scene: windows of EDIT_CHUNK_CUES, no place rules.
  */
 export async function editCues(ctx: Ctx, send: EditConverse = bedrockEditSend) {
+  await assertFitVoice(ctx, 'edit')
   const fitFile = `${ctx.work}/${FIT_CUES_FILE}`
   const source = await readFile(fitFile, 'utf8').then(() => fitFile, () => `${ctx.work}/cues.json`)
   if (source !== fitFile) console.warn(`edit: no ${FIT_CUES_FILE} in ${ctx.work} (fit ran before DESC-018); editing cues.json in place, which is not idempotent`)

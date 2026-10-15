@@ -278,8 +278,9 @@ export function withoutName(text: string, name: string, g: Glossary, opts: { wit
     const ref = /^\p{Lu}/u.test(ws[k]!) ? by[0]!.toUpperCase() + by.slice(1) : by
     return [...ws.slice(0, k), ref].join(' ')
   }))
-  const re = new RegExp(`(^|[.!?]\\s+|\\s|[("“])${esc}(?![\\p{L}])`, 'gu')
-  const swap = (piece: string, opensSentence: boolean) => piece.replace(re, (_, pre: string, off: number) => pre + ((off === 0 && /^\s*$/u.test(pre) && opensSentence) || /[.!?]\s+$/u.test(pre) ? by[0]!.toUpperCase() + by.slice(1) : by))
+  // a possessive goes with the name ("Scales' wing", "Scales's", "Scales’s" → "the dragon's wing"), never "the dragon' wing"
+  const re = new RegExp(`(^|[.!?]\\s+|\\s|[("“])${esc}(['’]s?)?(?![\\p{L}])`, 'gu')
+  const swap = (piece: string, opensSentence: boolean) => piece.replace(re, (_, pre: string, poss: string | undefined, off: number) => pre + ((off === 0 && /^\s*$/u.test(pre) && opensSentence) || /[.!?]\s+$/u.test(pre) ? by[0]!.toUpperCase() + by.slice(1) : by) + (poss ? "'s" : ''))
   const spans = textSpans(text)
   const ends = (k: number) => /[.!?…]["'”’)\]]*\s*$/u.test(text.slice(0, k)) // the text before position k ends a sentence
   let out = '', at = 0

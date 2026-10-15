@@ -13,6 +13,7 @@ import { groundedDescription, type FitCue } from '../steps/05-fit'
 import { readScenes, type Scene } from '../steps/04c-scenes'
 import { EMPTY_GLOSSARY, type Glossary } from '../glossary'
 import { evalGlossary } from './run'
+import { isTextCue } from '../steps/05b-edit'
 import { ffmpegSpeechMs, ffprobeClipMs, NEXT_CUE_SPACING_MS, OVERRUN_TOLERANCE_MS } from '../steps/06-voice'
 
 /**
@@ -85,11 +86,13 @@ export function nextSpeech(words: readonly Word[], unlabelled: readonly Segment[
 }
 
 /**
- * The cue the viewer heard just before cue k (decision 0017): the narrative pass carries referents ("she", "the dragon") from it, so
+ * The action cue the viewer heard just before cue k, on-screen text cues skipped (decision 0017): the narrative pass carries referents ("she", "the dragon") from it, so
  * a rater needs it to resolve a pronoun. Context only: the rater still judges cue k against this shot's frames. [] for the first cue.
  */
 export function heardBefore(cues: readonly FitCue[], k: number): string[] {
-  const p = cues[k - 1]
+  let j = k - 1
+  while (j >= 0 && isTextCue(cues[j]!)) j-- // the previous voiced action cue: an on-screen text cue names no one
+  const p = cues[j]
   return p ? [`  - Heard just before (context only, to tell who "she", "he", "it" or "the …" is): "${p.text}" — starts ${p.startMs} ms`] : []
 }
 /** The label of a shot that is not rated (decision 0003: score = usable / (shots − same-as-previous)). */
