@@ -37,7 +37,7 @@ describe('verify prompt', () => {
     const p = verifySystemPrompt('en', 11)
     for (const s of ['colours', 'on the body', 'what kind of creature or animal', 'what an object is', 'left or right', 'open or closed', 'who holds, gives', '"nearby"', 'movement or change',
       'Delete every detail that is not clearly visible', 'Prefer deleting to guessing', 'Never add a fact', 'exactly as written', '"Text erscheint:"', 'never a list of nouns',
-      'is, are, with, there, a, an, the;', 'Keep every negation', 'almost, tries, appears, seems, statue', 'in the same form and in the same order', 'Use at most 11 words.', '{"text":', 'Reply in English.'])
+      'is, are, with, there, a, an, the;', 'Keep every negation', 'almost, tries, appears, seems, statue', 'in the same form and in the same order', 'Use at most 11 words,', '{"text":', 'Reply in English.'])
       expect(p).toContain(s)
     expect(verifySystemPrompt('de', 8)).toContain('Reply in German.')
     expect(verifySystemPrompt('de', 8)).toContain('ist, sind, mit, es, gibt')

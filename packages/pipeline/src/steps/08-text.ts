@@ -7,6 +7,7 @@ import type { Word } from './03-speech'
 import type { FitCue } from './05-fit'
 import { sdhWithNovaLite, type SdhConverse, type SdhEvidence } from '../prompts'
 import { descriptionsVtt, probeDurationMs } from '../cues'
+import { polishCue } from '../polishCue'
 
 /**
  * captions.vtt (Transcribe, segmented), sdh.vtt (Nova Lite adds [sounds] and [Speaker] IDs), descriptions.vtt (the AD script with {extended} meta),
@@ -29,7 +30,7 @@ export async function sdh(ctx: Ctx, send?: SdhConverse, audible?: SdhEvidence['a
   if (problems.length) console.warn('SDH lint', problems)
   await writeFile(`${ctx.work}/sdh.vtt`, textTrackVtt(sdhCues))
   await writeFile(`${ctx.work}/sdh.json`, JSON.stringify({ degraded: degraded || (captions.length > 0 && added === 0) }))
-  await writeFile(`${ctx.work}/descriptions.vtt`, descriptionsVtt(cues, await probeDurationMs(ctx.work))) // ids d{n}, ends within the title: see ../cues
+  await writeFile(`${ctx.work}/descriptions.vtt`, descriptionsVtt(cues.map((c) => ({ ...c, text: polishCue(c.text, ctx.language) })), await probeDurationMs(ctx.work))) // ids d{n}, ends within the title: see ../cues
 }
 
 /**

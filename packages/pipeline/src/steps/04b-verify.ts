@@ -5,7 +5,7 @@ import { dirname } from 'node:path'
 import { z } from 'zod'
 import { meter } from '../cost'
 import { collapseNeutral, NEUTRAL_TEXT, neutralSpans, TEXT_LABEL, textSpans, withoutSpans, type TextSpan } from '../textClause'
-import { COPULA, GENERAL, LINKING, PLURAL_GENERAL, VERIFY_PROMPT_VERSION, VISIBLE, verifySystemPrompt, verifyUserText } from '../verifyPrompt'
+import { COPULA, GENERAL, GRAMMAR, LINKING, PLURAL_GENERAL, VERIFY_PROMPT_VERSION, VISIBLE, verifySystemPrompt, verifyUserText } from '../verifyPrompt'
 import { parseDescription, replyText, type Converse, type RawReply } from './04-describe'
 
 /**
@@ -178,7 +178,10 @@ export interface CheckOptions { maxWords: number; names: readonly string[]; lang
  *    in for exactly one draft word in place (not a linking word, a negation or a protected word; a plural general word only for a plural word); and
  *    an added "visible" only right after is / are, for a subject that is the opening of a draft sentence (only linking words
  *    before it): "A girl searches for her dragon." may become "A girl is visible.", never "Her dragon is visible.";
- * 7. more than wordCap(draft, maxWords) words.
+ * 6b. an added is / are where a draft word was deleted (unless a place word or "visible" follows), or ending a sentence
+ *    (copulaFills, PR #61 review);
+ * 7. more than wordCap(draft, maxWords) words — except a pure grammar fix (DESC-033): a reply whose only added words are GRAMMAR words
+ *    (a, an, the, is, are) does not count them, up to MAX_ADDED_WORDS over the draft's own length.
  */
 export function checkVerified(draft: string, v: Verified, o: CheckOptions): { text: string; applied: boolean; reason?: string; textRemoved?: string[] } {
   const lang = o.language ?? 'en'
@@ -233,12 +236,21 @@ export function checkVerified(draft: string, v: Verified, o: CheckOptions): { te
     align[i] = k
     j = k + 1
   }
+  const filled = copulaFills(r, dw, align, copula, visible, new Set([...GRAMMAR[lang]].filter((w) => !copula.has(w))), (m) => freeAt(dw, m))
+  if (filled) return keep(filled)
   // L1: each text unit keeps its place among the description's words — every matched word before it came from before it in the draft
   // (linking words are left out: "a" matches the draft's first "a", wherever it was)
   const pd = unitPositions(textCheck.wordsDraft), pr = unitPositions(text)
   if (pd.length !== pr.length || pr.some((p, u) => align.some((k, i) => k !== undefined && !freeAt(r, i) && (i < p) !== (k < pd[u]!)))) return keep('on-screen text changed')
+  // DESC-033: a pure grammar fix — the reply adds only GRAMMAR words (articles, is / are), no other linking word and no "visible" —
+  // may go past the cap by those words, up to MAX_ADDED_WORDS over the draft: a telegraphic draft at its word budget ("Man holds
+  // staff.") may still become "A man holds a staff.". Any other reply keeps the shot's cap.
   const cap = wordCap(draft, o.maxWords)
-  if (words(text) > cap) return keep(`more than ${cap} words`)
+  const addedOf = (ws: readonly string[]) => ws.reduce((n, w) => n + Math.max(0, count(r, w) - count(dw, w)), 0)
+  const grammar = new Set<string>(GRAMMAR[lang])
+  const pureGrammar = addedOf([...linking].filter((w) => !grammar.has(w))) + addedOf([visible]) === 0
+  const grammarAdded = pureGrammar ? addedOf([...grammar]) : 0
+  if (words(text) - grammarAdded > cap || words(text) > Math.max(cap, words(draft) + MAX_ADDED_WORDS)) return keep(`more than ${cap} words`)
   return { text: collapseNeutral(text), applied: true, ...(textCheck.replaced.length ? { textRemoved: textCheck.replaced } : {}) }
 }
 
@@ -255,6 +267,45 @@ function addedVisible(r: Tok[], i: number, d: Tok[], align: (number | undefined)
   const first = Math.min(...subject), last = Math.max(...subject), s = d[first]!.s
   if (d[last]!.s !== s) return notOpening
   for (let m = d.findIndex((t) => t.s === s); m <= last; m++) if (!subject.includes(m) && !free(m)) return notOpening
+  return undefined
+}
+
+/**
+ * Place words (a closed list, en and de): "X is in the light", "X is with a creature" state where X is, as the draft did; "X is staff"
+ * states what X is, which the draft never said. Not at / by / over (an / am / bei / über): they belong to the action, so the deleted
+ * action becomes a false place — "points at the door" → "is at the door", "is attacked by the dragon" → "is by the dragon".
+ */
+const PLACE_WORDS = new Set(['with', 'in', 'on', 'under', 'near', 'beside', 'behind', 'inside', 'outside', 'above', 'below', 'beneath',
+  'across', 'against', 'among', 'amid', 'between', 'into', 'onto', 'through', 'around', 'mit', 'in', 'im', 'auf', 'unter', 'neben', 'hinter',
+  'vor', 'zwischen', 'innerhalb', 'außerhalb'])
+/**
+ * PR #61 review (DESC-033): an is / are (ist / sind) in the reply — added, or kept from the draft — must not stand where a draft word was deleted — "Man holds staff."
+ * → "Man is staff." turns a deleted verb into a false claim. Positional, no part-of-speech tagging: for each added copula (unaligned),
+ * take the nearest aligned reply words before and after it (draft positions kPrev, kNext; kNext is the end of kPrev's draft sentence
+ * when nothing follows in the reply sentence). A draft word strictly between them that is neither free (linking) nor aligned means
+ * the copula fills its place (a kept copula counts from its own draft position) — unless the copula's next word other than an article is a place word or "visible" (its own guard,
+ * addedVisible): "The woman … blinks slowly in dim light." → "The woman … is in dim light." keeps the approved verify deletions of
+ * decision 0010. A reply sentence that ends in a copula ("A woman is.") fails always. Returns the reason, or undefined.
+ */
+function copulaFills(r: Tok[], d: Tok[], align: (number | undefined)[], copula: Set<string>, visible: string, articles: Set<string>, free: (m: number) => boolean): string | undefined {
+  const aligned = new Set(align.filter((k): k is number => k !== undefined))
+  for (let i = 0; i < r.length; i++) {
+    if (!copula.has(r[i]!.w)) continue
+    const why = `"${r[i]!.w}" ${align[i] === undefined ? 'added' : 'kept'} in place of a deleted word`
+    if (r[i + 1]?.s !== r[i]!.s) return why
+    let q = i + 1
+    while (q < r.length && r[q]!.s === r[i]!.s && articles.has(r[q]!.w)) q++
+    const after = r[q]?.s === r[i]!.s ? r[q]!.w : undefined
+    if (after === visible || (after !== undefined && PLACE_WORDS.has(after))) continue
+    let p = align[i] === undefined ? i - 1 : i // a kept copula: from its own draft position ("is attacked by" → "is by")
+    while (p >= 0 && align[p] === undefined) p--
+    let n = i + 1
+    while (n < r.length && r[n]!.s === r[i]!.s && align[n] === undefined) n++
+    const kPrev = p >= 0 ? align[p]! : -1
+    const s = kPrev >= 0 ? d[kPrev]!.s : d[0]?.s
+    const kNext = n < r.length && r[n]!.s === r[i]!.s ? align[n]! : d.reduce((e, t, m) => (t.s === s ? m + 1 : e), kPrev + 1)
+    for (let m = kPrev + 1; m < kNext; m++) if (!free(m) && !aligned.has(m)) return why
+  }
   return undefined
 }
 

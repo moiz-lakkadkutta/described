@@ -7,6 +7,7 @@ import { byStart, capExtended, introducesNew, LATE_MS, leadText, shortenDetermin
 import type { Shot } from './02-shots'
 import { cueAudioFile, probeDurationMs } from '../cues'
 import { meter, pollyUsd } from '../cost'
+import { polishCue } from '../polishCue'
 import { textSpans, withoutSpans } from '../textClause'
 import { EVENT_SPACING_MS, eventSpaced, plotEvent } from '../plotEvent'
 
@@ -145,18 +146,18 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
   /** Synthesizes text into slot i (overwriting it) and returns the clip's duration and speech length. */
   const synth = async (i: number, text: string): Promise<Clip> => {
     const file = `${ctx.work}/${cueAudioFile(i)}`
-    const audio = await synthesize(text, ctx.voice, language)
+    const audio = await synthesize(polishCue(text, language), ctx.voice, language) // DESC-033: capital letters and full stops, quotes untouched
     meter()?.add(pollyUsd(text.length))
     await writeFile(file, audio)
     const durationMs = await measureMs(file)
     const { speechMs, measured } = await speechOf(file, durationMs)
     // an estimated speech end is not stored: a later run measures it again
-    await writeFile(`${ctx.work}/${cueSidecarFile(i)}`, JSON.stringify({ text, voice: ctx.voice, language, ssml: cueSsml(text), durationMs, ...(measured ? { speechMs } : {}) } satisfies CueSidecar))
+    await writeFile(`${ctx.work}/${cueSidecarFile(i)}`, JSON.stringify({ text, voice: ctx.voice, language, ssml: cueSsml(polishCue(text, language)), durationMs, ...(measured ? { speechMs } : {}) } satisfies CueSidecar))
     return { durationMs, speechMs }
   }
   /** The stored clip of slot i when its sidecar matches (its speech measured now when the sidecar predates decision 0009). */
   const reuse = async (i: number, text: string): Promise<Clip | undefined> => {
-    const r = await reusable(ctx.work, i, { text, voice: ctx.voice, language, ssml: cueSsml(text) })
+    const r = await reusable(ctx.work, i, { text, voice: ctx.voice, language, ssml: cueSsml(polishCue(text, language)) }) // the clip key is what Polly heard: a clip voiced before DESC-033 is re-voiced
     return r && { durationMs: r.durationMs, speechMs: r.speechMs ?? (await speechOf(`${ctx.work}/${cueAudioFile(i)}`, r.durationMs)).speechMs }
   }
   const files = [cueAudioFile, cueSidecarFile]

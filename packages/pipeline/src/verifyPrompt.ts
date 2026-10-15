@@ -9,8 +9,12 @@
  */
 import { NEUTRAL_TEXT } from './textClause'
 
-/** 4: DESC-031 — on-screen text clauses are checked (kept verbatim or replaced by NEUTRAL_TEXT), text-only drafts are no longer skipped. */
-export const VERIFY_PROMPT_VERSION = 4
+/**
+ * 4: DESC-031 — on-screen text clauses are checked (kept verbatim or replaced by NEUTRAL_TEXT), text-only drafts are no longer skipped.
+ * 5: DESC-033 — complete sentences: the reply may add only GRAMMAR words to fix grammar (beyond the word cap too); any doubt about a
+ *    letter of on-screen text, or a partly hidden word, means NEUTRAL_TEXT.
+ */
+export const VERIFY_PROMPT_VERSION = 5
 
 /**
  * The only words a checked description may use that the draft did not have, per language (04b-verify's guards; exact lower-cased
@@ -23,6 +27,14 @@ export const VERIFY_PROMPT_VERSION = 4
 export const LINKING = {
   en: ['is', 'are', 'with', 'there', 'a', 'an', 'the'],
   de: ['ist', 'sind', 'mit', 'es', 'gibt', 'der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einen', 'einem', 'einer', 'eines'],
+} as const
+/**
+ * DESC-033: the articles and is / are — the words that turn a telegraphic draft ("Man holds staff.") into a sentence ("A man holds a
+ * staff.") without adding a fact. A subset of LINKING; the only words a reply may add beyond the word cap (04b-verify: checkVerified).
+ */
+export const GRAMMAR = {
+  en: ['a', 'an', 'the', 'is', 'are'],
+  de: ['der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einen', 'einem', 'einer', 'eines', 'ist', 'sind'],
 } as const
 export const VISIBLE = { en: 'visible', de: 'sichtbar' } as const
 export const COPULA = { en: ['is', 'are'], de: ['ist', 'sind'] } as const
@@ -50,10 +62,10 @@ export function verifySystemPrompt(language: 'en' | 'de', maxWords: number): str
     '- movement or change (something swirling, appearing, opening or closing) that the frames do not show.',
     `Delete every detail that is not clearly visible in the frames. If a word is wrong but the thing is there, you may replace it with one of these general words only: ${GENERAL[language].join(', ')}. Prefer deleting to guessing.`,
     'Never add a fact: no new colour, direction, body part, object, action or name. Use only the words of the draft, in the same form and in the same order, except the words named here. Keep every negation (not, no, never, without) and every word that says something is not quite real or not done: almost, tries, appears, seems, statue, toy, reflection, picture.',
-    `Check every on-screen text clause (starting "Words appear:"; in German "Text erscheint:") against the frames. Keep it exactly as written, word for word, only if every quoted word is fully legible in the frames and exactly right. If any part of the text is hidden, cut off, blurred or misread, replace the whole clause with exactly "${NEUTRAL_TEXT[language]}" and nothing else. Never write a corrected quote, and never add on-screen text.`,
+    `Check every on-screen text clause (starting "Words appear:"; in German "Text erscheint:") against the frames. Keep it exactly as written, word for word, only if every quoted word is fully legible in the frames and exactly right. If any part of the text is hidden, cut off, blurred or misread, replace the whole clause with exactly "${NEUTRAL_TEXT[language]}" and nothing else. If there is any doubt about any letter, or any word is even partly hidden, replace the whole clause with exactly "${NEUTRAL_TEXT[language]}" too. Never write a corrected quote, and never add on-screen text.`,
     'Keep names exactly as the draft wrote them, and keep the order of the draft: who does what to whom stays as in the draft.',
-    `Write complete present-tense sentences with a verb, never a list of nouns. You may add these linking words, which add no fact: ${LINKING[language].join(', ')}; and "${COPULA[language][0]} ${VISIBLE[language]}" after the subject of a draft sentence.`,
-    `Use at most ${maxWords} words. If every detail is visible, return the draft unchanged.`,
+    `Write complete sentences with articles and a verb, in the present tense, never a list of nouns; to fix the grammar you may add only ${GRAMMAR[language].join(', ')}, even when every detail is visible. To turn a list of nouns into a sentence you may also add these linking words, which add no fact: ${LINKING[language].join(', ')}; and "${COPULA[language][0]} ${VISIBLE[language]}" after the subject of a draft sentence.`,
+    `Use at most ${maxWords} words, not counting the ${GRAMMAR[language].join(', ')} you add. If every detail is visible and the draft is already complete sentences, return the draft unchanged.`,
     'Reply with JSON only, no other text: {"text": "<the checked description>", "removed": ["<each detail you deleted or replaced, as the draft wrote it>"]}',
   ].join('\n')
 }
