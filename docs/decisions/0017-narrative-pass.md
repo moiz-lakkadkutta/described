@@ -82,6 +82,16 @@ Docs: https://docs.aws.amazon.com/polly/latest/dg/generative-voices.html ·
 https://docs.aws.amazon.com/polly/latest/dg/supportedtags.html · https://docs.aws.amazon.com/polly/latest/dg/prosody-tag.html ·
 https://docs.aws.amazon.com/polly/latest/dg/API_SynthesizeSpeech.html · https://aws.amazon.com/polly/pricing/
 
+## Gate C after the narrative pass (g13, 2026-10-15)
+
+Run g13 (main `0bed29c`, `pnpm gate-c run … --steps fit,edit,voice` on each clip's existing describe output, Ruth generative, 3
+blind raters, official scorer) **passes both clips**: `sintel-90-210-g13` **24 / 29 = 82.8 %** majority-usable (raters 24 / 22 /
+23; g12 21 / 29) and the held-out `tos-390-510-g13` **24 / 31 = 77.4 %** (raters 26 / 23 / 25; bar 22; g12 18 / 31). The Gate C rule
+is met as written, on both clips, so **the 0016 human exception is superseded**: titles without a glossary are no longer held
+back by Gate C, and the caveat 0016 required for them is no longer needed. Both scores are still reported together. Sintel still
+voices only 15 of 29 shots. Details and the remaining failure kinds (details borrowed from adjacent shots, verbless or
+article-less fragments, a "Ruin:" label leak, "the man" pointing at the wrong man): [docs/evaluation.md#gate-c-results](../evaluation.md#gate-c-results).
+
 ## Consequences
 
 - The pass can only improve a cue or leave it alone: a cue that fails any guard keeps fit's text; timing never moves.
