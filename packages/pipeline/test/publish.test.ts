@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CreateInvalidationCommand } from '@aws-sdk/client-cloudfront'
 import { cacheControl, contentType, createInvalidation } from '../src/s3'
-import { pack, type PackageReport } from '../src/steps/09-package'
+import { pack, richCaptions, type PackageReport } from '../src/steps/09-package'
 import { publish } from '../src/steps/10-publish'
 import { clipHash } from '../src/cues'
 import type { Ctx } from '../src/steps'
@@ -43,6 +43,32 @@ describe('09-package', () => {
     execa.mockResolvedValue({})
     await pack({ ...ctx, language: 'de' })
     expect(JSON.parse(await readFile(join(dir, 'package.json'), 'utf8'))).toEqual<PackageReport>({ language: 'de', tracks: { captions: true, sdh: false, descriptions: false } })
+  })
+  // 2026-10-19: sdh.json says whether a window failed (degraded) and how much the merge added; "nothing qualified" is not a failure.
+  it.each([
+    [{ degraded: false, added: 2 }, true],
+    [{ degraded: false, added: 0 }, false], // nothing qualified: Captions only, by design
+    [{ degraded: true, added: 3 }, false], // a window failed: its captions are plain, so the track is not complete Rich captions
+    [{ degraded: false }, true], // an sdh.json from before `added`: degraded false meant something was added
+    [{ degraded: true }, false],
+  ])('pack advertises Rich captions for sdh.json %j: %s', async (sdhJson: { degraded: boolean; added?: number }, advertised) => {
+    const { dir, ctx } = await work()
+    await writeFile(join(dir, 'sdh.json'), JSON.stringify(sdhJson))
+    execa.mockResolvedValue({})
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await pack(ctx)
+    expect((JSON.parse(await readFile(join(dir, 'package.json'), 'utf8')) as PackageReport).tracks.sdh).toBe(advertised)
+    expect(log.mock.calls.some(([m]) => m === 'no Rich-captions track: nothing qualified')).toBe(sdhJson.added === 0)
+    log.mockRestore()
+    warn.mockRestore()
+  })
+  it('richCaptions reads sdh.json old and new, and treats a missing file as degraded', () => {
+    expect(richCaptions({ degraded: false, added: 1 })).toEqual({ advertise: true, status: 'ok' })
+    expect(richCaptions({ degraded: false, added: 0 })).toEqual({ advertise: false, status: 'none' })
+    expect(richCaptions({ degraded: true, added: 0 })).toEqual({ advertise: false, status: 'degraded' })
+    expect(richCaptions({ degraded: false })).toEqual({ advertise: true, status: 'ok' })
+    expect(richCaptions(undefined)).toEqual({ advertise: false, status: 'degraded' })
   })
 })
 

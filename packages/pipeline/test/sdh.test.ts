@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ConverseCommandInput } from '@aws-sdk/client-bedrock-runtime'
@@ -7,7 +7,7 @@ import { parseVtt, serializeVtt } from '@moiz0309/vega-media-kit/core'
 import type { Cue } from '@moiz0309/vega-media-kit/core'
 import { replyCues, mergeSdh, chunkCaptions, sdhWithNovaLite, SDH_CHUNK_CAPTIONS, type SdhConverse, type SdhDescription } from '../src/prompts'
 import type { FitCue } from '../src/steps/05-fit'
-import { sdh, parseMomentary, audibleFrom, loudnessFrames, AUDIBLE_LUFS } from '../src/steps/08-text'
+import { sdh, segment, parseMomentary, audibleFrom, loudnessFrames, AUDIBLE_LUFS } from '../src/steps/08-text'
 import { metered, bedrockUsd } from '../src/cost'
 
 const captions: Cue[] = [
@@ -57,9 +57,9 @@ describe('replyCues', () => {
     expect(merged('{"cues":[]}')).toEqual(plain)
   })
 
-  it('coerces numeric strings and drops a sound cue whose start is not before its end', () => {
-    const out = merged({ cues: [{ id: 's1', start: '24', end: '25.5', text: '[fire crackles]' }, { id: 's2', start: 30, end: 30, text: '[door slams]' }] })
-    expect(out.filter((c) => c.sound).map((c) => [c.start, c.end, c.text])).toEqual([[24, 25.5, '[fire crackles]']])
+  it('coerces numeric strings, gives a zero-length sound cue 1 s, and drops one whose end is before its start', () => {
+    const out = merged({ cues: [{ id: 's1', start: '24', end: '25.5', text: '[fire crackles]' }, { id: 's2', start: 30, end: 30, text: '[door slams]' }, { id: 's3', start: 36, end: 35, text: '[wind howls]' }] })
+    expect(out.filter((c) => c.sound).map((c) => [c.start, c.end, c.text])).toEqual([[24, 25.5, '[fire crackles]'], [30, 31, '[door slams]']])
   })
 })
 
@@ -77,7 +77,7 @@ describe('mergeSdh', () => {
   })
 
   // Nova Lite under the emit_sdh schema (2026-10-01) emitted these next to real sounds.
-  it('keeps only bracketed sound cues that name a sound, fit 3 words, and do not overlap a caption', () => {
+  it('keeps only bracketed sound cues that name a sound and fit 3 words; one inside a caption is dropped, one over 2 s is trimmed', () => {
     const reply = [
       { id: 's1', start: 5, end: 6, text: '[fire crackles]', sound: true },
       { id: 's2', start: 15, end: 16, text: '[rock formation]', sound: true },
@@ -85,11 +85,11 @@ describe('mergeSdh', () => {
       { id: 's4', start: 35, end: 36, text: '[woman holds bowl]' },
       { id: 's5', start: 12, end: 13, text: '[wind]' }, // overlaps c2 (10–14)
       { id: 's6', start: 45, end: 46, text: '[wind howls through trees]' }, // 4 words
-      { id: 's7', start: 55, end: 58, text: '[footsteps]' }, // 3 s
+      { id: 's7', start: 55, end: 58, text: '[footsteps]' }, // 3 s: trimmed to its first 2 s
     ]
     const sounds = mergeSdh(seven, reply, anySound).filter((c) => c.sound)
-    expect(sounds.map((c) => c.text)).toEqual(['[fire crackles]'])
-    expect(sounds[0]).toMatchObject({ trackId: 'sdh', start: 5, end: 6 })
+    expect(sounds.map((c) => [c.text, c.start, c.end])).toEqual([['[fire crackles]', 5, 6], ['[footsteps]', 55, 57]])
+    expect(sounds[0]).toMatchObject({ trackId: 'sdh' })
   })
 
   it('keeps one of two overlapping or duplicate sound cues', () => {
@@ -244,22 +244,28 @@ describe('08-text sdh step', () => {
     const send = vi.fn<SdhConverse>(async () => jsonReply(k++ === 0 ? [{ id: 's1', start: 75, end: 76.5, text: '[thunder]' }] : []))
     await sdh({ slug: 't', source: 's', language: 'en', voice: 'Joanna', work }, send, () => true)
     expect(send).toHaveBeenCalledTimes(2)
-    expect(JSON.parse(await readFile(`${work}/sdh.json`, 'utf8'))).toEqual({ degraded: false })
+    expect(JSON.parse(await readFile(`${work}/sdh.json`, 'utf8'))).toEqual({ degraded: false, added: 1 })
     const vtt = await readFile(`${work}/sdh.vtt`, 'utf8')
     expect(vtt).toContain('00:01:15.000 --> 00:01:16.500\n[thunder]')
     expect(vtt).toContain('Line60.')
   })
-  it('a title where no window added anything is not advertised as Rich captions', async () => {
+  it('a title where no window added anything is not degraded: sdh.json says added 0 (09-package then omits Rich captions)', async () => {
     const work = await mkdtemp(join(tmpdir(), 'sdh-'))
     await writeFile(`${work}/words.json`, JSON.stringify([{ start: 0, end: 2, text: 'Hello.', speaker: 'spk_0' }, { start: 3, end: 5, text: 'Goodbye.', speaker: 'spk_0' }]))
     await writeFile(`${work}/cues.json`, JSON.stringify([]))
     // Valid replies that add nothing: an empty list, and a caption echoed without a speaker tag.
     await sdh({ slug: 't', source: 's', language: 'en', voice: 'Joanna', work }, async () => jsonReply([{ id: 'c1', start: 0, end: 2, text: 'Hello.' }]), () => true)
-    expect(JSON.parse(await readFile(`${work}/sdh.json`, 'utf8'))).toEqual({ degraded: true })
+    expect(JSON.parse(await readFile(`${work}/sdh.json`, 'utf8'))).toEqual({ degraded: false, added: 0 })
+    // A window that failed twice is degraded, whatever the others added.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await rm(`${work}/cache`, { recursive: true, force: true })
+    await sdh({ slug: 't', source: 's', language: 'en', voice: 'Joanna', work }, async () => textReply('no'), () => true)
+    warn.mockRestore()
+    expect(JSON.parse(await readFile(`${work}/sdh.json`, 'utf8'))).toEqual({ degraded: true, added: 0 })
     // No dialogue at all: no call, not degraded (09-package advertises SDH only when there are captions).
     await writeFile(`${work}/words.json`, JSON.stringify([]))
     await sdh({ slug: 't', source: 's', language: 'en', voice: 'Joanna', work }, async () => { throw new Error('no call expected') })
-    expect(JSON.parse(await readFile(`${work}/sdh.json`, 'utf8'))).toEqual({ degraded: false })
+    expect(JSON.parse(await readFile(`${work}/sdh.json`, 'utf8'))).toEqual({ degraded: false, added: 0 })
   })
   // DESC-010 follow-up: published VTTs carried `<v spk_0>`; the kit's parseVtt reads it as the speaker and CueOverlay draws "[spk_0] ".
   it('writes no voice spans: plain captions are text only, a speaker name stays the SDH bracket tag', async () => {
@@ -278,7 +284,7 @@ describe('08-text sdh step', () => {
     expect(sdhVtt).toContain('00:00:03.000 --> 00:00:06.000\n[Proog] I am here.\n')
     expect(parseVtt(captionsVtt, { trackId: 'captions' }).map((c) => c.speaker)).toEqual([undefined, undefined])
     expect(parseVtt(sdhVtt, { trackId: 'sdh' }).map((c) => [c.speaker, c.text])).toEqual([[undefined, 'Proog, wait.'], ['Proog', 'I am here.']])
-    expect(JSON.parse(await readFile(`${work}/sdh.json`, 'utf8'))).toEqual({ degraded: false })
+    expect(JSON.parse(await readFile(`${work}/sdh.json`, 'utf8'))).toEqual({ degraded: false, added: 1 })
   })
   it('the same reply tags nothing when both captions are one voice (the diarization rule reads the words, not the VTT)', async () => {
     const work = await mkdtemp(join(tmpdir(), 'sdh-'))
@@ -308,7 +314,10 @@ describe('SDH grounding (recorded Nova Lite replies, 2026-10-14)', () => {
   }
 
   it('adds nothing from the replies that held only sights, voice labels and placeholders', () => {
-    expect(additions('sintel-90-150-r2', 'sintel-90-150-r2-old-1', () => true)).toEqual([])
+    // old-1's zero-length "old man pours" at 33.17 is grounded by "Old man pours broth." (33.17–34.826): since 2026-10-19 a
+    // zero-length cue is read as 1 s (0018-sdh-trim), so it is kept. Its sights and voice labels still are not.
+    expect(additions('sintel-90-150-r2', 'sintel-90-150-r2-old-1', () => true)).toEqual(['[old man pours]'])
+    expect(mergeSdh(title('sintel-90-150-r2').captions, replies['sintel-90-150-r2-old-1']!.cues, { descriptions: title('sintel-90-150-r2').descriptions, audible: () => true }).filter((c) => c.sound).map((c) => [c.start, c.end])).toEqual([[33.17, 34.17]])
     expect(additions('sintel-90-150-r2', 'sintel-90-150-r2-old-2', () => true)).toEqual([])
     expect(additions('elephants-dream-0-60', 'elephants-dream-0-60-new', () => true)).toEqual([])
     expect(additions('tears-of-steel-40-100', 'tears-of-steel-40-100-new', () => true)).toEqual([])
@@ -525,5 +534,80 @@ describe('SDH grounding, review round 1', () => {
   it('loudness with no momentary frames throws instead of dropping every sound', () => {
     expect(() => loudnessFrames('Input #0, mov,mp4 … no ebur128 lines', 'mezz.mp4')).toThrow('ebur128: no momentary frames parsed from mezz.mp4')
     expect(loudnessFrames('[Parsed_ebur128_0 @ 0x1] t: 0.1  TARGET:-23 LUFS    M: -30.4 S:-120.7', 'mezz.mp4')).toEqual([{ t: 0.1, m: -30.4 }])
+  })
+})
+
+// 2026-10-19 (docs/decisions/0018-sdh-trim.md): Nova Lite gives a sound cue the whole description's start–end, not the sound's own
+// 0.5–2 s, so the merge rejected the only grounded, audible sounds any cached reply held (full Sintel: [creature roars] 6.6 s over
+// c18, [woman gasps] 6.1 s over c24). A grounded sound is now trimmed to the first caption-free, audible 0.5–2 s slot inside its
+// span and its grounding description's span ± 2 s. What counts as evidence is unchanged.
+describe('SDH trims a grounded sound instead of rejecting it (cached replies, 2026-10-19)', () => {
+  const fx = (f: string) => JSON.parse(readFileSync(join(__dirname, 'fixtures/sdh/2026-10-19', f), 'utf8'))
+  const replies = fx('replies.json') as Record<string, { message: { content: Array<{ text?: string; toolUse?: { input: unknown } }> } }>
+  const title = (slug: string, key: string) => {
+    const content = replies[`${slug}-${key}`]!.message.content
+    return {
+      captions: segment(fx(`${slug}.words.json`)),
+      descriptions: (fx(`${slug}.cues.json`) as Array<{ startMs: number; endMs: number; text: string }>).map((d) => ({ start: d.startMs / 1000, end: d.endMs / 1000, text: d.text })),
+      reply: replyCues(content.find((c) => c.toolUse)?.toolUse?.input ?? content.find((c) => c.text)?.text)!,
+    }
+  }
+  const soundsOf = (slug: string, key: string, audible: (s: number, e: number) => boolean = () => true) => {
+    const { captions: caps, descriptions, reply } = title(slug, key)
+    const out = mergeSdh(caps, reply, { descriptions, audible })
+    const plainText = new Map(caps.map((c) => [c.id, c.text]))
+    expect(out.filter((c) => !c.sound && plainText.get(c.id) !== c.text)).toEqual([]) // no speaker tags in these replies
+    return out.filter((c) => c.sound).map((c) => [c.text, c.start, c.end])
+  }
+
+  it('full Sintel (06e0a0df): keeps [creature roars] and [woman gasps], trimmed to 2 s clear of c18 and c24', () => {
+    const { captions: caps } = title('sintel', '06e0a0df')
+    expect(caps.find((c) => c.start > 206 && c.start < 207)).toMatchObject({ start: 206.05, end: 208.809 }) // c18
+    expect(soundsOf('sintel', '06e0a0df')).toEqual([['[creature roars]', 203.125, 205.125], ['[woman gasps]', 333.745, 335.745]])
+  })
+  it('full Sintel: the slot moves to the first audible span, and a sound with no audible slot is dropped', () => {
+    const out = soundsOf('sintel', '06e0a0df', (s) => s >= 204 && s < 300)
+    expect(out).toHaveLength(1)
+    expect(out[0]![0]).toBe('[creature roars]')
+    expect(out[0]![1]).toBeCloseTo(204.025, 3)
+    expect(out[0]![2]).toBeCloseTo(206.025, 3)
+    expect(soundsOf('sintel', '06e0a0df', () => false)).toEqual([])
+  })
+  it('sintel-90-150-r2 (Oct 15, 3972ea6a): [fire crackling] trimmed to 2 s, [broth pours] trimmed past c3 and before c4', () => {
+    // [broth pours] 30.042–31.962 overlapped c3 (27.67–30.37) by 0.33 s; c4 starts 31.329.
+    expect(soundsOf('sintel-90-150-r2', '3972ea6a')).toEqual([['[fire crackling]', 11.208, 13.208], ['[broth pours]', 30.37, 31.329]])
+  })
+  it('Tears of Steel (a4c1daac): [console beeps] is still not grounded by "gestures at glowing console"', () => {
+    expect(soundsOf('tears-of-steel-40-100', 'a4c1daac')).toEqual([])
+  })
+
+  const two: Cue[] = [
+    { trackId: 'captions', id: 'c1', start: 10, end: 12, text: 'Hello.', speaker: 'spk_0' },
+    { trackId: 'captions', id: 'c2', start: 13, end: 15, text: 'Goodbye.', speaker: 'spk_0' },
+  ]
+  const door = [{ start: 9, end: 16, text: 'She slams the door.' }]
+  const trimmed = (start: number, end: number, descriptions: SdhDescription[] = door, audible: (s: number, e: number) => boolean = () => true) =>
+    mergeSdh(two, [{ id: 's1', start, end, text: '[door slams]', sound: true }], { descriptions, audible }).filter((c) => c.sound).map((c) => [c.start, c.end])
+
+  it('a slot is 0.5–2 s inside the cue, clear of captions', () => {
+    expect(trimmed(9, 16)).toEqual([[9, 10]]) // 9–10 before c1 (1 s)
+    expect(trimmed(11, 16)).toEqual([[12, 13]]) // starts inside c1: the first free time is c1's end, and c2 ends the slot
+    expect(trimmed(14, 18)).toEqual([[15, 17]]) // after c2, at most 2 s
+    expect(trimmed(11.8, 12.4)).toEqual([]) // only 0.4 s free between c1's end and the cue's end
+    expect(trimmed(10.5, 14.5)).toEqual([[12, 13]])
+  })
+  it('a slot stays within the grounding description ± 2 s', () => {
+    const late = [{ start: 20, end: 21, text: 'She slams the door.' }]
+    expect(trimmed(15, 30, late)).toEqual([[18, 20]]) // the cue starts at 15; the description allows 18–23
+    expect(trimmed(23.5, 26, late)).toEqual([]) // starts more than 2 s after it
+  })
+  it('a zero-length cue becomes 1 s under the same checks', () => {
+    expect(trimmed(16, 16)).toEqual([[16, 17]])
+    expect(trimmed(11, 11)).toEqual([]) // 11–12 is inside c1
+    expect(trimmed(11.5, 11.5)).toEqual([[12, 12.5]]) // 11.5–12.5 → its caption-free 0.5 s
+  })
+  it('an ungrounded or silent sound is dropped whatever its length', () => {
+    expect(trimmed(16, 20, [{ start: 15, end: 20, text: 'A man gestures.' }])).toEqual([])
+    expect(trimmed(16, 20, door, () => false)).toEqual([])
   })
 })

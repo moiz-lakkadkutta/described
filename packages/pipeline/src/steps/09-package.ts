@@ -4,6 +4,21 @@ import type { Ctx } from './index'
 /** work/package.json: what pack() advertised in the master playlist, read by validate and persist('finish'). */
 export interface PackageReport { language: 'en' | 'de'; tracks: { captions: boolean; sdh: boolean; descriptions: boolean } }
 /**
+ * work/sdh.json, written by 08-text: `degraded` — an SDH window fell back to the plain captions; `added` — the sound cues and speaker
+ * tags the merge kept. Files from before 2026-10-19 have no `added`: their `degraded` was also true when nothing was added, so
+ * `degraded: false` there means something was.
+ */
+export interface SdhStatus { degraded: boolean; added?: number }
+/**
+ * Whether to advertise the Rich-captions track: only when no window degraded and something was added. `status` says why not:
+ * 'none' — nothing qualified (by design: no grounded sound or spoken name), 'degraded' — a window failed, or there is no sdh.json.
+ */
+export function richCaptions(s: SdhStatus | undefined): { advertise: boolean; status: 'ok' | 'none' | 'degraded' } {
+  if (!s || s.degraded) return { advertise: false, status: 'degraded' }
+  if (s.added === 0) return { advertise: false, status: 'none' }
+  return { advertise: true, status: 'ok' }
+}
+/**
  * Shaka Packager → HLS master with two audio renditions (main, AD with CHARACTERISTICS=public.accessibility.describes-video)
  * and three WebVTT tracks. Aligned 4 s segments (4 s GOP from 01-probe) so audio switching doesn't rebuffer.
  * Runs in the work dir with relative paths, as the docs' examples do (`playlist_name` is relative to the master playlist):
@@ -14,9 +29,12 @@ export interface PackageReport { language: 'en' | 'de'; tracks: { captions: bool
 export async function pack(ctx: Ctx) {
   const hasCaptions = /-->/.test(await readFile(`${ctx.work}/captions.vtt`, 'utf8'))
   // no sdh.json (a work dir from before the text step wrote it) → treat as degraded rather than advertise Rich captions
-  const { degraded } = JSON.parse(await readFile(`${ctx.work}/sdh.json`, 'utf8').catch((e: NodeJS.ErrnoException) => { if (e.code === 'ENOENT') return '{"degraded":true}'; throw e })) as { degraded: boolean }
+  const sdhJson = await readFile(`${ctx.work}/sdh.json`, 'utf8').then((t) => JSON.parse(t) as SdhStatus, (e: NodeJS.ErrnoException) => { if (e.code === 'ENOENT') return undefined; throw e })
+  const rich = richCaptions(sdhJson)
+  if (hasCaptions && rich.status === 'none') console.log('no Rich-captions track: nothing qualified')
+  if (hasCaptions && rich.status === 'degraded') console.warn('no Rich-captions track: the SDH step degraded (a window fell back to plain captions)')
   const hasDescriptions = /-->/.test(await readFile(`${ctx.work}/descriptions.vtt`, 'utf8'))
-  const tracks = { captions: hasCaptions, sdh: hasCaptions && !degraded, descriptions: hasDescriptions }
+  const tracks = { captions: hasCaptions, sdh: hasCaptions && rich.advertise, descriptions: hasDescriptions }
   await rm(`${ctx.work}/hls`, { recursive: true, force: true })
   await execa('packager', buildPackagerArgs(ctx.language, tracks.captions, tracks.sdh, tracks.descriptions), { cwd: ctx.work, stdio: 'inherit' })
   await writeFile(`${ctx.work}/package.json`, JSON.stringify({ language: ctx.language, tracks } satisfies PackageReport))
@@ -28,7 +46,7 @@ export async function pack(ctx: Ctx) {
  * them with `,` in the playlist. `roles=description` is the DASH Role alias; the HLS AD signal is the characteristic.
  * Packager v3.9.3 rejects a zero-cue WebVTT input (`Packaging Error: 6 (END_OF_STREAM)`, DESC-001 dry run), so when the clip
  * has no dialogue (`hasCaptions=false`) the captions and SDH descriptors are omitted; the whole-file VTTs are still published.
- * `hasSdh=false` (the SDH step degraded to plain captions, work/sdh.json) omits only the "Rich captions" descriptor, so the
+ * `hasSdh=false` (the SDH step degraded or added nothing, work/sdh.json: richCaptions) omits only the "Rich captions" descriptor, so the
  * manifest never claims describes-music-and-sound for a track that has none. `hasDescriptions=false` (fit placed no cue, so
  * descriptions.vtt is header-only) omits the Description text descriptor for the same zero-cue reason.
  */
