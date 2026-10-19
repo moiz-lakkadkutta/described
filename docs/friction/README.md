@@ -4,7 +4,7 @@ One file per incident, created with `pnpm friction "<short title>"`. Format foll
 expected vs actual, severity, workaround, suggestion). Target: 8–12 per submission. Link the relevant ones from
 `docs/feedback.md`. These logs earn up to a 10 % bonus in judging and are the raw material for the required feedback.
 
-## Index (28)
+## Index (29)
 
 | Date | Log | Area | Severity |
 |---|---|---|---|
@@ -36,3 +36,4 @@ expected vs actual, severity, workaround, suggestion). Target: 8–12 per submis
 | 2026-10-19 | [Metro transform cache ignores `EXPO_PUBLIC_*` values and bakes the wrong API URL](2026-10-19-metro-transform-cache-ignores-expo-public-values-and-bakes-the-wrong-api-url.md) | Expo / Fire TV build | Medium |
 | 2026-10-19 | [Polly extended clips play louder than the narration mixed into the AD track](2026-10-19-polly-extended-clips-play-louder-than-the-narration-mixed-into-the-ad-track.md) | AWS Polly / mix | Medium |
 | 2026-10-19 | [npm publish E403 until 2FA is on for the account](2026-10-19-npm-publish-e403-until-2fa-is-on-for-the-account.md) | npm / open source | Medium |
+| 2026-10-19 | [Fire TV voice falls back to key injection without the voicecommandcontrol permission](2026-10-19-fire-tv-voice-falls-back-to-key-injection-without-voicecommandcontrol-permission.md) | Fire OS / Alexa | Medium |
