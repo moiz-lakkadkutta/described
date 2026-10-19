@@ -1,0 +1,75 @@
+{
+  "_note": "Cached Nova Lite SDH replies (output only), copied 2026-10-19 from work/<title>/cache/sdh/<key>.json; keys are the first 8 hex of sdhCacheKey. sintel and tears-of-steel are the current request keys; sintel-90-150-r2 is the Oct 15 re-run (old forced-tool request).",
+  "sintel-06e0a0df": {
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "text": "```json\n{\n  \"cues\": [\n    {\n      \"id\": \"s1\",\n      \"start\": 44.44,\n      \"end\": 45.229,\n      \"text\": \"[woman stumbles]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s2\",\n      \"start\": 52.799,\n      \"end\": 55.223,\n      \"text\": \"[woman falls]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s3\",\n      \"start\": 62.189,\n      \"end\": 64.013,\n      \"text\": \"[man wipes face]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s4\",\n      \"start\": 72.284,\n      \"end\": 75.524,\n      \"text\": \"[woman grips staff]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s5\",\n      \"start\": 80.157,\n      \"end\": 86.733,\n      \"text\": \"[woman lies in snow]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s6\",\n      \"start\": 89.314,\n      \"end\": 92.002,\n      \"text\": \"[hand grips staff]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s7\",\n      \"start\": 98.216,\n      \"end\": 101.888,\n      \"text\": \"[person falls]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s8\",\n      \"start\": 109.333,\n      \"end\": 112.789,\n      \"text\": \"[man holds staff]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s9\",\n      \"start\": 144.229,\n      \"end\": 147.589,\n      \"text\": \"[woman looks down]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s10\",\n      \"start\": 167.112,\n      \"end\": 168.84,\n      \"text\": \"[woman holds fruit]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s11\",\n      \"start\": 177.542,\n      \"end\": 179.462,\n      \"text\": \"[woman leaps]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s12\",\n      \"start\": 181.415,\n      \"end\": 183.071,\n      \"text\": \"[woman climbs]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s13\",\n      \"start\": 184.7,\n      \"end\": 186.908,\n      \"text\": \"[woman stands]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s14\",\n      \"start\": 196.35,\n      \"end\": 198.006,\n      \"text\": \"[woman reaches]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s15\",\n      \"start\": 203.125,\n      \"end\": 209.725,\n      \"text\": \"[creature roars]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s16\",\n      \"start\": 223.834,\n      \"end\": 226.186,\n      \"text\": \"[hand dips]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s17\",\n      \"start\": 237.45,\n      \"end\": 242.13,\n      \"text\": \"[woman sleeps]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s18\",\n      \"start\": 245.751,\n      \"end\": 248.055,\n      \"text\": \"[woman holds claw]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s19\",\n      \"start\": 251.539,\n      \"end\": 253.795,\n      \"text\": \"[chicken runs]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s20\",\n      \"start\": 255.134,\n      \"end\": 258.422,\n      \"text\": \"[woman leaps]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s21\",\n      \"start\": 260.44,\n      \"end\": 262.312,\n      \"text\": \"[woman steps]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s22\",\n      \"start\": 280.321,\n      \"end\": 286.633,\n      \"text\": \"[dragon watches birds]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s23\",\n      \"start\": 287.767,\n      \"end\": 290.503,\n      \"text\": \"[woman runs steps]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s24\",\n      \"start\": 293.073,\n      \"end\": 298.497,\n      \"text\": \"[woman runs fortress]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s25\",\n      \"start\": 302.23,\n      \"end\": 304.582,\n      \"text\": \"[woman stands ledge]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s26\",\n      \"start\": 306.253,\n      \"end\": 307.477,\n      \"text\": \"[woman runs]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s27\",\n      \"start\": 309.3,\n      \"end\": 311.988,\n      \"text\": \"[woman stands ruin]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s28\",\n      \"start\": 316.05,\n      \"end\": 320.226,\n      \"text\": \"[woman looks up]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s29\",\n      \"start\": 323.068,\n      \"end\": 328.06,\n      \"text\": \"[dragon flies town]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s30\",\n      \"start\": 333.745,\n      \"end\": 339.889,\n      \"text\": \"[woman gasps]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s31\",\n      \"start\": 333.958,\n      \"end\": 341.926,\n      \"text\": \"[woman lies]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s32\",\n      \"start\": 345.499,\n      \"end\": 350.779,\n      \"text\": \"[woman stares]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s33\",\n      \"start\": 354.228,\n      \"end\": 358.404,\n      \"text\": \"[woman clenches fists]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s34\",\n      \"start\": 369.119,\n      \"end\": 373.343,\n      \"text\": \"[figure walks dunes]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s35\",\n      \"start\": 374.853,\n      \"end\": 378.813,\n      \"text\": \"[woman lies bamboo]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s36\",\n      \"start\": 380.587,\n      \"end\": 383.659,\n      \"text\": \"[woman balances]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s37\",\n      \"start\": 390.55,\n      \"end\": 395.062,\n      \"text\": \"[woman fights beast]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s38\",\n      \"start\": 404.158,\n      \"end\": 407.782,\n      \"text\": \"[woman climbs cliff]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s39\",\n      \"start\": 409.037,\n      \"end\": 414.629,\n      \"text\": \"[person crawls snow]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s40\",\n      \"start\": 415.627,\n      \"end\": 418.387,\n      \"text\": \"[person walks snow]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s41\",\n      \"start\": 425.833,\n      \"end\": 432.433,\n      \"text\": \"[woman walks mountains]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s42\",\n      \"start\": 434.134,\n      \"end\": 440.662,\n      \"text\": \"[woman stands slope]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s43\",\n      \"start\": 446.979,\n      \"end\": 449.715,\n      \"text\": \"[woman lifts gaze]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s44\",\n      \"start\": 461.909,\n      \"end\": 470.405,\n      \"text\": \"[man holds head down]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s45\",\n      \"start\": 507,\n      \"end\": 512.232,\n      \"text\": \"[woman touches creature]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s46\",\n      \"start\": 524.631,\n      \"end\": 526.623,\n      \"text\": \"[woman leaps]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s47\",\n      \"start\": 530.793,\n      \"end\": 536.673,\n      \"text\": \"[woman walks dragon]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s48\",\n      \"start\": 549.125,\n      \"end\": 557.045,\n      \"text\": \"[woman touches crystals]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s49\",\n      \"start\": 582.25,\n      \"end\": 584.074,\n      \"text\": \"[woman lunges]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s50\",\n      \"start\": 636.804,\n      \"end\": 641.58,\n      \"text\": \"[woman touches cheek]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s51\",\n      \"start\": 659.996,\n      \"end\": 662.9,\n      \"text\": \"[woman lifts gaze]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s52\",\n      \"start\": 673.75,\n      \"end\": 678.19,\n      \"text\": \"[woman runs cave]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s53\",\n      \"start\": 701.324,\n      \"end\": 703.076,\n      \"text\": \"[woman winces]\",\n      \"sound\": true\n    }\n  ]\n}\n```"
+        }
+      ]
+    }
+  },
+  "sintel-90-150-r2-3972ea6a": {
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "toolUse": {
+            "toolUseId": "tooluse_ckBlBFRZioFYd7BY6EwbEI",
+            "name": "emit_sdh",
+            "input": {
+              "cues": [
+                {
+                  "id": "s1",
+                  "start": 11.208,
+                  "end": 14.448,
+                  "text": "[fire crackling]",
+                  "sound": true
+                },
+                {
+                  "id": "s2",
+                  "start": 30.042,
+                  "end": 31.962,
+                  "text": "[broth pours]",
+                  "sound": true
+                },
+                {
+                  "id": "s3",
+                  "start": 37.24,
+                  "end": 38.848,
+                  "text": "[bowl accepted]",
+                  "sound": true
+                },
+                {
+                  "id": "s4",
+                  "start": 50.869,
+                  "end": 52.741,
+                  "text": "[man speaks]",
+                  "sound": true
+                },
+                {
+                  "id": "s5",
+                  "start": 54.229,
+                  "end": 57.157,
+                  "text": "[woman stares]",
+                  "sound": true
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "tears-of-steel-40-100-a4c1daac": {
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "text": "```json\n{\n  \"cues\": [\n    {\n      \"id\": \"s1\",\n      \"start\": 0.05,\n      \"end\": 0.1,\n      \"text\": \"[gestures]\",\n      \"sound\": true\n    },\n    {\n      \"id\": \"s2\",\n      \"start\": 13.96,\n      \"end\": 14.01,\n      \"text\": \"[console beeps]\",\n      \"sound\": true\n    }\n  ]\n}\n```"
+        }
+      ]
+    }
+  }
+}
