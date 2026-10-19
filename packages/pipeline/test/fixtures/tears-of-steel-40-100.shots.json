@@ -1,0 +1,82 @@
+[
+  {
+    "index": 0,
+    "startMs": 0,
+    "endMs": 250
+  },
+  {
+    "index": 1,
+    "startMs": 250,
+    "endMs": 2083
+  },
+  {
+    "index": 2,
+    "startMs": 2083,
+    "endMs": 7125
+  },
+  {
+    "index": 3,
+    "startMs": 7125,
+    "endMs": 11125
+  },
+  {
+    "index": 4,
+    "startMs": 11125,
+    "endMs": 13667
+  },
+  {
+    "index": 5,
+    "startMs": 13667,
+    "endMs": 16667
+  },
+  {
+    "index": 6,
+    "startMs": 16667,
+    "endMs": 24458
+  },
+  {
+    "index": 7,
+    "startMs": 24458,
+    "endMs": 29917
+  },
+  {
+    "index": 8,
+    "startMs": 29917,
+    "endMs": 34083
+  },
+  {
+    "index": 9,
+    "startMs": 34083,
+    "endMs": 39375
+  },
+  {
+    "index": 10,
+    "startMs": 39375,
+    "endMs": 42125
+  },
+  {
+    "index": 11,
+    "startMs": 42125,
+    "endMs": 44833
+  },
+  {
+    "index": 12,
+    "startMs": 44833,
+    "endMs": 52417
+  },
+  {
+    "index": 13,
+    "startMs": 52417,
+    "endMs": 55417
+  },
+  {
+    "index": 14,
+    "startMs": 55417,
+    "endMs": 58208
+  },
+  {
+    "index": 15,
+    "startMs": 58208,
+    "endMs": 60000
+  }
+]
