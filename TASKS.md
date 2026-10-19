@@ -179,4 +179,6 @@ DESC-035 device check.
   - [x] done: Gate C re-run on both clips, 3 raters (g12 from describe, g13 from fit) (#63, #81)
 - [ ] DESC-034 · judges can try Described: a hosted copy of the API (stack `described-viewer-<stage>`, us-east-1: Lambda function URL + RDS PostgreSQL db.t4g.micro in isolated subnets, no NAT; ≈ $14.50 / month, docs/aws.md "Hosted API"); `API_MODE=viewer` leaves out `/admin`; `pnpm --filter @described/api export:catalogue` (published titles, catalogue tables only) and the function's `migrate` / `seed` operations by `aws lambda invoke`; `pnpm --filter @described/expo build:apk -- --hosted` (no device needed); README "Try it"
   - [x] done: stack, viewer mode, export / seed, APK build script, tests, docs
-  - [ ] pending (owner's go-ahead): `pnpm deploy:viewer`, seed invoke, `build:apk -- --hosted`, sideload check on the stick, `gh release create v0.1.0`
+  - [x] done: `pnpm deploy:viewer` (deployed 2026-10-15), seed invoke (re-seeded 2026-10-19)
+  - [ ] pending (owner's go-ahead): `build:apk -- --hosted`, sideload check on the stick, `gh release create v0.1.0`
+  - [ ] follow-up: `packages/shared-ui/src/strings.ts:81` Rich captions VoiceView label says "with sounds and music", but music is not tagged; fix it in the next APK build

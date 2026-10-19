@@ -30,7 +30,7 @@ client-cloudfront — plus AWS CLI 2; the full list of calls, Regions and costs 
 
 | Service | Why | How we use it |
 |---|---|---|
-| Bedrock — **Qwen3-VL 235B** (Converse) | Won the Gate C bake-off | **Describe**: one call per shot with 3–6 key frames ([0003](decisions/0003-gate-c.md)); **verify**: the same frames and the draft again, may only remove what the frames do not show ([0010](decisions/0010-verify-pass.md)). Not shipped: Nova Pro, Nova 2 Lite, Pegasus 1.2 (InvokeModel) |
+| Bedrock — **Qwen3-VL 235B** (Converse) | Won the Gate C bake-off | **Describe**: one call per shot with 3–6 key frames ([0003](decisions/0003-gate-c.md)); **verify**: the same frames and the draft again, may only remove what the frames do not show ([0010](decisions/0010-verify-pass.md)). Not shipped for describe: Nova Pro, Nova 2 Lite, Pegasus 1.2 (InvokeModel) |
 | Bedrock — **Amazon Nova Lite** (Converse) | Cheap, fast text model | **Scenes**: groups shots into places ([0012](decisions/0012-characters-and-scenes.md)); **fit**: shortens a description to its dialogue gap; the one over-budget shortening in the narrative pass; **rich captions** (SDH) |
 | Bedrock — **DeepSeek v3.2** (Converse, plain JSON reply) | Kept about half the cues it rewrote under our guards, where Nova Lite only removed repeats | **Narrative pass** (step 5b): one call per scene window joins the cues into one narration; deterministic guards keep facts, names and pronouns honest ([0017](decisions/0017-narrative-pass.md)) |
 | Bedrock — **Amazon Nova Pro** (Converse) | Fallback | Asked once when the DeepSeek call fails or its reply is unreadable ([0017](decisions/0017-narrative-pass.md)) |
