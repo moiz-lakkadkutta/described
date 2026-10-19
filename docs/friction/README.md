@@ -4,7 +4,7 @@ One file per incident, created with `pnpm friction "<short title>"`. Format foll
 expected vs actual, severity, workaround, suggestion). Target: 8–12 per submission. Link the relevant ones from
 `docs/feedback.md`. These logs earn up to a 10 % bonus in judging and are the raw material for the required feedback.
 
-## Index (23)
+## Index (28)
 
 | Date | Log | Area | Severity |
 |---|---|---|---|
@@ -31,3 +31,8 @@ expected vs actual, severity, workaround, suggestion). Target: 8–12 per submis
 | 2026-10-15 | [Aurora Serverless v2 auto-pause resume outlasts a TV app's fetch timeout](2026-10-15-aurora-serverless-v2-auto-pause-resume-outlasts-a-tv-app-fetch-timeout.md) | AWS / RDS, Lambda | Low |
 | 2026-10-15 | [Fire TV Recommendations retired May 2025; docs 404, only on the Wayback Machine](2026-10-15-fire-tv-recommendations-retired-may-2025-docs-404-only-on-wayback.md) | Fire TV discovery | Medium |
 | 2026-10-15 | [CaptioningManager style has no typeface name; the kit draws no caption edge](2026-10-15-captioningmanager-style-has-no-typeface-name-and-the-kit-draws-no-caption-edge.md) | Fire OS / captions | Low |
+| 2026-10-19 | [`build:lambda` ships a stale Prisma engine unless `prisma generate` runs first](2026-10-19-build-lambda-ships-a-stale-prisma-engine-unless-prisma-generate-runs-first.md) | AWS Lambda / Prisma | Low |
+| 2026-10-19 | [CDK RDS generated secret fails when every punctuation mark is excluded](2026-10-19-cdk-rds-generated-secret-fails-when-every-punctuation-mark-is-excluded.md) | AWS CDK / Secrets Manager | Medium |
+| 2026-10-19 | [Metro transform cache ignores `EXPO_PUBLIC_*` values and bakes the wrong API URL](2026-10-19-metro-transform-cache-ignores-expo-public-values-and-bakes-the-wrong-api-url.md) | Expo / Fire TV build | Medium |
+| 2026-10-19 | [Polly extended clips play louder than the narration mixed into the AD track](2026-10-19-polly-extended-clips-play-louder-than-the-narration-mixed-into-the-ad-track.md) | AWS Polly / mix | Medium |
+| 2026-10-19 | [npm publish E403 until 2FA is on for the account](2026-10-19-npm-publish-e403-until-2fa-is-on-for-the-account.md) | npm / open source | Medium |

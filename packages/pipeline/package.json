@@ -9,7 +9,8 @@
     "eval-context": "tsx src/eval-context-cli.ts",
     "worker": "tsx src/worker.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.700.0",

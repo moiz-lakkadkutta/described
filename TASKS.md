@@ -3,10 +3,15 @@
 Platform: Fire OS only; Vega deferred (decision 0004). Freeze Oct 15, submit Oct 22.
 - Vega: `apps/vega/App.template.tsx` wires Vega's `TVEventHandler` through `configureRemote` (#10); still a template, not built.
 
-**Status 2026-10-14 (main 788e973).** Merged: #1–#31. Device run 2026-10-10 on the stick (release build, `docs/device-checks/RUN-2026-10.md`):
-checks 1–13 passed; check 14 (Alexa) failed for fast forward / rewind and was fixed in #31; check 14 (re-run), 15 offline,
-16 stalls, 17 VoiceView and the re-checks of #30 are still to run on 788e973. The results table in RUN-2026-10.md is not filled in yet.
-**Next:** DESC-010 (five titles, branch `claude/desc-010`), then the remaining device checks, then DESC-011 screenshots.
+**Status 2026-10-19 (main e8cfcd5).** Merged: #1–#82 (#34, #38, #78 closed unmerged); last in: #82, Rich captions ask Nova
+Lite for plain JSON. Open: #83 (docs refresh), #84 (housekeeping); in progress: a Rich-captions trim fix (branch
+`fix/sdh-trim-not-reject`). Six titles live on Ruth generative (docs/titles.md "Published state"); Gate C g13 passes both
+clips (decision 0017, #80 / #81); kit from npm (`@moiz0309/vega-media-kit` 0.2.0, #79); hosted API code in (#66, #73–#75).
+Device re-checks 6, 11, 14–17, DESC-007 Extended and DESC-035 are still to run; the results table in RUN-2026-10.md is not
+filled in yet.
+**Next (submit Oct 22):** Rich captions on the published titles: #82 fixed the request; what is left is `mergeSdh` rejecting
+sound cues that run too long or overlap (trim them instead, `fix/sdh-trim-not-reject`). Then `gh release create v0.1.0`
+after the stick test, demo video and screenshots (DESC-011 / 012), DESC-035 device check.
 
 - [x] DESC-001 · week 0 · Three narrated shots end to end (Sintel 0:00–1:00; run on 1:30–2:30 and 1:30–3:30, see 0003) → decides Gate A
   - part 2: deployed, paid run published, Gate A passed on Fire OS (Vega deferred), Gate C passed with Qwen3-VL 235B (72.4 %, decision 0003)
@@ -15,7 +20,7 @@ checks 1–13 passed; check 14 (Alexa) failed for fast forward / rewind and was 
   - [x] `pnpm dev` runs API + Expo (`apps/expo` `dev` script, #10; root `turbo run dev --parallel`)
   - [x] unused `described-nova-<stage>` stack and Nova IAM removed (DESC-015, #9)
   - Vega: `apps/vega` stays a template; built only if the Vega SDK is installed and kit KIT-010 lands
-- [ ] DESC-003 · week 1 · Pipeline steps 1–5 as pg-boss jobs (probe, shots, speech map, describe, fit) + fit fixtures (needs: worker run, `docs/device-checks/DESC-003.md` §B)
+- [ ] DESC-003 · week 1 · Pipeline steps 1–5 as pg-boss jobs (probe, shots, speech map, describe, fit) + fit fixtures — **partial**: code done (#3), but the pg-boss worker path has never run against AWS; every paid run used the CLI (needs: worker run, `docs/device-checks/DESC-003.md` §B)
   - [x] one job per step 1–5 (`pipeline-probe` … `pipeline-fit`; `pipeline-finish` runs edit … publish in one job, `packages/pipeline/src/jobs.ts`); cost recorded per job (`Job.costUsd`, #3)
   - [x] describe calls Qwen3-VL on Bedrock directly, no Strands agent (decision 0005); no paid runs without the human
   - [x] per-shot describe cache with the describe job, so a retry does not re-buy finished shots (`cachedDescribe` in `04-describe.ts`, #3)
@@ -119,24 +124,27 @@ checks 1–13 passed; check 14 (Alexa) failed for fast forward / rewind and was 
 - [ ] DESC-022 · follow-up · Device run 2026-10-10: removing a title from My list after a relaunch sent no `DELETE /me/list/:slug`; the human logged check 11 as passed. A change that fails with no answer is now sent once more before it is undone (needs: device re-check of check 11 after a relaunch)
 - [ ] DESC-023 · follow-up · About screen heading sits inside its scroll view (`packages/shared-ui/src/screens/About.tsx`), the clipping pattern #30 fixed for the Grid heading (Described, My list); heading now above the scroll view (needs: device re-check)
 - [ ] DESC-024 · follow-up · Re-check Gate C on sintel-90-210 with the 0008 prompt (on-screen text always "Words appear:", "Darkness." only when nothing is visible, "dim" for a dim scene) — **blocks the next full-length describe** (#37, decision 0008)
+  - [x] done in substance: superseded by Gate C g10–g13 (#47, #60, #63, #81); g13 passes both clips (docs/evaluation.md#gate-c-results); full-length `sintel` described (DESC-036, #69)
+  - [ ] left: `own.ts` still gates `--long` on this ticket (see DESC-025)
 - [ ] DESC-025 · follow-up · One command from a video you own to a described stream: `pnpm describe <file|https-url> --title …` (#45)
   - [x] done: estimate before spending (measured per-minute rates, `estimateUsd`), confirm or `--yes`, `--dry-run` with no AWS call;
     cut and upload to `sources/<slug>.mp4`, Title row, every step, rows and status published; refuses a slug in use (Title row, another
     title's source key, S3 objects with no row); `--replace` keeps licence and credit, drafts the title and invalidates CloudFront;
     over 15 min needs `--long`; "Cost per hour of film" in the README (≈ $3.28, $3.08–3.52)
-  - [ ] pending: a paid end-to-end run of the command (only dry runs so far); the measured line at the end is unseen on a real run
-  - [ ] pending: drop the `--long` gate once DESC-024 passes; re-derive the hourly figure from a full-length run
-- [ ] DESC-026 · follow-up · Log a line on each audio-track switch in the Fire OS player (from and to track, fade and hold timings), so
+  - [x] done: a paid end-to-end run of the command — full-length `sintel` via `pnpm describe` (DESC-036, #69)
+  - [ ] left: drop the `--long` gate (DESC-024 is superseded by g13); re-derive the hourly figure from the full-length run
+- [ ] DESC-026 · follow-up · **not started** · Log a line on each audio-track switch in the Fire OS player (from and to track, fade and hold timings), so
   RUN-2026-10 check 6 can be checked from logcat; the 2026-10-14 run had no line to read (docs/device-checks/RUN-2026-10.md)
-- [ ] DESC-027 · follow-up · Visual verify pass: each Qwen3-VL description is checked against its own key frames by one more call that only deletes or generalises (decision 0010); deterministic guards keep the draft on any new word, changed on-screen text, empty or longer reply; `verify.json` audit; `DESCRIBE_VERIFY=0` off
-  - [ ] pending: evaluation on sintel-90-210 (describe+verify → fit → edit → voice, two blind raters) against g9's 14/29; measure the real cost per minute and add it to `MEASURED_TITLES` / `estimateUsd`
+- [ ] DESC-027 · follow-up · Visual verify pass (#51): each Qwen3-VL description is checked against its own key frames by one more call that only deletes or generalises (decision 0010); deterministic guards keep the draft on any new word, changed on-screen text, empty or longer reply; `verify.json` audit; `DESCRIBE_VERIFY=0` off
+  - [x] done: evaluation ran as Gate C g10–g13 (#60, #63, #81); the estimator adds `VERIFY_PER_MIN` (#80, `cost.ts`)
+  - [ ] left: add the measured full-length run ($0.040 / min describe+verify) to `MEASURED_TITLES`
 - [ ] DESC-028 · follow-up · fit's shortener keeps sentences: a shortening (Nova Lite's, then the deterministic one) must keep its content words in order, add no list comma, not end mid-phrase and not be only a subject; otherwise the text stays unshortened and fit moves on (decision 0011; g9 shot 14 "City, central pyramid.")
   - [x] done: the edit pass rejects an edit that is no longer sentences (`editReadsAsSentences`; g9 shot 26 "Scaled creature, horns, bloodied wing, stares." came from 05b, not fit)
   - [x] done: 06-voice's overrun shortening uses the same check (`shortenSentences`); on failure, its existing extended / event / drop path
   - [x] done in DESC-029: "Tent glows." (sintel-90-210 A2, Nova Lite from "Tent interior. Fire glows.") merged two sentences' subjects; `readsAsSentences` check 2a (`joinsSentences`, one source sentence per clause) now rejects it (decision 0012)
-- [ ] DESC-030 · follow-up · Gate C reproducible from the repo: `pnpm gate-c run <source> <eval> [--steps …] [--cap 0.30] [--dry-run]` (copies step inputs, never caches or outputs; describe/fit/edit/voice only, no publish, no DB; hard cap on the meter), `pnpm gate-c packets <eval> <out> --raters 3` (byte-identical blind packets, rubric quoting decision 0009), `pnpm gate-c score <out>` (majority of 3 raters, ≥ 70 %); `pnpm gate-c prepare <url|s3|file> <slug> --start --end` (a new segment: cut + probe/shots/speech, capped); procedure in docs/evaluation.md; primary `sintel-90-210` (tuned), held-out Tears of Steel 6:30–8:30 reported separately (from the DESC-024 friction log)
-  - [ ] pending: `pnpm gate-c prepare https://download.blender.org/demo/movies/ToS/tears_of_steel_720p.mov tos-390-510 --start 6:30 --end 8:30 --cap 0.10` (≈ $0.048, Transcribe)
-  - [ ] pending: first paid run with the command (DESC-027's evaluation is the natural one), both clips, 3 raters
+- [x] DESC-030 · follow-up · Gate C reproducible (#53, #55) from the repo: `pnpm gate-c run <source> <eval> [--steps …] [--cap 0.30] [--dry-run]` (copies step inputs, never caches or outputs; describe/fit/edit/voice only, no publish, no DB; hard cap on the meter), `pnpm gate-c packets <eval> <out> --raters 3` (byte-identical blind packets, rubric quoting decision 0009), `pnpm gate-c score <out>` (majority of 3 raters, ≥ 70 %); `pnpm gate-c prepare <url|s3|file> <slug> --start --end` (a new segment: cut + probe/shots/speech, capped); procedure in docs/evaluation.md; primary `sintel-90-210` (tuned), held-out Tears of Steel 6:30–8:30 reported separately (from the DESC-024 friction log)
+  - [x] done: `pnpm gate-c prepare https://download.blender.org/demo/movies/ToS/tears_of_steel_720p.mov tos-390-510 --start 6:30 --end 8:30 --cap 0.10` (≈ $0.048, Transcribe)
+  - [x] done: paid runs with the command, both clips, 3 raters: g10–g13 (#60, #63, #81)
   - [x] done (DESC-029): `scenes` in EVAL_STEPS (scenes.json carried for fit / edit), and evalCtx passes the source slug's glossary (`evalGlossary`)
 - [ ] DESC-029 · follow-up · Characters and scenes: per-title `characters[]` / `settings[]` glossary (titles.json, Glossary contract), "People and places in this film" in the describe prompt (names and roles only once revealed), `knownNames` lowercase fix, scene-grouping step `scenes` (04c, Nova Lite + deterministic fallback), fit states a scene's place in its first cue (protected, "Back in …", Extended-only scene pauses, at most one per minute), names only once said inside the segment and bound to the character's look, edit pass per scene with a director's voice and a grounding guard with per-cue evidence; `pnpm eval-context` (decision 0012; baseline docs/eval/character-scene-baseline.md) (needs: re-run of the five titles from describe, Gate C re-check with DESC-024)
   - [x] done: code, tests, glossary for the five titles, decision 0012, baseline (0 / 0 names, no name voiced; 6 of 11 scenes state their place first; 4 of 7 changes signalled; 3 repeats)
@@ -158,17 +166,17 @@ checks 1–13 passed; check 14 (Alexa) failed for fast forward / rewind and was 
   - [ ] follow-up (g13): "Ruin:" label leak — a scene / place label prefix ("Ruin: …", held-out shot 11) reaches the voiced cue; reject a leading "<Label>:" that is not "Words appear:"
   - [ ] follow-up (g13): article-less fragment "Woman lifts a wooden plank." (Sintel shot 15) passes the sentence guard (`editReadsAsSentences` / `polishCue`); a sentence-initial bare singular count noun should fail
   - [ ] follow-up (g13): the describe stage borrows details from neighbouring shots (Sintel 3: grey beard and face paint from shot 4; held-out 5, 20, 21, 24) — verify against the shot's own frames only, or prompt describe not to carry details across shots
-- [ ] DESC-031 · follow-up · On-screen text is quoted only when fully legible (held-out Gate C g10 shot 4: a partly hidden handwritten quote, misread): describe prompt quotes only when every word is legible, else says what kind of text appears; verify checks text clauses instead of skipping them — kept verbatim or replaced whole by "Words appear." / "Text erscheint.", never a corrected quote (guard 2, `textRemoved` in verify.json); `VERIFY_PROMPT_VERSION` 4, `DESCRIBE_CACHE_VERSION` 2 (decision 0013)
-  - [x] done: code, tests (`test/legible-text.test.ts`), decision 0013, amendments to 0008 and 0010
-  - [ ] pending: Gate C re-run from describe on both clips (sintel-90-210 and the held-out Tears of Steel 6:30–8:30), 3 raters
+- [x] DESC-031 · follow-up · On-screen text is quoted only when fully legible (held-out Gate C g10 shot 4: a partly hidden handwritten quote, misread): describe prompt quotes only when every word is legible, else says what kind of text appears; verify checks text clauses instead of skipping them — kept verbatim or replaced whole by "Words appear." / "Text erscheint.", never a corrected quote (guard 2, `textRemoved` in verify.json); `VERIFY_PROMPT_VERSION` 4, `DESCRIBE_CACHE_VERSION` 2 (decision 0013)
+  - [x] done: code, tests (`test/legible-text.test.ts`), decision 0013, amendments to 0008 and 0010 (#56)
+  - [x] done: Gate C re-run from describe on both clips, 3 raters (g11, g12; g13 from fit) (#60, #63, #81)
 - [ ] DESC-032 · follow-up · Narration never talks over speech Transcribe missed: after Transcribe, a local ffmpeg check finds loud, centred voice-band sound inside each gap (mid/side of the stereo mix, 300–3400 Hz, ≥ 6 dB over the gap's median and mid ≥ 8 dB over side, ≥ 500 ms, ≥ dialogue median − 20 dB; skipped on a mono mix) and splits the gap around it with the 200 ms margin; `gaps.vad.json` records Transcribe's gaps, the unlabelled speech and the gap time lost; off with `SPEECH_VAD=0` (decision 0014; tos-390-510 "Come on!" 103 s and the yell 112 s are caught, 0–9.6 % of gap time lost on the four recorded clips)
   - [x] done: `src/voiceActivity.ts`, 03-speech wiring and `regap(work)`, tests (pure + synthetic ffmpeg audio; ffmpeg installed in CI), eval copies carry `gaps.vad.json`
   - [x] done: `pnpm gate-c run` rebuilds the copy's gaps with `regap` before the first step (`--keep-gaps` to keep them; `gapsSource` in gate-c.json), so the next Gate C runs of tos-390-510 and sintel-90-210 get the split with no Transcribe call; never `pnpm pipeline describe --from speech` (it publishes). 4 of 20 placed cues on tos-390-510-g10 and 4 of 18 on sintel-90-210-g10 move
   - [x] done: packets list unlabelled speech near each shot and take it as the next speech; 0009 and the rubric: "fits" also means before unlabelled speech; raters may mark a segment as not speech
   - [ ] pending: listen to the detected segments (decision 0014 table); the false positives seen in spectrograms (Sintel impacts 69–71 s, the dragon's squeaks 92–94 s) are not speech; a speech/music/effects classifier would be the next step if they cost too many cues
-- [ ] DESC-033 · follow-up · Narration is complete sentences (Gate C g11 failed 19 / 29 and 20 / 30 against 21, mostly text quality: "Man holds staff.", lowercase starts with no full stop, verbless lines, a misread quote kept): describe prompt asks for complete present-tense sentences with articles and a verb, a capital letter and a full stop (no example sentence; `DESCRIBE_CACHE_VERSION` 3); verify prompt asks for complete sentences and allows adding only a, an, the, is, are, and any doubt about a letter or a partly hidden word means "Words appear." (`VERIFY_PROMPT_VERSION` 5); the verify guard accepts a pure grammar fix past the word cap (≤ 3 over the draft); pure `polishCue` (capital letters, full stops, spaces; quotes untouched) before Polly in 06-voice and for descriptions.vtt in 08-text (decision 0015)
-  - [x] done: code, tests (`test/sentences.test.ts`, g11 texts as fixtures), decision 0015
-  - [ ] pending: Gate C re-run from describe on both clips (sintel-90-210 and the held-out Tears of Steel 6:30–8:30), 3 raters, with described-41's fit changes
+- [x] DESC-033 · follow-up · Narration is complete sentences (Gate C g11 failed 19 / 29 and 20 / 30 against 21, mostly text quality: "Man holds staff.", lowercase starts with no full stop, verbless lines, a misread quote kept): describe prompt asks for complete present-tense sentences with articles and a verb, a capital letter and a full stop (no example sentence; `DESCRIBE_CACHE_VERSION` 3); verify prompt asks for complete sentences and allows adding only a, an, the, is, are, and any doubt about a letter or a partly hidden word means "Words appear." (`VERIFY_PROMPT_VERSION` 5); the verify guard accepts a pure grammar fix past the word cap (≤ 3 over the draft); pure `polishCue` (capital letters, full stops, spaces; quotes untouched) before Polly in 06-voice and for descriptions.vtt in 08-text (decision 0015)
+  - [x] done: code, tests (`test/sentences.test.ts`, g11 texts as fixtures), decision 0015 (#61)
+  - [x] done: Gate C re-run on both clips, 3 raters (g12 from describe, g13 from fit) (#63, #81)
 - [ ] DESC-034 · judges can try Described: a hosted copy of the API (stack `described-viewer-<stage>`, us-east-1: Lambda function URL + RDS PostgreSQL db.t4g.micro in isolated subnets, no NAT; ≈ $14.50 / month, docs/aws.md "Hosted API"); `API_MODE=viewer` leaves out `/admin`; `pnpm --filter @described/api export:catalogue` (published titles, catalogue tables only) and the function's `migrate` / `seed` operations by `aws lambda invoke`; `pnpm --filter @described/expo build:apk -- --hosted` (no device needed); README "Try it"
   - [x] done: stack, viewer mode, export / seed, APK build script, tests, docs
   - [ ] pending (owner's go-ahead): `pnpm deploy:viewer`, seed invoke, `build:apk -- --hosted`, sideload check on the stick, `gh release create v0.1.0`

@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { transcribeUsd } from '../cost'
-import { cutArgs, isHttps, parseClock } from '../own'
+import { isHttps, parseClock } from '../own'
 import { SLUG_RE, type Step } from '../steps'
 import { assertCap, assertNew, evalCtx, runEvalSteps, runSettings, writeManifest, type EvalDeps, type EvalResult } from './run'
 
