@@ -8,7 +8,9 @@
     "userInterfaceStyle": "dark",
     "android": {
       "package": "dev.moizp.described",
-      "permissions": [],
+      "permissions": [
+        "com.amazon.permission.media.session.voicecommandcontrol"
+      ],
       "intentFilters": [
         {
           "action": "MAIN",
@@ -22,6 +24,7 @@
     "plugins": [
       "./plugins/withKeyEvent",
       "./plugins/withLocalApi",
+      "./plugins/withFireTvVoice",
       [
         "expo-font",
         {

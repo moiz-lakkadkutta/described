@@ -52,6 +52,22 @@ note: record the logcat lines and stop.
 
 Start Sintel from the app and let it play. Watch logcat (`DescribedMediaSession`, `ReactNativeJS`).
 
+**Prerequisite (Fire OS before 14):** Fire TV's voice controller only targets a MediaSession when the app declares
+`<uses-permission android:name="com.amazon.permission.media.session.voicecommandcontrol" />` (app.json
+`android.permissions`) and opts in with `<meta-data android:name="com.amazon.voice.supports_background_media_session"
+android:value="true" />` (plugins/withFireTvVoice.js). https://developer.amazon.com/docs/fire-tv/mediasession-api-integration.html
+
+- [ ] `aapt dump xmltree <apk> AndroidManifest.xml | grep -iE "voicecommandcontrol|supports_background_media_session"` → both present;
+      after install `adb shell dumpsys package dev.moizp.described | grep voicecommandcontrol` → granted.
+- [ ] Clear logcat first (`adb logcat -G 16M && adb logcat -c`). After the voice commands,
+      `adb logcat -d | grep -E "OrchestratingCommandExecutor|ButtonPressCommand|transport control="` shows **no**
+      `No target session, trying button press` / `ButtonPress…Command` and no `control=button keyCode=85/87/88`.
+
+**Result 2026-10-19 (Fire OS 7, build without the permission): FAIL.** Pause and resume toggled; fast forward, rewind and
+restart did nothing. Vizzini logged `No target session, trying button press.` on every directive and injected keys 85
+(pause and resume), 87 (fast forward) and 88 (rewind and restart). The session itself was created once, active and
+published. Cause: the missing permission (and opt-in). Details: RUN-2026-10.md check 14.
+
 - [ ] On play: `session created`, `session active: Sintel`.
 - [ ] `adb shell dumpsys media_session | grep -A12 DescribedMediaSession` → `active=true`, `state=PlaybackState {state=3` (playing),
       `actions=` ≠ 0, metadata title Sintel.
@@ -73,9 +89,11 @@ Start Sintel from the app and let it play. Watch logcat (`DescribedMediaSession`
       `dumpsys media_session` keeps `active=true` while the Alexa UI is up — the Alexa UI pauses the activity, and an
       inactive session would be unpublished before the SeekTo directive lands. (If the Alexa UI stopped the activity
       instead, `(activity stopped)` would show and the visibility fix would be a no-op: record it as a FAIL.)
-- [ ] If any voice command logs **only** `transport control=button keyCode=…` (85, 89 or 90) and the video does not react,
-      Alexa sends relative media buttons: set `createMediaSession(nativeMediaSession, { acceptButtons: true })` in
-      apps/expo/App.tsx, rebuild, re-run §3 and §4 (check §4 for double toggles), and file a friction log.
+- [ ] If any voice command logs **only** `transport control=button keyCode=…` (85, 87, 88, 89 or 90), Fire TV fell back to
+      key injection and did not target the session: FAIL. Check the prerequisite above first. Do **not** set
+      `acceptButtons` or map 87 / 88 to seeks: 85 is a toggle either way, and rewind and restart both arrive as 88. If the
+      permission is granted and Vizzini still says `No target session`, uninstall and reinstall (not an update in place),
+      then capture `adb shell dumpsys media_session` while the Alexa overlay is up.
 - [ ] **Echo (far-field)**, if one is paired: "Alexa, pause" / "Alexa, resume" behave the same.
 - [ ] While Alexa listens (blue bar), playback pauses or ducks; after the command it continues correctly. Note what happens.
 - [ ] **Background:** while playing, press the remote's Home → logcat `session inactive (activity stopped)`; `dumpsys

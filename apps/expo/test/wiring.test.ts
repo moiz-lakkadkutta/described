@@ -3,6 +3,9 @@ import { createKeyHub } from '../src/keys'
 
 const require = createRequire(import.meta.url)
 const keyEvent = require('../plugins/withKeyEvent.js') as { patch: (s: string) => string }
+type Manifest = { manifest: { application: { $: Record<string, string>; 'meta-data'?: { $: Record<string, string> }[] }[] } }
+const fireTvVoice = require('../plugins/withFireTvVoice.js') as { patch: (m: Manifest) => Manifest }
+const appJson = require('../app.json') as { expo: { plugins: (string | unknown[])[]; android: { permissions: string[] } } }
 const localApi = require('../plugins/withLocalApi.js') as { cleartextHost: (u?: string) => string | null; securityConfig: (h: string) => string; debugSecurityConfig: () => string }
 
 /**
@@ -220,6 +223,25 @@ describe('config plugins', () => {
     expect(xml).toContain('<base-config cleartextTrafficPermitted="false" />')
     expect(xml).toContain('<domain includeSubdomains="false">192.168.1.20</domain>')
     expect(xml.match(/<domain /g)).toHaveLength(1) // release: the API host and nothing else
+  })
+  it('withFireTvVoice adds the background media session opt-in once, idempotently', () => {
+    const manifest: Manifest = { manifest: { application: [{ $: { 'android:name': '.MainApplication' }, 'meta-data': [{ $: { 'android:name': 'other', 'android:value': 'x' } }] }] } }
+    const once = fireTvVoice.patch(manifest)
+    const twice = fireTvVoice.patch(structuredClone(once))
+    for (const m of [once, twice]) {
+      const meta = m.manifest.application[0]!['meta-data']!
+      expect(meta.filter((d) => d.$['android:name'] === 'com.amazon.voice.supports_background_media_session')).toEqual([
+        { $: { 'android:name': 'com.amazon.voice.supports_background_media_session', 'android:value': 'true' } },
+      ])
+      expect(meta).toHaveLength(2) // the other entry is kept
+    }
+    const bare = fireTvVoice.patch({ manifest: { application: [{ $: {} }] } })
+    expect(bare.manifest.application[0]!['meta-data']).toHaveLength(1)
+  })
+  it('app.json asks for the Fire TV voice permission (exact spelling) and registers withFireTvVoice', () => {
+    // https://developer.amazon.com/docs/fire-tv/mediasession-api-integration.html "Add the Media Session Permission"
+    expect(appJson.expo.android.permissions).toContain('com.amazon.permission.media.session.voicecommandcontrol')
+    expect(appJson.expo.plugins).toContain('./plugins/withFireTvVoice')
   })
   it('debug builds keep cleartext open for the Metro dev server', () => {
     expect(localApi.debugSecurityConfig()).toContain('<base-config cleartextTrafficPermitted="true" />')
