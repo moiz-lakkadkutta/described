@@ -12,12 +12,13 @@ Actual: the track's narration goes through the mix's 48 kHz stereo `aformat`, `a
   gain (Sintel: −18.69 LUFS measured, −5.31 dB applied). The app played Polly's 24 kHz mono MP3 with none of that, 7.5 dB
   louder, over a paused, silent film — so it sounded like a second narrator. Polly returns audio at its own fixed level;
   there is no loudness target to ask for, and its docs give no LUFS figure to plan a mix around.
-Severity: Medium — decoding and correlating the published tracks took most of a session; it was the first thing a tester noticed on the full-length film (PR #77).
+Severity: Medium — on full-length Sintel the pause clips sound like a second description voice, 7.5 dB louder than the
+  narration in the track (PR #77).
 Workaround: `07-mix` writes `cue_{i}.track.mp3` per cue through the same chain (48 kHz stereo, the mix's limiter, the gain the
   loudnorm apply pass reports); `10-publish` uploads it when it is current. When loudnorm runs `dynamic`, no fixed gain can
   match it, so the Polly clip is used and the mix warns.
 Suggestion: a documented output loudness for each Polly engine (neural, generative), or an optional loudness target on
   `SynthesizeSpeech` (for example −23 LUFS / EBU R128), so clips played alone and clips mixed into a track can match.
-Environment: macOS, ffmpeg 7, Amazon Polly (Joanna, neural; later Ruth, generative), us-east-1, Fire TV Stick (AFTSS), 2026-10-15.
+Environment: macOS, ffmpeg 8.0, Amazon Polly (Joanna, neural; later Ruth, generative), eu-central-1, Fire TV Stick (AFTSS), 2026-10-15.
 Links: https://docs.aws.amazon.com/polly/latest/dg/API_SynthesizeSpeech.html ·
   https://docs.aws.amazon.com/polly/latest/dg/generative-voices.html · https://ffmpeg.org/ffmpeg-filters.html#loudnorm · PR #77
