@@ -26,7 +26,7 @@ export async function sdh(ctx: Ctx, send?: SdhConverse, audible?: SdhEvidence['a
   await writeFile(`${ctx.work}/captions.vtt`, textTrackVtt(captions))
   // No dialogue → nothing for Nova Lite to annotate; write header-only files rather than spend a call on an empty array.
   const { cues: sdhCues, degraded, added } = captions.length
-    ? await sdhWithNovaLite(captions, cues, ctx.language, send, { audible: audible ?? audibleFrom(await momentaryLoudness(`${ctx.work}/mezz.mp4`, ctx.signal)), cacheDir: `${ctx.work}/cache/sdh` })
+    ? await sdhWithNovaLite(captions, cues, ctx.language, send, { audible: audible ?? audibleFrom(await momentaryLoudness(`${ctx.work}/mezz.mp4`, ctx.signal)), duration: ((ms) => ms === undefined ? undefined : ms / 1000)(await probeDurationMs(ctx.work)), cacheDir: `${ctx.work}/cache/sdh` })
     : { cues: [], degraded: false, added: 0 }
   const problems = lintCues(sdhCues)
   if (problems.length) console.warn('SDH lint', problems)

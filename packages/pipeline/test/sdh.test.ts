@@ -99,7 +99,36 @@ describe('mergeSdh', () => {
       { id: 'sc', start: 5, end: 6, text: '[fire crackles]' },
       { id: 'sd', start: 5.5, end: 6.5, text: '[wind howls]' },
     ], anySound).filter((c) => c.sound)
-    expect(out.map((c) => [c.id, c.start, c.text])).toEqual([['s1', 5, '[fire crackles]'], ['s2', 25, '[door slams]']])
+    // The duplicate is dropped; the overlapping [wind howls] takes the free time after [fire crackles] (0018: kept sounds are obstacles).
+    expect(out.map((c) => [c.id, c.start, c.end, c.text])).toEqual([['s1', 5, 6, '[fire crackles]'], ['s2', 6, 6.5, '[wind howls]'], ['s3', 25, 26, '[door slams]']])
+  })
+  // Review of PR #85: a person is not a sound's source. "[old man pours]" beside "Old man pours broth." names who pours, not what sounds.
+  it('a tag naming a person keeps only a voice sound; otherwise it needs a source that is not a person or a bare modifier', () => {
+    const far: Cue[] = [{ trackId: 'captions', id: 'c1', start: 100, end: 102, text: 'Hello.', speaker: 'spk_0' }]
+    const kept = (text: string, description: string) => mergeSdh(far, [{ id: 's1', start: 10, end: 11, text }], { descriptions: [{ start: 9, end: 12, text: description }] }).filter((c) => c.sound).map((c) => c.text)
+    expect(kept('[old man pours]', 'Old man pours broth.')).toEqual([])
+    expect(kept('[man pours]', 'Old man pours broth.')).toEqual([])
+    expect(kept('[old woman pours]', 'An old woman pours broth.')).toEqual([])
+    expect(kept('[woman gasps]', 'A woman gasps and steps back.')).toEqual(['[woman gasps]'])
+    expect(kept('[broth pours]', 'Old man pours broth.')).toEqual(['[broth pours]'])
+    expect(kept('[creature roars]', 'The creature roars.')).toEqual(['[creature roars]'])
+  })
+  it('a later sound takes the free time after an earlier kept one instead of being dropped', () => {
+    const far: Cue[] = [{ trackId: 'captions', id: 'c1', start: 100, end: 102, text: 'Hello.', speaker: 'spk_0' }]
+    const out = mergeSdh(far, [{ id: 'a', start: 0, end: 2, text: '[door slams]' }, { id: 'b', start: 1, end: 6, text: '[dog barks]' }], { descriptions: [{ start: 0, end: 6, text: 'A door slams and a dog barks.' }] })
+    expect(out.filter((c) => c.sound).map((c) => [c.text, c.start, c.end])).toEqual([['[door slams]', 0, 2], ['[dog barks]', 2, 4]])
+  })
+  it('a slot starts at 0 or later and ends within the title when its duration is known', () => {
+    const far: Cue[] = [{ trackId: 'captions', id: 'c1', start: 100, end: 102, text: 'Hello.', speaker: 'spk_0' }]
+    const slots = (start: number, end: number, duration?: number) => mergeSdh(far, [{ id: 's1', start, end, text: '[door slams]' }], { descriptions: [{ start: 0, end: 12, text: 'She slams the door.' }], duration }).filter((c) => c.sound).map((c) => [c.start, c.end])
+    expect(slots(-1, 0.5)).toEqual([[0, 0.5]])
+    expect(slots(9, 12, 10)).toEqual([[9, 10]])
+    expect(slots(9, 12)).toEqual([[9, 11]])
+  })
+  it('rounds a slot inward to the millisecond so it never overlaps a caption by a fraction of one', () => {
+    const tight: Cue[] = [{ trackId: 'captions', id: 'c1', start: 0, end: 5.0004, text: 'Hello.', speaker: 'spk_0' }, { trackId: 'captions', id: 'c2', start: 6.4996, end: 9, text: 'Bye.', speaker: 'spk_1' }]
+    const out = mergeSdh(tight, [{ id: 's1', start: 5, end: 7, text: '[door slams]' }], { descriptions: [{ start: 4, end: 8, text: 'She slams the door.' }] })
+    expect(out.filter((c) => c.sound).map((c) => [c.start, c.end])).toEqual([[5.001, 6.499]])
   })
   it('does not read a sound word in brackets as a speaker tag', () => {
     expect(mergeSdh(seven.slice(0, 1), [echo(seven[0]!, '[Wind] Line 1')], anySound)[0]!.text).toBe('Line 1')
@@ -190,7 +219,7 @@ describe('sdhWithNovaLite (chunked, additions only)', () => {
     expect(await sdhWithNovaLite(caps, [], 'en', async () => jsonReply([]))).toEqual({ cues: caps.map((c) => ({ ...c, trackId: 'sdh' })), degraded: false, calls: 1, added: 0 })
   })
 
-  it('sound ids are numbered once across windows and overlaps at a window edge are dropped', async () => {
+  it('sound ids are numbered once across windows and a sound overlapping one across a window edge takes the free time after it', async () => {
     const caps = many(60, 30).map((c) => (c.id === 'c1' ? { ...c, text: 'Sintel?', speaker: 'spk_1' } : c)) // c30 ends 74.5 s, c31 starts 79.5 s; c1 0–2 s, c2 2.5–4.5 s
     const replies = [
       [{ id: 's1', start: 2.1, end: 2.4, text: '[door slams]' }, { id: 's2', start: 75, end: 76.5, text: '[thunder]', sound: true }],
@@ -199,10 +228,11 @@ describe('sdhWithNovaLite (chunked, additions only)', () => {
     let k = 0
     const out = await sdhWithNovaLite(caps, everySound, 'en', async () => jsonReply(replies[k++]!))
     const sounds = out.cues.filter((c) => c.sound)
-    expect(sounds.map((c) => [c.id, c.start, c.text])).toEqual([['s1', 2.1, '[door slams]'], ['s2', 75, '[thunder]'], ['s3', 77.5, '[footsteps]']])
+    // [wind howls] (76–77) overlaps [thunder] (75–76.5) across the window edge: it takes the free 76.5–77 after it.
+    expect(sounds.map((c) => [c.id, c.start, c.end, c.text])).toEqual([['s1', 2.1, 2.4, '[door slams]'], ['s2', 75, 76.5, '[thunder]'], ['s3', 76.5, 77, '[wind howls]'], ['s4', 77.5, 78.5, '[footsteps]']])
     expect(out.cues.find((c) => c.id === 'c40')!.text).toBe('[Sintel] Line 40')
     expect(out.cues.filter((c) => !c.sound)).toHaveLength(60)
-    expect(out.added).toBe(4) // three sounds + one speaker tag
+    expect(out.added).toBe(5) // four sounds + one speaker tag
     expect(out.cues.map((c) => c.start)).toEqual([...out.cues.map((c) => c.start)].sort((x, y) => x - y))
   })
 
@@ -248,6 +278,14 @@ describe('08-text sdh step', () => {
     const vtt = await readFile(`${work}/sdh.vtt`, 'utf8')
     expect(vtt).toContain('00:01:15.000 --> 00:01:16.500\n[thunder]')
     expect(vtt).toContain('Line60.')
+  })
+  it('a sound ends within the title: 08-text reads the duration from probe.json', async () => {
+    const work = await mkdtemp(join(tmpdir(), 'sdh-'))
+    await writeFile(`${work}/words.json`, JSON.stringify([{ start: 0, end: 2, text: 'Hello.', speaker: 'spk_0' }]))
+    await writeFile(`${work}/cues.json`, JSON.stringify([fit(8_000, 'She slams the door.', 12_000)]))
+    await writeFile(`${work}/probe.json`, JSON.stringify({ format: { duration: '10.000000' } }))
+    await sdh({ slug: 't', source: 's', language: 'en', voice: 'Joanna', work }, async () => jsonReply([{ id: 's1', start: 9, end: 12, text: '[door slams]' }]), () => true)
+    expect(await readFile(`${work}/sdh.vtt`, 'utf8')).toContain('00:00:09.000 --> 00:00:10.000\n[door slams]')
   })
   it('a title where no window added anything is not degraded: sdh.json says added 0 (09-package then omits Rich captions)', async () => {
     const work = await mkdtemp(join(tmpdir(), 'sdh-'))
@@ -314,10 +352,9 @@ describe('SDH grounding (recorded Nova Lite replies, 2026-10-14)', () => {
   }
 
   it('adds nothing from the replies that held only sights, voice labels and placeholders', () => {
-    // old-1's zero-length "old man pours" at 33.17 is grounded by "Old man pours broth." (33.17–34.826): since 2026-10-19 a
-    // zero-length cue is read as 1 s (0018-sdh-trim), so it is kept. Its sights and voice labels still are not.
-    expect(additions('sintel-90-150-r2', 'sintel-90-150-r2-old-1', () => true)).toEqual(['[old man pours]'])
-    expect(mergeSdh(title('sintel-90-150-r2').captions, replies['sintel-90-150-r2-old-1']!.cues, { descriptions: title('sintel-90-150-r2').descriptions, audible: () => true }).filter((c) => c.sound).map((c) => [c.start, c.end])).toEqual([[33.17, 34.17]])
+    // old-1's zero-length "old man pours" at 33.17 sits beside "Old man pours broth.", but it names who pours, not a sound's
+    // source: a person tag keeps only a voice sound (0018-sdh-trim, PR #85 review).
+    expect(additions('sintel-90-150-r2', 'sintel-90-150-r2-old-1', () => true)).toEqual([])
     expect(additions('sintel-90-150-r2', 'sintel-90-150-r2-old-2', () => true)).toEqual([])
     expect(additions('elephants-dream-0-60', 'elephants-dream-0-60-new', () => true)).toEqual([])
     expect(additions('tears-of-steel-40-100', 'tears-of-steel-40-100-new', () => true)).toEqual([])

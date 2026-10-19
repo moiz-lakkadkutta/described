@@ -106,7 +106,11 @@ export interface SdhDescription { start: number; end: number; text: string }
  * and (2) when `audible` is given, audio above the silence floor over its span (ffmpeg ebur128, 08-text). Loudness proves only that
  * something is audible, not what; the description supplies the what.
  */
-export interface SdhEvidence { descriptions: readonly SdhDescription[]; audible?: (start: number, end: number) => boolean }
+export interface SdhEvidence {
+  descriptions: readonly SdhDescription[]; audible?: (start: number, end: number) => boolean
+  /** The title's length in seconds (probe.json), when known: no sound slot ends after it. */
+  duration?: number
+}
 const toSdhDescriptions = (ds: readonly FitCue[]): SdhDescription[] => ds.map((d) => ({ start: d.startMs / 1000, end: d.endMs / 1000, text: d.text }))
 
 /**
@@ -197,7 +201,7 @@ const replyOf = (r: Pick<ConverseCommandOutput, 'output'>) => { const content = 
  * plain) and marks the whole title degraded. `added` counts what the merge actually added (sound cues + speaker tags): 0 means the SDH
  * track is the plain captions — nothing qualified, which is not a failure — and 09-package does not advertise it as Rich captions.
  */
-export async function sdhWithNovaLite(captions: Cue[], descriptions: FitCue[], language: 'en' | 'de', send: SdhConverse = bedrockSend, opts: { audible?: SdhEvidence['audible']; cacheDir?: string } = {}): Promise<{ cues: Cue[]; degraded: boolean; calls: number; added: number }> {
+export async function sdhWithNovaLite(captions: Cue[], descriptions: FitCue[], language: 'en' | 'de', send: SdhConverse = bedrockSend, opts: { audible?: SdhEvidence['audible']; duration?: number; cacheDir?: string } = {}): Promise<{ cues: Cue[]; degraded: boolean; calls: number; added: number }> {
   const windows = chunkCaptions(captions)
   const added: ReplyCue[] = []
   let degraded = false
@@ -208,7 +212,7 @@ export async function sdhWithNovaLite(captions: Cue[], descriptions: FitCue[], l
     if (cues) added.push(...cues)
     else { degraded = true; console.warn(`SDH: window ${w[0]!.id}–${w.at(-1)!.id} reply is not {"cues":[…]}; its captions stay plain`, (typeof reply === 'string' ? reply : JSON.stringify(reply) ?? '').slice(0, 200)) }
   }
-  const cues = mergeSdh(captions, added, { descriptions: toSdhDescriptions(descriptions), audible: opts.audible })
+  const cues = mergeSdh(captions, added, { descriptions: toSdhDescriptions(descriptions), audible: opts.audible, duration: opts.duration })
   const text = new Map(captions.map((c) => [c.id, c.text]))
   const count = cues.filter((c) => c.sound || (text.has(c.id) && text.get(c.id) !== c.text)).length
   return { cues, degraded, calls: windows.length, added: count }
@@ -220,6 +224,19 @@ export const SOUND_WORDS = new Set(['crackles', 'crackling', 'crunches', 'crunch
 const NOT_A_NAME = /^(name|speaker|unknown|voice|person|man|woman|narrator|spk_?\d*)$/i
 /** Who makes a sound is not evidence of it: "[man screams]" beside "A man gestures" shares only the agent (PR #38 review). */
 const AGENT = new Set(['man', 'woman', 'girl', 'boy', 'person', 'people', 'figure', 'robot', 'he', 'she', 'they', 'mann', 'frau', 'mädchen', 'junge'])
+/** Sounds a person's own voice or body makes: the only sounds a tag naming a person may keep ("[woman gasps]", not "[old man pours]"). */
+const VOICE_SOUNDS = new Set(['gasps', 'screams', 'laughs', 'laughter', 'sighs', 'coughs', 'cries', 'sobs', 'shouts', 'whispers', 'panting', 'breathing', 'groans'])
+/** Words that only qualify a person ("[old man pours]"): not a sound's source. */
+const PERSON_MODIFIERS = new Set(['old', 'young', 'little', 'tall', 'short', 'small', 'big', 'elderly', 'bald', 'alte', 'alter', 'junge', 'kleine', 'kleiner'])
+/**
+ * A tag naming a person (an AGENT word) keeps only a voice sound (VOICE_SOUNDS); any other sound needs a source word that is neither a
+ * person nor a bare modifier of one. "[old man pours]" beside "Old man pours broth." names who pours, not what sounds (PR #85 review).
+ */
+function personSoundOk(words: readonly string[]): boolean {
+  if (!words.some((w) => AGENT.has(w))) return true
+  if (words.some((w) => VOICE_SOUNDS.has(w))) return true
+  return words.some((w) => !AGENT.has(w) && !PERSON_MODIFIERS.has(w) && !(SOUND_WORDS.has(w) && !SOUNDING_OBJECTS.has(w)))
+}
 /**
  * Sounds a described source or action makes though the description does not name the sound ("A fire burns" → [fire crackling], the
  * prompt's own example; "walks" → [footsteps]). Keys and values are words, compared by stem. Only sources and actions that always
@@ -252,20 +269,24 @@ const SOUND_SLACK_S = 2
 /** A sound cue's length: at most MAX, at least MIN (or the cue's own length when the model gave a shorter one); a zero-length cue is read as 1 s. */
 const MAX_SOUND_S = 2, MIN_SOUND_S = 0.5, ZERO_LENGTH_SOUND_S = 1
 const ms = (t: number) => Math.round(t * 1000) / 1000
+/** Rounded inward to the millisecond (1e-6 absorbs float noise, so 24 stays 24; + 0 turns -0 into 0), so a slot never overlaps its neighbours. */
+const msUp = (t: number) => Math.ceil(t * 1000 - 1e-6) / 1000 + 0, msDown = (t: number) => Math.floor(t * 1000 + 1e-6) / 1000
 /**
- * The first slot inside `within` that is clear of every caption, at least `min` and at most MAX_SOUND_S long, and audible (when
- * `audible` is given), or undefined. Nova Lite gives a sound the whole description's start–end (full Sintel 2026-10-19: 51 of 53
- * cues), so the slot is cut out of it rather than the cue rejected. Starts tried, in order: `within.start`, each caption end inside
- * it, and every 0.1 s (for the audible check); each slot runs to MAX_SOUND_S, `within.end` or the next caption, whichever is first.
+ * The first slot inside `within` that is clear of every obstacle (the captions and the sounds already kept), at least `min` and at
+ * most MAX_SOUND_S long, and audible (when `audible` is given), or undefined. Nova Lite gives a sound the whole description's
+ * start–end (full Sintel 2026-10-19: 51 of 53 cues), so the slot is cut out of it rather than the cue rejected. Starts tried, in
+ * order: `within.start`, each obstacle end inside it, and every 0.1 s (for the audible check); each slot runs to MAX_SOUND_S,
+ * `within.end` or the next obstacle, whichever is first. The slot is rounded inward to the millisecond.
  */
-function soundSlot(within: { start: number; end: number }, min: number, captions: readonly Cue[], audible: SdhEvidence['audible']): { start: number; end: number } | undefined {
+function soundSlot(within: { start: number; end: number }, min: number, obstacles: readonly Cue[], audible: SdhEvidence['audible']): { start: number; end: number } | undefined {
   if (!(within.end - within.start >= min)) return undefined
   const grid = Array.from({ length: Math.floor((within.end - within.start) / 0.1) + 1 }, (_, k) => ms(within.start + k * 0.1))
-  const starts = [...new Set([within.start, ...captions.map((c) => c.end).filter((t) => t > within.start && t < within.end), ...grid])].sort((a, b) => a - b)
+  const starts = [...new Set([within.start, ...obstacles.map((c) => c.end).filter((t) => t > within.start && t < within.end), ...grid])].sort((a, b) => a - b)
   for (const s of starts) {
-    if (captions.some((c) => s >= c.start && s < c.end)) continue
-    const e = Math.min(s + MAX_SOUND_S, within.end, ...captions.filter((c) => c.start > s).map((c) => c.start))
-    if (e - s >= min - 1e-9 && (!audible || audible(s, e))) return { start: ms(s), end: ms(e) }
+    if (obstacles.some((c) => s >= c.start && s < c.end)) continue
+    const e = Math.min(s + MAX_SOUND_S, within.end, ...obstacles.filter((c) => c.start > s).map((c) => c.start))
+    const slot = { start: msUp(s), end: msDown(e) }
+    if (slot.end > slot.start && slot.end - slot.start >= min - 1e-3 && (!audible || audible(slot.start, slot.end))) return slot
   }
   return undefined
 }
@@ -298,8 +319,11 @@ export function replyCues(reply: unknown): ReplyCue[] | undefined {
  *   overlapping its time (± 2 s) — so "[footsteps]" beside "A man gestures" is dropped. Its timing is then trimmed, not judged
  *   (docs/decisions/0018-sdh-trim.md): it is placed in the first slot of 0.5–2 s (or its own length, if shorter) inside its span and
  *   that description's span ± 2 s that is clear of every caption and, when evidence.audible is given, over audible audio
- *   (soundSlot). A zero-length cue is read as 1 s; a cue ending before it starts, or with no such slot, is dropped, and so is one
- *   whose slot overlaps an earlier-accepted sound (first wins).
+ *   (soundSlot), and clear of the sounds already kept (a later sound takes the free time after an earlier one). The slot starts at
+ *   0 or later, ends by evidence.duration when given, and is rounded inward to the millisecond. A zero-length cue is read as 1 s; a
+ *   cue ending before it starts, or with no such slot, is dropped, and so is a repeat of a kept sound over the same span;
+ * - a sound tag naming a person ("man", "woman": AGENT) keeps only a voice sound ("[woman gasps]"); any other needs a source that is
+ *   not a person or a bare modifier ("[old man pours]" is dropped, "[broth pours]" kept).
  * Sorted by start, trackId 'sdh'.
  */
 export function mergeSdh(captions: Cue[], reply: Array<Pick<ReplyCue, 'id' | 'start' | 'end' | 'text' | 'sound'>>, evidence: SdhEvidence): Cue[] {
@@ -325,7 +349,7 @@ export function mergeSdh(captions: Cue[], reply: Array<Pick<ReplyCue, 'id' | 'st
   const consistent = (id: string) => { const v = voice.get(id); return !v || (namesOf.get(v)!.size === 1 && voicesOf.get(tags.get(id)!)!.size === 1) }
   const out: Cue[] = captions.map((c) => ({ ...c, trackId: 'sdh', ...(tags.has(c.id) && consistent(c.id) ? { text: `[${tags.get(c.id)}] ${c.text}` } : {}) }))
   const ids = new Set(captions.map((c) => c.id))
-  const sounds: Cue[] = []
+  const sounds: Cue[] = [], proposed: Array<{ text: string; start: number; end: number }> = []
   for (const c of reply) {
     if (ids.has(c.id)) continue
     const bracketed = /^\[([^\]]+)\]$/.exec(c.text.trim())
@@ -333,14 +357,22 @@ export function mergeSdh(captions: Cue[], reply: Array<Pick<ReplyCue, 'id' | 'st
     const inner = (bracketed ? bracketed[1]! : c.text).trim().toLowerCase()
     const ws = inner.split(/\s+/)
     if (ws.length > 3 || c.end < c.start) continue
-    if (!ws.some((w) => SOUND_WORDS.has(w.replace(/[^a-z]/g, '')))) continue
+    const bare = ws.map((w) => w.replace(/[^\p{L}]/gu, ''))
+    if (!bare.some((w) => SOUND_WORDS.has(w))) continue
+    if (!personSoundOk(bare)) continue
     const span = { start: c.start, end: c.end > c.start ? c.end : c.start + ZERO_LENGTH_SOUND_S }
+    // A repeat of a kept sound over the same span is a duplicate, not a second sound.
+    if (proposed.some((k) => k.text === inner && span.start < k.end && span.end > k.start)) continue
+    const obstacles = [...captions, ...sounds]
     const slot = evidence.descriptions
       .filter((d) => span.start < d.end + SOUND_SLACK_S && span.end > d.start - SOUND_SLACK_S && groundsSound(inner, d.text))
-      .map((d) => soundSlot({ start: Math.max(span.start, d.start - SOUND_SLACK_S), end: Math.min(span.end, d.end + SOUND_SLACK_S) }, Math.min(MIN_SOUND_S, span.end - span.start), captions, evidence.audible))
+      .map((d) => soundSlot({
+        start: Math.max(0, span.start, d.start - SOUND_SLACK_S),
+        end: Math.min(evidence.duration ?? Infinity, span.end, d.end + SOUND_SLACK_S),
+      }, Math.min(MIN_SOUND_S, span.end - span.start), obstacles, evidence.audible))
       .find((s) => s !== undefined)
     if (!slot) continue
-    if (sounds.some((k) => slot.start < k.end && slot.end > k.start)) continue // duplicates and overlapping sounds: the first wins
+    proposed.push({ text: inner, ...span })
     sounds.push({ trackId: 'sdh', id: '', start: slot.start, end: slot.end, text: `[${inner}]`, sound: true })
   }
   sounds.sort((a, b) => a.start - b.start).forEach((s, i) => { s.id = `s${i + 1}` })
