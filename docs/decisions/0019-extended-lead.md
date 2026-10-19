@@ -36,7 +36,32 @@ The AD track itself is clean (scratchpad diagnosis, 2026-10-19). This is only ab
    load). Once the load is `ready` and the descriptions VTT has been read, the scheduler ticks at 0. A cue starting within the
    lead of 0:00 is spoken first, and the film plays after it. The film plays without waiting when the read 404s or runs out of
    retries, or `START_HOLD_MS` = 1.5 s after `ready`. Play from the viewer, or turning Extended mode off, also ends the wait. When
-   resuming mid-film or with Extended mode off, the load autoplays as before.
+   resuming mid-film or with Extended mode off, the load autoplays as before. The held film is never a viewer pause. On
+   Fire OS with autoplay off the kit reports `loading → buffering → paused → ready` (react-native-video 6.19.2 calls
+   `onBuffering(false)` before `videoLoaded`), so the film plays after the clip even though the kit said `paused`. Pause from
+   the viewer (key, media session or Alexa) ends the wait too, and the film stays paused. A retry waits for the new load's own
+   `ready`.
+
+## Exceptions to "never late"
+
+- **A seek landing inside the lead window.** The first tick after a seek is a baseline. A cue starting less than 0.35 s after
+  the landing point fires on the next tick, which can come after its start.
+- **Tick gaps over 0.35 s.** The lead covers one 4 Hz tick. If the kit skips ticks (a stall, a busy JS thread) and the timer
+  of point 2 was not armed, the tick that sees the cue can come after its start.
+- **Cues that arrive after the hold.** When the descriptions read lands after `START_HOLD_MS`, the film is already playing.
+  The scheduler counts from 0:00 only if no seek came first. The first tick then crosses any early cue and fires it late. If
+  the jump from 0 to that tick is over `MAX_TICK_S`, it counts as a seek and the cue does not fire.
+
+## The real wait at 0:00
+
+Waiting for the descriptions read takes at most `START_HOLD_MS` = 1.5 s after `ready`. When a cue at 0:00 is spoken first, its
+clip adds its own length: the clip player gives up after `LOAD_TIMEOUT_MS` = 8 s without loading, and stops any clip after
+`MAX_CLIP_MS` = 30 s (`apps/expo/src/audio.ts`). The viewer can end it sooner. While the read is awaited, Play or Select
+starts the film and Pause keeps it paused. While the clip plays, Play, ◄►, Menu and Back stop it. Select (Play/Pause) there only
+changes whether the film plays once the clip ends.
+
+Not checked: voice commands ("Alexa, play") during the hold on Vega OS (review finding 3). On Fire OS they reach `play()` and
+`pause()` through the media session. On Vega they have not been tried on a device.
 
 ## Cost
 

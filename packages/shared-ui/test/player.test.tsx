@@ -662,15 +662,21 @@ describe('Extended mode (DESC-007)', () => {
     // d1 at 0.000, the opening dialogue at 0.05.
     const tos0 = vtt.replace('00:00:20.000 --> 00:00:20.833', '00:00:00.000 --> 00:00:06.530')
     const autoplay = () => player().props.autoplay as boolean
-    /** Like start(), but the load reports `ready` (no autoplay) rather than `playing`. */
-    async function ready(over: Partial<PlayerProps> = {}, body: string | null = vtt) {
+    /** Fire OS with autoplay off (react-native-video 6.19.2 reports onBuffering(false) before videoLoaded). */
+    const FIRE_OS = ['loading', 'buffering', 'paused', 'ready']
+    /**
+     * Like start(), but the load reports `ready` (no autoplay) rather than `playing`, after `states`. `body`: the VTT,
+     * null for a 404, 'pending' for a read that never lands, or a promise for one the test settles.
+     */
+    async function ready(over: Partial<PlayerProps> = {}, body: string | null | Promise<string> = vtt, states = ['ready']) {
       vi.stubGlobal('fetch', vi.fn((url: string) => (url !== descUrl ? new Promise(() => {}) : body === null ? Promise.resolve({ ok: false, status: 404, text: async () => '' })
-        : body === 'pending' ? new Promise(() => {}) : Promise.resolve({ ok: true, text: async () => body }))))
+        : body === 'pending' ? new Promise(() => {}) : Promise.resolve(body).then((b) => ({ ok: true, text: async () => b })))))
       au = audio()
       mount({ cueAudioUrl, descriptionsUrl: descUrl, speak: au.speak, stopSpeaking: au.stopSpeaking, prefetch: au.prefetch, ...over })
       report('onTracks', tracks); await flush()
-      report('onState', 'ready'); await flush()
+      for (const s of states) { report('onState', s); await flush() }
     }
+    const deferred = () => { let resolve!: (v: string) => void; const promise = new Promise<string>((r) => { resolve = r }); return { promise, resolve } }
 
     it('d10 at 43.226: the pause is requested at the tick within the lead window, before the cue start', async () => {
       await start({}, tos); tick(42, 42.5)
@@ -714,6 +720,59 @@ describe('Extended mode (DESC-007)', () => {
       expect(kit.ref.play).toHaveBeenCalledTimes(1)
       report('onState', 'playing'); tick(0.25, 1)
       expect(au.speak).toHaveBeenCalledTimes(1)
+    })
+    it('Fire OS order (loading → buffering → paused → ready): the held start is not a viewer pause; the film plays after the clip', async () => {
+      await ready({}, tos0, FIRE_OS)
+      expect(au.speak).toHaveBeenCalledWith(clip('d2'))
+      expect(kit.ref.play).not.toHaveBeenCalled()
+      await act(async () => { au.end() })
+      expect(kit.ref.play).toHaveBeenCalledTimes(1)
+    })
+    it('Fire OS order: cues that arrive after the hold began still play first, then the film', async () => {
+      const d = deferred()
+      await ready({}, d.promise, FIRE_OS)
+      expect(kit.ref.play).not.toHaveBeenCalled()
+      d.resolve(tos0); await flush()
+      expect(au.speak).toHaveBeenCalledWith(clip('d2'))
+      await act(async () => { au.end() })
+      expect(kit.ref.play).toHaveBeenCalledTimes(1)
+    })
+    it('Fire OS order with no cue near the start, or the read still pending after START_HOLD_MS: the film plays', async () => {
+      await ready({}, vtt, FIRE_OS)
+      expect(kit.ref.play).toHaveBeenCalledTimes(1)
+      act(() => r.unmount()); kit.reset(); act(() => { r = TestRenderer.create(<></>) })
+      await ready({}, 'pending', FIRE_OS)
+      act(() => { vi.advanceTimersByTime(START_HOLD_MS) })
+      expect(kit.ref.play).toHaveBeenCalledTimes(1)
+    })
+    it('Pause while the start is held (key or media session) ends the hold: neither the timer nor late cues start the film', async () => {
+      const onNowPlaying = vi.fn()
+      await ready({ onNowPlaying }, 'pending', FIRE_OS)
+      act(() => onNowPlaying.mock.lastCall![0].controls.pause())
+      act(() => { vi.advanceTimersByTime(START_HOLD_MS * 2) })
+      expect(kit.ref.play).not.toHaveBeenCalled()
+      act(() => r.unmount()); kit.reset(); act(() => { r = TestRenderer.create(<></>) })
+      const d = deferred()
+      await ready({}, d.promise, FIRE_OS)
+      press('pause')
+      d.resolve(tos0); await flush()
+      act(() => { vi.advanceTimersByTime(START_HOLD_MS * 2) })
+      expect(kit.ref.play).not.toHaveBeenCalled(); expect(au.speak).not.toHaveBeenCalled()
+      press('play')
+      expect(kit.ref.play).toHaveBeenCalledTimes(1)
+    })
+    it('a retry while the start is held drops the old hold timer; the new load holds again from its own ready', async () => {
+      await ready({}, 'pending')
+      report('onError', { code: 'EXO', message: 'Playback error', fatal: true })
+      act(() => surface()!.props.onSelect())
+      expect(kit.mounts).toBe(2); expect(autoplay()).toBe(false)
+      act(() => { vi.advanceTimersByTime(START_HOLD_MS) })
+      expect(kit.ref.play).not.toHaveBeenCalled() // the first load's timer cannot play into the new one
+      report('onState', 'ready'); await flush()
+      act(() => { vi.advanceTimersByTime(START_HOLD_MS - 1) })
+      expect(kit.ref.play).not.toHaveBeenCalled()
+      act(() => { vi.advanceTimersByTime(1) })
+      expect(kit.ref.play).toHaveBeenCalledTimes(1)
     })
     it('from 0:00 with no cue near the start, the film plays as soon as the load is ready', async () => {
       await ready({}, vtt)

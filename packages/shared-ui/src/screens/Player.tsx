@@ -213,7 +213,9 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
   releaseStart.current = (force, s = stateRef.current) => {
     if (!holdStart.current || !readySeen.current || (!force && extendedOn && !scheduler.current && !noCues.current)) return
     holdStart.current = false; clearTimeout(holdTimer.current)
-    if (extendedOn && !seeked.current) extendedTick(0)
+    // The film is paused only because the start was held, never by the viewer (on Fire OS the kit reports `paused`
+    // before `ready` when autoplay is off): the clip at 0:00 is followed by the film.
+    if (extendedOn && !seeked.current) extendedTick(0, true)
     if (!ext.current && s !== 'playing') ref.current?.play()
   }
   useEffect(() => () => clearTimeout(holdTimer.current), [])
@@ -281,13 +283,13 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
    * counts, except while ◄► is held (the viewer is leaving this place). The crossed cue is spoken before the next one is
    * prefetched: the platform keeps one prefetched clip, so prefetching first would drop the clip about to play and load it again.
    */
-  const extendedTick = (s: number) => {
+  const extendedTick = (s: number, held = false) => {
     disarm()
     const t = scheduler.current?.tick(s)
     if (!t || !extendedOn) return
     if (t.triggers.length && scrubRef.current === null) {
       queue.current.push(...t.triggers)
-      if (!ext.current) startExtended(queue.current.shift()!, stateRef.current === 'paused' && !ownPause.current, s) // crossed as the viewer paused: stay paused after
+      if (!ext.current) startExtended(queue.current.shift()!, !held && stateRef.current === 'paused' && !ownPause.current, s) // crossed as the viewer paused: stay paused after
     }
     if (t.upcoming && prefetched.current !== t.upcoming.id) { prefetched.current = t.upcoming.id; prefetch(cueAudioUrl!(title.slug, t.upcoming.id)) }
     // The next cue's fire point falls before the next tick is due: tick there (the film plays on in between, so the
@@ -328,8 +330,14 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
     if (stateRef.current === 'ended') seekTo(0)
     ref.current?.play()
   }, [seekTo, endExtended])
-  /** Pause during an extended pause keeps the film paused once the clip ends. */
-  const pause = useCallback(() => { if (ext.current) ext.current.userPaused = true; else ref.current?.pause() }, [])
+  /**
+   * Pause during an extended pause keeps the film paused once the clip ends. Pause while the start is held ends the hold
+   * (as Play does): neither the hold timer nor the descriptions arriving then start the film.
+   */
+  const pause = useCallback(() => {
+    holdStart.current = false; clearTimeout(holdTimer.current)
+    if (ext.current) ext.current.userPaused = true; else ref.current?.pause()
+  }, [])
   const { slug, name, durationS } = title
   useEffect(() => {
     onNowPlaying?.({ slug, name, state, adOn, durationS, seeks, controls: { play, pause, seek: seekTo, getPosition } })
@@ -345,6 +353,7 @@ export function Player({ title, prefs, withAd, scale, startAtS, onBack, onProgre
   }
   const retry = () => {
     startAt.current = getPosition(); seekedToStart.current = false; clearPending(); autoplay.current = !holdStart.current
+    readySeen.current = false; clearTimeout(holdTimer.current) // a held start waits for the new load's own ready
     setError(false); setState('idle'); setTracks({ audio: [], text: [] }); setTracksKnown(false); setAttempt((a) => a + 1)
   }
   const seekBy = (dir: 1 | -1, repeat: boolean) => {
