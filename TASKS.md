@@ -3,15 +3,15 @@
 Platform: Fire OS only; Vega deferred (decision 0004). Freeze Oct 15, submit Oct 22.
 - Vega: `apps/vega/App.template.tsx` wires Vega's `TVEventHandler` through `configureRemote` (#10); still a template, not built.
 
-**Status 2026-10-19 (main e8cfcd5).** Merged: #1–#82 (#34, #38, #78 closed unmerged); last in: #82, Rich captions ask Nova
-Lite for plain JSON. Open: #83 (docs refresh), #84 (housekeeping); in progress: a Rich-captions trim fix (branch
-`fix/sdh-trim-not-reject`). Six titles live on Ruth generative (docs/titles.md "Published state"); Gate C g13 passes both
-clips (decision 0017, #80 / #81); kit from npm (`@moiz0309/vega-media-kit` 0.2.0, #79); hosted API code in (#66, #73–#75).
-Device re-checks 6, 11, 14–17, DESC-007 Extended and DESC-035 are still to run; the results table in RUN-2026-10.md is not
-filled in yet.
-**Next (submit Oct 22):** Rich captions on the published titles: #82 fixed the request; what is left is `mergeSdh` rejecting
-sound cues that run too long or overlap (trim them instead, `fix/sdh-trim-not-reject`). Then `gh release create v0.1.0`
-after the stick test, demo video and screenshots (DESC-011 / 012), DESC-035 device check.
+**Status 2026-10-19 (main e46e1c7).** Merged: #1–#85 except #83 (#34, #38, #78 closed unmerged); last in: #85, Rich captions
+trim a grounded sound instead of rejecting it (decision 0018), after #82 (plain JSON) and #84 (housekeeping). Open: #83 (docs
+refresh). Six titles live on Ruth generative (docs/titles.md "Published state"); after the 2026-10-19 `--from text` re-run
+($0.0002) full-length `sintel` and `sintel-90-150-r2` carry Rich captions, the other titles have nothing that qualifies; the
+hosted API is re-seeded. Gate C g13 passes both clips (decision 0017, #80 / #81); kit from npm (`@moiz0309/vega-media-kit`
+0.2.0, #79); hosted API code in (#66, #73–#75). Device re-checks 6, 11, 14–17, DESC-007 Extended and DESC-035 are still to
+run; the results table in RUN-2026-10.md is not filled in yet.
+**Next (submit Oct 22):** `gh release create v0.1.0` after the stick test, demo video and screenshots (DESC-011 / 012),
+DESC-035 device check.
 
 - [x] DESC-001 · week 0 · Three narrated shots end to end (Sintel 0:00–1:00; run on 1:30–2:30 and 1:30–3:30, see 0003) → decides Gate A
   - part 2: deployed, paid run published, Gate A passed on Fire OS (Vega deferred), Gate C passed with Qwen3-VL 235B (72.4 %, decision 0003)

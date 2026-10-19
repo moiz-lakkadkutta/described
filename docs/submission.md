@@ -2,7 +2,7 @@
 
 Draft for DESC-012 (W1-G). Hackathon: Build, Ship, Shape: Amazon Developer Hackathon (Devpost). Paste section by section
 into the Devpost form; submit Oct 22 evening Berlin (team schedule). Deadline: **Fri 23 Oct 2026, 12:00 PDT** (21:00 Berlin).
-Refreshed 2026-10-19 against main `163eeed`. Checked against the runbook §9 definition of done. Every number carries its
+Refreshed 2026-10-19 against main `e46e1c7`. Checked against the runbook §9 definition of done. Every number carries its
 source; anything that needs a person is marked **TODO(human)**. Sources are listed at the end.
 
 ---
@@ -34,9 +34,11 @@ dialogue a voice tells you what is on screen: who is there, what they do, where 
 - **Fire TV's own track selector is the switch.** The narration is a second audio track in the stream, marked as
   description. Menu shows Audio — Original · Audio description, and Captions — Off · Captions · Rich captions ·
   Description text.
-- **Rich captions** add sounds and music in brackets for viewers who are deaf or hard of hearing, on titles where the
-  pipeline finds a sound it can back with evidence. TODO(orchestrator): confirm Rich captions after re-run (on 2026-10-19 no
-  published title carries the track; the fix `fix/rich-captions-json` and a `--from text` re-run are in progress).
+- **Rich captions**, for viewers who are deaf or hard of hearing, add a bracketed sound, and a speaker's name when it is
+  spoken, only where a description names the sound and the soundtrack is audible there. Described has no audio-event
+  detection, so sound cues are sparse and music is not tagged. A title where nothing qualifies ships Captions without a
+  Rich-captions track. Two titles have one today: the whole of Sintel (`[creature roars]` at 3:23, `[woman gasps]` at 5:33)
+  and Sintel 1:30–2:30 ([titles](titles.md)).
 - **Extended mode** pauses the film when there is more to describe than the gap allows, speaks, and carries on — the
   behaviour WCAG 1.2.7 (extended audio description) describes. It can be turned off.
 
@@ -63,7 +65,7 @@ narrative pass → voice → mix → text → package → validate → publish),
 6. **Voice** — **Amazon Polly**, generative voice **Ruth**, speaks each cue; the clip's measured length sets the cue end.
 7. **Mix** — ffmpeg ducks the soundtrack under the narration (−9 dB; measured 9.03 dB) and normalises to −24 LUFS
    ([0001](decisions/0001-week0-gates.md) §Local dry runs).
-8. **Text** — captions (Transcribe), rich captions (Nova Lite) and the description text as WebVTT.
+8. **Text** — captions (Transcribe), rich captions (Nova Lite proposes sounds and speaker names; only evidenced ones are kept) and the description text as WebVTT.
 9. **Package and publish** — Shaka Packager writes an HLS master with two audio tracks (Original; Audio description
    with `CHARACTERISTICS="public.accessibility.describes-video"`) and up to three text tracks; S3 and CloudFront serve it.
 
@@ -139,9 +141,10 @@ describer — and delivers description through the TV's own audio-track selector
   by three, independent Claude Opus 5.5 sub-agents (`claude-opus-5-5`) per clip, blind: each worked from contact sheets
   and frames in its own folder with RUBRIC.md and never saw the prompts, the model names or the other raters. Up to g9 a
   shot counted only when both raters said usable; from g10 on, when a majority did ([evaluation.md](evaluation.md#the-bar)).
-- **Rich captions not yet on the published titles.** On 2026-10-19 none of the six carries the Rich captions track (Nova Lite
-  failed on the forced-tool request, or found nothing it could back with evidence; [titles](titles.md)). A fix and a re-run
-  are in progress; remove this item once Rich captions are confirmed (see the TODO under What it does).
+- **Rich captions are sparse by design.** Described has no audio-event detection, so a sound is tagged only where a
+  description names it (or a source that always makes it) and the soundtrack is audible there; music is not tagged. Two of
+  the six titles carry a Rich-captions track, with two sound cues each; Tears of Steel, Big Buck Bunny and Elephants Dream
+  ship Captions only, because nothing qualified, and Caminandes has no speech ([titles](titles.md), [0018](decisions/0018-sdh-trim.md)).
 - **Fire OS only.** Vega OS is experimental: no Vega SDK was installed and the media kit's Vega adapter is not finished
   ([decision 0004](decisions/0004-vega-deferred.md)).
 - **No Fire TV search yet.** Catalog integration is available to select partners only. We have a draft catalog feed only
@@ -216,7 +219,7 @@ Dev tooling listed in [docs/aws.md](aws.md): Claude Code.
 
 - Product feedback (five required answers): [docs/feedback.md](feedback.md) (PR #36).
 - Feature requests with priorities: [docs/feature-requests.md](feature-requests.md).
-- Friction logs: [docs/friction/](friction/) — 23 on 2026-10-19, not counting its README (runbook target 8–12; §9 requires ≥ 8).
+- Friction logs: [docs/friction/](friction/) — 28 on 2026-10-19, not counting its README (runbook target 8–12; §9 requires ≥ 8).
 
 ## Definition-of-done check (runbook §9)
 
@@ -230,14 +233,14 @@ Dev tooling listed in [docs/aws.md](aws.md): Claude Code.
 | Hosted stack stays up for judges until the judging period ends (20 Nov) | Kept up until 20 Nov 2026 (user decision 2026-10-19); ≈ $14.50 a month ([aws.md](aws.md#hosted-api-desc-034)) |
 | Tracks declared; Open Source section with repo, tag, handle, upstream PR | Above; tag `v0.2.0`, npm `@moiz0309/vega-media-kit@0.2.0` and upstream PR #136 done |
 | `docs/aws.md` lists every call, purpose, cost | [docs/aws.md](aws.md) |
-| Feedback (5 answers), feature requests with priorities, ≥ 8 friction logs | ✓ — friction 23, [feedback.md](feedback.md), [feature-requests.md](feature-requests.md) |
-| Tests pass in CI on the default branch; `pnpm i && pnpm dev` shows something | CI green on main at `163eeed` (2026-10-16, `gh run list --branch main`); `pnpm dev` runs `turbo run dev --parallel` (API `tsx watch`, Expo `expo start`; PR #10, merged 2026-10-04). Re-check CI on the final submission commit before submitting. |
+| Feedback (5 answers), feature requests with priorities, ≥ 8 friction logs | ✓ — friction 28, [feedback.md](feedback.md), [feature-requests.md](feature-requests.md) |
+| Tests pass in CI on the default branch; `pnpm i && pnpm dev` shows something | CI green on main at `e46e1c7` (2026-10-19, `gh run list --branch main`); `pnpm dev` runs `turbo run dev --parallel` (API `tsx watch`, Expo `expo start`; PR #10, merged 2026-10-04). Re-check CI on the final submission commit before submitting. |
 | All materials in English | ✓ |
 
 ## Sources
 
 Project (in this repo):
-- [0001 week-0 gates](decisions/0001-week0-gates.md) · [0003 Gate C](decisions/0003-gate-c.md) · [0004 Vega deferred](decisions/0004-vega-deferred.md) · [0005 direct Bedrock](decisions/0005-describe-direct-bedrock.md) · [0009 Gate C fits](decisions/0009-gate-c-fits.md) · [0010 verify pass](decisions/0010-verify-pass.md) · [0016 ship on glossary titles (superseded)](decisions/0016-ship-on-glossary-titles.md) · [0017 narrative pass](decisions/0017-narrative-pass.md) · [evaluation](evaluation.md) · [titles](titles.md) · [RUN-2026-10 device run](device-checks/RUN-2026-10.md) · [TASKS.md](../TASKS.md) · [docs/aws.md](aws.md) · [fire-os-bindings](platform/fire-os-bindings.md) · [DESC-007 device check](device-checks/DESC-007.md) · [README](../README.md)
+- [0001 week-0 gates](decisions/0001-week0-gates.md) · [0003 Gate C](decisions/0003-gate-c.md) · [0004 Vega deferred](decisions/0004-vega-deferred.md) · [0005 direct Bedrock](decisions/0005-describe-direct-bedrock.md) · [0009 Gate C fits](decisions/0009-gate-c-fits.md) · [0010 verify pass](decisions/0010-verify-pass.md) · [0016 ship on glossary titles (superseded)](decisions/0016-ship-on-glossary-titles.md) · [0017 narrative pass](decisions/0017-narrative-pass.md) · [0018 Rich captions trim](decisions/0018-sdh-trim.md) · [evaluation](evaluation.md) · [titles](titles.md) · [RUN-2026-10 device run](device-checks/RUN-2026-10.md) · [TASKS.md](../TASKS.md) · [docs/aws.md](aws.md) · [fire-os-bindings](platform/fire-os-bindings.md) · [DESC-007 device check](device-checks/DESC-007.md) · [README](../README.md)
 
 Internal notes (not public, not for the Devpost form): "runbook §n" and "PLAN §n" refer to the team's private planning
 documents linked from [docs/PLAN.md](PLAN.md); they are not sources.

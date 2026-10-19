@@ -1,8 +1,8 @@
 # Product feedback — Described
 
-Every number links to where it was measured; each item in §3 links its friction log ([docs/friction/](friction/), 23 logs).
+Every number links to where it was measured; each item in §3 links its friction log ([docs/friction/](friction/), 28 logs).
 The five required answers are §1 (which tools, and how the AWS services are used), §2 (what worked well), §3 (what needs
-improvement), §4 (onboarding) and §5 (would we build with them again). Refreshed 2026-10-19 (main `163eeed`).
+improvement), §4 (onboarding) and §5 (would we build with them again). Refreshed 2026-10-19 (main `e46e1c7`).
 Device throughout: Fire TV Stick `AFTSS`, Fire OS 7.7.1.6 (Android 9, API 28), over adb.
 
 ## 1. Tools, APIs and SDKs used, and why
@@ -64,11 +64,12 @@ progress to the admin page).
 - **Forced tool use fixed the shape on short requests.** Nova Lite returned schema-shaped cues with no echoed input
   ([log update](friction/2026-10-01-nova-lite-json-echoes-input.md#update-2026-10-01)); Qwen3-VL honoured a forced tool over
   `bedrock-runtime` too, though its model card lists tools under `bedrock-mantle` only ([0006](decisions/0006-scene-edit-pass.md#model-choice-probes-on-r2-text-only-45-converse-calls--0013)).
-  On longer requests it broke down (§3 AWS 3), so the narrative pass asks for plain JSON instead.
+  On Sintel's rich-captions call Nova Lite then failed the forced tool with `ModelErrorException` (§3 AWS 3), so rich
+  captions and the narrative pass ask for plain JSON instead.
 - **Costs are small and predictable.** Five 60 s titles went live for $0.293 in one batch, prompt clips included
   ([titles.md](titles.md)); $0.051–0.059 per title, Transcribe's $0.024/min the floor. The whole of Sintel (14:48) cost $1.10,
-  and re-voicing all six titles in Ruth with the narrative pass $0.36. End to end ≈ $0.086 per minute with the generative voice
-  ([aws.md](aws.md#cost-per-title); CLI meter, list prices). ffmpeg ducked 9.03 dB against a 9.0 target
+  and re-voicing all six titles in Ruth with the narrative pass $0.36. End to end ≈ $0.086 per minute with the generative voice, an
+  estimate ([aws.md](aws.md#cost-per-title); CLI meter plus two estimated steps, list prices). ffmpeg ducked 9.03 dB against a 9.0 target
   ([0001](decisions/0001-week0-gates.md#local-dry-runs-desc-001-part-1)).
 - **The MediaSession guide and Fire TV's logs pinned down a bug fast.** In the device run of 2026-10-10, "Alexa, fast forward /
   rewind" did nothing; the guide's voice-command → callback table and Fire TV's `whad` publisher log lines showed why (the
@@ -132,11 +133,14 @@ multi-gigabyte SDK plus a day of setup) decided us for Fire OS. *Ask:* a smaller
 2. **"JSON only" prompts are not constrained** — [log](friction/2026-10-01-nova-lite-json-echoes-input.md). Impact: Nova
    Lite echoed the request, crashing the SDH step. *Ask:* point to the forced-tool pattern on the Nova prompting pages; list
    Nova v1 support for `outputConfig.textFormat`.
-3. **Forced tool use fails on longer Nova Lite requests.** Nova Lite answered our rich-captions request (37 captions, forced
-   tool) with `ModelErrorException` "Model produced invalid sequence as part of ToolUse", twice in a row, on full-length
-   Sintel and on Tears of Steel, so those titles shipped without Rich captions ([titles](titles.md)). Impact: an
-   accessibility track missing from every published title; a fix that drops the forced tool is in progress. *Ask:* document
-   the size limits of forced tool use on Nova v1 and return an error that says what to change.
+3. **Nova Lite forced tool use failed with `ModelErrorException`** — [log update](friction/2026-10-01-nova-lite-json-echoes-input.md#update-2026-10-19).
+   Nova Lite answered our forced `emit_sdh` rich-captions call with `ModelErrorException` "Model produced invalid sequence
+   as part of ToolUse" (424), twice in a row, on full-length Sintel (and on Tears of Steel), with nothing in the error to say
+   what to change. Impact: those titles shipped without Rich captions. #82 dropped the forced tool and asks for plain JSON.
+   That was only part of it: the rest of the absence was our own merge rule, which rejected grounded sound cues that ran
+   over 2 s or overlapped a caption; #85 trims them instead ([0018](decisions/0018-sdh-trim.md)). Since the 2026-10-19
+   re-run, both Sintel titles carry Rich captions ([titles](titles.md)). *Ask:* say in the error what in the request or
+   reply broke the tool use, and document any limits of forced tool use on Nova v1.
 4. **Temperature 0 is not deterministic on Nova Lite** — [log](friction/2026-10-14-nova-lite-temperature-0-is-not-deterministic.md).
    Impact: a re-run could add or drop a caption with nothing changed. *Ask:* say on the inference-parameters page whether
    temperature 0 is greedy, and what to set if not (we pass `topK: 1` as well).
@@ -169,8 +173,9 @@ multi-gigabyte SDK plus a day of setup) decided us for Fire OS. *Ask:* a smaller
 - **Fire OS — Yes.** Standard Android media (ExoPlayer, HLS, MediaSession, intents) did the core job on a low-cost stick;
   the costs were sample defaults, undocumented device limits and a partner-only catalog.
 - **Vega OS — Not yet known** (decision 0004); we would try with a lighter install and a finished media adapter.
-- **Amazon Bedrock — Yes.** Cents per title, and four model families (Qwen3-VL, Nova, DeepSeek, Pegasus) behind one Converse
-  API; we would keep checking newer models against the same Gate C clips, and drop forced tool use for long replies.
+- **Amazon Bedrock — Yes.** Cents per title; three model families (Qwen3-VL, Nova, DeepSeek) through one Converse API,
+  plus Pegasus through InvokeModel in the bake-off. We would keep checking newer models against the same Gate C clips, and
+  ask for plain JSON rather than a forced tool.
 - **Polly (generative), Transcribe, S3, CloudFront, CDK — Yes.** The friction was account-level error messages, not the services.
 - **Lambda function URL + RDS — Yes** for a small always-on API: one CDK stack, ≈ $14.50 a month, no NAT.
 - **The multi-TV sample as a starting point — Yes, with the fixes in §3.5 applied first.**

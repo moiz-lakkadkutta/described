@@ -70,8 +70,12 @@ Remove it with `cd infra && AWS_PROFILE=described-dev npx cdk destroy described-
   control has a VoiceView label; focus is an outline plus a 1.04 scale, never colour alone.
 - **Player** with a persistent status line ("Description on · Ruth · Captions") and a track sheet on **Menu**:
   Audio — Original / Audio description; Captions — Off / Captions / Rich captions / Description text; Extended mode.
-  Rich captions is offered only on a title that has the track. TODO(orchestrator): confirm Rich captions after re-run (on
-  2026-10-19 none of the six titles has it; the fix `fix/rich-captions-json` and a re-run are in progress).
+  The sheet always lists Rich captions; on a title without that track, choosing it plays plain Captions and the status line
+  says "Captions" (`captionTrackFor` in `packages/shared-ui/src/playback.ts`).
+- **Rich captions** add a bracketed sound, and a speaker's name when it is spoken, only where a description names the sound
+  and the soundtrack is audible there. Described has no audio-event detection, so sound cues are sparse and music is not
+  tagged. A title where nothing qualifies ships Captions without a Rich-captions track. Two titles have one: the whole of
+  Sintel (`[creature roars]` at 3:23, `[woman gasps]` at 5:33) and Sintel 1:30–2:30 ([docs/titles.md](docs/titles.md)).
 - **Audio switch** fades down, switches, holds silent for 150 ms across ExoPlayer's decoder reset, and fades up (≈ 450 ms,
   `crossfadeAudio` in `packages/shared-ui/src/playback.ts`).
 - **Extended mode**: at an extended cue the film pauses, an ochre bar reads "Describing…", the cue's clip plays, the film resumes.
@@ -118,7 +122,7 @@ apps/expo (Fire OS) ─▶ packages/shared-ui ─▶ @moiz0309/vega-media-kit (K
 | 5b | edit | `steps/05b-edit.ts` | **Narrative pass**: **DeepSeek v3.2 on Bedrock** (Nova Pro fallback) rewrites a scene's cues into one connected narration; each rewrite passes deterministic guards (facts kept, names only once revealed, pronouns only with a clear referent) or the cue keeps fit's text ([0017](docs/decisions/0017-narrative-pass.md), upgrading [0006](docs/decisions/0006-scene-edit-pass.md)) |
 | 6 | voice | `steps/06-voice.ts` | **Amazon Polly**, generative voice Ruth for the catalogue (neural voices also supported), one MP3 per cue; the measured clip length sets the cue end; an overrun is shortened once, then becomes extended or is dropped |
 | 7 | mix | `steps/07-mix.ts` | ffmpeg: duck the original −9 dB under narration (attack 10 ms, release 300 ms), loudness −24 LUFS / −2 dBTP → AD audio |
-| 8 | text | `steps/08-text.ts` | `captions.vtt` (Transcribe), `sdh.vtt` (**Nova Lite** adds [sounds] and speaker tags, forced tool), `descriptions.vtt` (extended cues carry `{extended=1}`) |
+| 8 | text | `steps/08-text.ts` | `captions.vtt` (Transcribe), `sdh.vtt` (**Nova Lite** proposes [sounds] and speaker tags as plain JSON; only evidenced ones are kept, trimmed to a free slot, [0018](docs/decisions/0018-sdh-trim.md)), `descriptions.vtt` (extended cues carry `{extended=1}`) |
 | 9 | package | `steps/09-package.ts` | Shaka Packager → HLS master: two audio renditions (Original; Audio description with `CHARACTERISTICS="public.accessibility.describes-video"`) and up to three WebVTT tracks, aligned 4 s segments |
 | 10 | validate | `src/validate.ts` | The master and every VTT parsed with vega-media-kit's `parseHlsMaster` / `parseVtt` ([0004](docs/decisions/0004-vega-deferred.md)) |
 | 11 | publish | `steps/10-publish.ts` | Upload to S3 `published/{slug}/` (served by CloudFront); cue clips for Extended mode; optional CloudFront invalidation |
