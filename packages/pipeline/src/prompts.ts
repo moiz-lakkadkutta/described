@@ -73,12 +73,6 @@ export async function shortenWithNovaLite(text: string, maxWords: number, langua
   return (r.output?.message?.content?.[0]?.text ?? text).trim()
 }
 
-/** JSON Schema for the forced emit_sdh tool's input. */
-export const SDH_TOOL_SCHEMA = {
-  type: 'object', required: ['cues'],
-  properties: { cues: { type: 'array', items: { type: 'object', required: ['id', 'start', 'end', 'text'], properties: { id: { type: 'string' }, start: { type: 'number' }, end: { type: 'number' }, text: { type: 'string' }, speaker: { type: 'string' }, sound: { type: 'boolean' } } } } },
-}
-
 /** Captions per SDH call (DESC-014): one Converse call with every caption of a full-length title overflowed maxTokens 4000. */
 export const SDH_CHUNK_CAPTIONS = 40
 /** Seconds of description context either side of a window. */
@@ -112,15 +106,28 @@ export interface SdhDescription { start: number; end: number; text: string }
  * and (2) when `audible` is given, audio above the silence floor over its span (ffmpeg ebur128, 08-text). Loudness proves only that
  * something is audible, not what; the description supplies the what.
  */
-export interface SdhEvidence { descriptions: readonly SdhDescription[]; audible?: (start: number, end: number) => boolean }
+export interface SdhEvidence {
+  descriptions: readonly SdhDescription[]; audible?: (start: number, end: number) => boolean
+  /** The title's length in seconds (probe.json), when known: no sound slot ends after it. */
+  duration?: number
+}
 const toSdhDescriptions = (ds: readonly FitCue[]): SdhDescription[] => ds.map((d) => ({ start: d.startMs / 1000, end: d.endMs / 1000, text: d.text }))
 
 /**
  * One window's request: its captions and the descriptions overlapping [start − 5 s, end + 5 s], each with its start and end (the
  * first runs sent only the start, and Nova Lite answered with zero-length "sounds" at each description's start).
+ * Plain JSON text, no tool: the forced emit_sdh tool (toolConfig + toolChoice { tool }) made Nova Lite answer ModelErrorException
+ * ("Model produced invalid sequence as part of ToolUse", 424) twice on Tears of Steel (4 captions) and full-length Sintel, so Rich
+ * captions were left out. The narrative pass asks for plain JSON for the same reason (narrativeRequest). The reply is read by
+ * replyCues (Zod) and an unreadable one is asked again once (windowReply). The data goes first and the task last: with the request
+ * alone as user content Nova Lite echoed it back (docs/friction/2026-10-01-nova-lite-json-echoes-input.md).
+ * Converse API: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html
  * Greedy decoding: temperature 0 alone still gave different replies to the same request (2026-10-14, Sintel), so topK 1 is passed
  * through additionalModelRequestFields — https://docs.aws.amazon.com/nova/latest/userguide/using-converse-api.html
  */
+/** The reply shape, as the last line of the SDH system prompt (replyCues reads it; an unreadable reply is asked again once). */
+export const SDH_REPLY_FORMAT = 'Reply with one JSON object only, no prose, no code fence: {"cues":[{"id":"<id>","start":<seconds>,"end":<seconds>,"text":"<text>","sound":true}]} — "sound": true only on sound cues; {"cues":[]} when nothing qualifies.'
+
 export function sdhRequest(window: Cue[], descriptions: FitCue[], language: 'en' | 'de'): ConverseCommandInput {
   const from = window[0]!.start - SDH_CONTEXT_S, to = window.at(-1)!.end + SDH_CONTEXT_S
   const near = toSdhDescriptions(descriptions).filter((d) => d.start < to && d.end > from)
@@ -132,13 +139,10 @@ export function sdhRequest(window: Cue[], descriptions: FitCue[], language: 'en'
       'Return only (a) sound cues to add and (b) captions that need a speaker tag — omit every caption you leave unchanged. An empty cues list is a valid answer and the right one when nothing qualifies.',
       'Sound cues: only for a sound that one description\'s action clearly makes (e.g. "A fire burns" → [fire crackling], "She slams the door" → [door slams]). Write it as [lowercase brackets], at most 3 words: the sound\'s source, a word from that description, then the sound ("crackling", "slams", "footsteps"). Never a sight ("glows", "holds", "darkness"), an object, a person or on-screen text, and never a sound no description shows. Each sound cue has its own id starting with "s", sound: true, and a start/end 0.5–2 s long inside that description\'s start–end and not overlapping a caption.',
       'Speaker tags: "speaker" values like spk_0 are anonymous voice labels, never names. Tag a caption only when the speaker is off-screen or ambiguous and their name is spoken in the captions: return it with its id, start and end, and its text prefixed "[Name] " with that real name. Never use a voice label or a placeholder as the name.',
+      SDH_REPLY_FORMAT,
     ].join('\n') }],
     // The task goes after the data (with the request alone as user content Nova Lite echoed it back).
-    messages: [{ role: 'user', content: [{ text: `Input:\n${input}\n\nUse the emit_sdh tool to return the SDH cues.` }] }],
-    // A toolConfig makes Nova constrain its output to the tool's inputSchema, and toolChoice { tool } forces that one call:
-    // https://docs.aws.amazon.com/nova/latest/userguide/concept-chapter-servicename.html · https://docs.aws.amazon.com/bedrock/latest/userguide/structured-output.html
-    // Converse API: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html
-    toolConfig: { tools: [{ toolSpec: { name: 'emit_sdh', description: 'Return the SDH cues to add or tag', inputSchema: { json: SDH_TOOL_SCHEMA } } }], toolChoice: { tool: { name: 'emit_sdh' } } },
+    messages: [{ role: 'user', content: [{ text: `Input:\n${input}\n\nReply with the JSON object only.` }] }],
     inferenceConfig: { maxTokens: 4000, temperature: 0 },
     additionalModelRequestFields: { inferenceConfig: { topK: 1 } },
   }
@@ -149,9 +153,11 @@ export const sdhCacheKey = (input: ConverseCommandInput) => createHash('sha256')
 
 /**
  * One window's reply, from `{cacheDir}/{key}.json` when there is one (a `--from text` re-run then gives the same SDH: the first Tears
- * of Steel run degraded and its re-run added cues from identical input), else a Converse call whose reply is stored there.
- * Bedrock's ModelErrorException ("Model produced invalid sequence as part of ToolUse", 424) is retried once; a second failure returns
- * undefined, so the window stays plain instead of failing the step. Any other error is thrown.
+ * of Steel run degraded and its re-run added cues from identical input), else a Converse call whose readable reply is stored there.
+ * Two attempts: a reply replyCues cannot read (not {"cues":[…]}: prose, an echoed request, a cut-off object) or Bedrock's
+ * ModelErrorException (424) is asked again once with the same request. After a second failure the last unreadable reply is returned
+ * (the caller logs it), or undefined after a ModelErrorException, so the window stays plain instead of failing the step. Any other
+ * error is thrown. Every call is metered.
  */
 async function windowReply(input: ConverseCommandInput, send: SdhConverse, cacheDir: string | undefined): Promise<Pick<ConverseCommandOutput, 'output' | 'usage'> | undefined> {
   const file = cacheDir && `${cacheDir}/${sdhCacheKey(input)}.json`
@@ -159,21 +165,30 @@ async function windowReply(input: ConverseCommandInput, send: SdhConverse, cache
     const hit = await readFile(file, 'utf8').then((t) => JSON.parse(t) as Pick<ConverseCommandOutput, 'output'>, () => undefined)
     if (hit?.output) return { output: hit.output, usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } }
   }
+  const ATTEMPTS = 2
   for (let attempt = 1; ; attempt++) {
+    let r: Pick<ConverseCommandOutput, 'output' | 'usage'>
     try {
-      const r = await send(input)
-      meter()?.bedrock(LITE(), r.usage)
-      if (file && replyCues(replyOf(r)) !== undefined) {
-        await mkdir(cacheDir!, { recursive: true })
-        await writeFile(`${file}.tmp`, JSON.stringify({ output: r.output, usage: r.usage }))
-        await rename(`${file}.tmp`, file)
-      }
-      return r
+      r = await send(input)
     } catch (e) {
       if ((e as Error).name !== 'ModelErrorException') throw e
       console.warn(`SDH: ModelErrorException (attempt ${attempt}): ${(e as Error).message}`)
-      if (attempt >= 2) return undefined
+      if (attempt >= ATTEMPTS) return undefined
+      continue
     }
+    meter()?.bedrock(LITE(), r.usage)
+    const reply = replyOf(r)
+    if (replyCues(reply) === undefined) {
+      if (attempt >= ATTEMPTS) return r
+      console.warn(`SDH: reply is not {"cues":[…]} (attempt ${attempt}); asking again`, (typeof reply === 'string' ? reply : JSON.stringify(reply) ?? '').slice(0, 200))
+      continue
+    }
+    if (file) {
+      await mkdir(cacheDir!, { recursive: true })
+      await writeFile(`${file}.tmp`, JSON.stringify({ output: r.output, usage: r.usage }))
+      await rename(`${file}.tmp`, file)
+    }
+    return r
   }
 }
 const replyOf = (r: Pick<ConverseCommandOutput, 'output'>) => { const content = r.output?.message?.content ?? []; return content.find((c) => c.toolUse)?.toolUse?.input ?? content.find((c) => c.text)?.text ?? '' }
@@ -184,9 +199,9 @@ const replyOf = (r: Pick<ConverseCommandOutput, 'output'>) => { const content = 
  * merged once onto the input by mergeSdh against the evidence (the descriptions, and `opts.audible`), so sound ids are numbered once and
  * sounds overlapping across a window edge are dropped. A window whose reply is unreadable or failed twice adds nothing (its captions stay
  * plain) and marks the whole title degraded. `added` counts what the merge actually added (sound cues + speaker tags): 0 means the SDH
- * track is the plain captions, which 08-text does not advertise as Rich captions.
+ * track is the plain captions — nothing qualified, which is not a failure — and 09-package does not advertise it as Rich captions.
  */
-export async function sdhWithNovaLite(captions: Cue[], descriptions: FitCue[], language: 'en' | 'de', send: SdhConverse = bedrockSend, opts: { audible?: SdhEvidence['audible']; cacheDir?: string } = {}): Promise<{ cues: Cue[]; degraded: boolean; calls: number; added: number }> {
+export async function sdhWithNovaLite(captions: Cue[], descriptions: FitCue[], language: 'en' | 'de', send: SdhConverse = bedrockSend, opts: { audible?: SdhEvidence['audible']; duration?: number; cacheDir?: string } = {}): Promise<{ cues: Cue[]; degraded: boolean; calls: number; added: number }> {
   const windows = chunkCaptions(captions)
   const added: ReplyCue[] = []
   let degraded = false
@@ -197,7 +212,7 @@ export async function sdhWithNovaLite(captions: Cue[], descriptions: FitCue[], l
     if (cues) added.push(...cues)
     else { degraded = true; console.warn(`SDH: window ${w[0]!.id}–${w.at(-1)!.id} reply is not {"cues":[…]}; its captions stay plain`, (typeof reply === 'string' ? reply : JSON.stringify(reply) ?? '').slice(0, 200)) }
   }
-  const cues = mergeSdh(captions, added, { descriptions: toSdhDescriptions(descriptions), audible: opts.audible })
+  const cues = mergeSdh(captions, added, { descriptions: toSdhDescriptions(descriptions), audible: opts.audible, duration: opts.duration })
   const text = new Map(captions.map((c) => [c.id, c.text]))
   const count = cues.filter((c) => c.sound || (text.has(c.id) && text.get(c.id) !== c.text)).length
   return { cues, degraded, calls: windows.length, added: count }
@@ -209,6 +224,19 @@ export const SOUND_WORDS = new Set(['crackles', 'crackling', 'crunches', 'crunch
 const NOT_A_NAME = /^(name|speaker|unknown|voice|person|man|woman|narrator|spk_?\d*)$/i
 /** Who makes a sound is not evidence of it: "[man screams]" beside "A man gestures" shares only the agent (PR #38 review). */
 const AGENT = new Set(['man', 'woman', 'girl', 'boy', 'person', 'people', 'figure', 'robot', 'he', 'she', 'they', 'mann', 'frau', 'mädchen', 'junge'])
+/** Sounds a person's own voice or body makes: the only sounds a tag naming a person may keep ("[woman gasps]", not "[old man pours]"). */
+const VOICE_SOUNDS = new Set(['gasps', 'screams', 'laughs', 'laughter', 'sighs', 'coughs', 'cries', 'sobs', 'shouts', 'whispers', 'panting', 'breathing', 'groans'])
+/** Words that only qualify a person ("[old man pours]"): not a sound's source. */
+const PERSON_MODIFIERS = new Set(['old', 'young', 'little', 'tall', 'short', 'small', 'big', 'elderly', 'bald', 'alte', 'alter', 'junge', 'kleine', 'kleiner'])
+/**
+ * A tag naming a person (an AGENT word) keeps only a voice sound (VOICE_SOUNDS); any other sound needs a source word that is neither a
+ * person nor a bare modifier of one. "[old man pours]" beside "Old man pours broth." names who pours, not what sounds (PR #85 review).
+ */
+function personSoundOk(words: readonly string[]): boolean {
+  if (!words.some((w) => AGENT.has(w))) return true
+  if (words.some((w) => VOICE_SOUNDS.has(w))) return true
+  return words.some((w) => !AGENT.has(w) && !PERSON_MODIFIERS.has(w) && !(SOUND_WORDS.has(w) && !SOUNDING_OBJECTS.has(w)))
+}
 /**
  * Sounds a described source or action makes though the description does not name the sound ("A fire burns" → [fire crackling], the
  * prompt's own example; "walks" → [footsteps]). Keys and values are words, compared by stem. Only sources and actions that always
@@ -238,14 +266,45 @@ export function groundsSound(tag: string, description: string): boolean {
 }
 /** Seconds a sound may sit outside the description that grounds it (fit places a description in the nearest gap, not on the action). */
 const SOUND_SLACK_S = 2
+/** A sound cue's length: at most MAX, at least MIN (or the cue's own length when the model gave a shorter one); a zero-length cue is read as 1 s. */
+const MAX_SOUND_S = 2, MIN_SOUND_S = 0.5, ZERO_LENGTH_SOUND_S = 1
+const ms = (t: number) => Math.round(t * 1000) / 1000
+/** Rounded inward to the millisecond (1e-6 absorbs float noise, so 24 stays 24; + 0 turns -0 into 0), so a slot never overlaps its neighbours. */
+const msUp = (t: number) => Math.ceil(t * 1000 - 1e-6) / 1000 + 0, msDown = (t: number) => Math.floor(t * 1000 + 1e-6) / 1000
+/**
+ * The first slot inside `within` that is clear of every obstacle (the captions and the sounds already kept), at least `min` and at
+ * most MAX_SOUND_S long, and audible (when `audible` is given), or undefined. Nova Lite gives a sound the whole description's
+ * start–end (full Sintel 2026-10-19: 51 of 53 cues), so the slot is cut out of it rather than the cue rejected. Starts tried, in
+ * order: `within.start`, each obstacle end inside it, and every 0.1 s (for the audible check); each slot runs to MAX_SOUND_S,
+ * `within.end` or the next obstacle, whichever is first. The slot is rounded inward to the millisecond.
+ */
+function soundSlot(within: { start: number; end: number }, min: number, obstacles: readonly Cue[], audible: SdhEvidence['audible']): { start: number; end: number } | undefined {
+  if (!(within.end - within.start >= min)) return undefined
+  const grid = Array.from({ length: Math.floor((within.end - within.start) / 0.1) + 1 }, (_, k) => ms(within.start + k * 0.1))
+  const starts = [...new Set([within.start, ...obstacles.map((c) => c.end).filter((t) => t > within.start && t < within.end), ...grid])].sort((a, b) => a - b)
+  for (const s of starts) {
+    if (obstacles.some((c) => s >= c.start && s < c.end)) continue
+    const e = Math.min(s + MAX_SOUND_S, within.end, ...obstacles.filter((c) => c.start > s).map((c) => c.start))
+    const slot = { start: msUp(s), end: msDown(e) }
+    if (slot.end > slot.start && slot.end - slot.start >= min - 1e-3 && (!audible || audible(slot.start, slot.end))) return slot
+  }
+  return undefined
+}
 
 const SdhReply = z.object({ cues: z.array(z.object({ id: z.string(), start: z.coerce.number(), end: z.coerce.number(), text: z.string(), speaker: z.string().optional(), sound: z.boolean().optional() }).passthrough()) })
 type ReplyCue = z.infer<typeof SdhReply>['cues'][number]
 
-/** The reply's cues (the toolUse input object, or text holding {"cues":[…]}, fenced or not); undefined when it is neither. An empty list is valid. */
+/**
+ * The reply's cues: text holding {"cues":[…]} — fenced or not, with prose around it (the first `{` to the last `}` is read, as the
+ * narrative pass's replyEdits does) — or such an object as a toolUse input (a cached reply from before the plain-JSON request).
+ * Zod-validated; undefined when it is neither. An empty list is valid.
+ */
 export function replyCues(reply: unknown): ReplyCue[] | undefined {
   let json: unknown = reply
-  if (typeof reply === 'string') try { json = JSON.parse(stripFence(reply)) } catch { json = undefined }
+  if (typeof reply === 'string') {
+    const t = stripFence(reply), a = t.indexOf('{'), b = t.lastIndexOf('}')
+    try { json = a >= 0 && b > a ? JSON.parse(t.slice(a, b + 1)) : undefined } catch { json = undefined }
+  }
   const parsed = SdhReply.safeParse(json)
   return parsed.success ? parsed.data.cues : undefined
 }
@@ -256,9 +315,15 @@ export function replyCues(reply: unknown): ReplyCue[] | undefined {
  * - a speaker tag needs a real name: one said in another caption by another voice (so never "[Name]" or "[spk_1]", and not the
  *   listener: "Sintel, run!" names who is spoken to), used for one voice label only, and that voice label tagged with one name only
  *   (a conflict drops every tag involved);
- * - a sound must be bracketed (or sound: true), ≤ 3 words, 0 < length ≤ 2 s, clear of every caption and earlier-accepted sound, name a
- *   SOUND_WORDS sound, be grounded (groundsSound) by a description overlapping its time (± 2 s) — so "[footsteps]" beside "A man
- *   gestures" is dropped — and, when evidence.audible is given, be over audible audio.
+ * - a sound must be bracketed (or sound: true), ≤ 3 words, name a SOUND_WORDS sound, and be grounded (groundsSound) by a description
+ *   overlapping its time (± 2 s) — so "[footsteps]" beside "A man gestures" is dropped. Its timing is then trimmed, not judged
+ *   (docs/decisions/0018-sdh-trim.md): it is placed in the first slot of 0.5–2 s (or its own length, if shorter) inside its span and
+ *   that description's span ± 2 s that is clear of every caption and, when evidence.audible is given, over audible audio
+ *   (soundSlot), and clear of the sounds already kept (a later sound takes the free time after an earlier one). The slot starts at
+ *   0 or later, ends by evidence.duration when given, and is rounded inward to the millisecond. A zero-length cue is read as 1 s; a
+ *   cue ending before it starts, or with no such slot, is dropped, and so is a repeat of a kept sound over the same span;
+ * - a sound tag naming a person ("man", "woman": AGENT) keeps only a voice sound ("[woman gasps]"); any other needs a source that is
+ *   not a person or a bare modifier ("[old man pours]" is dropped, "[broth pours]" kept).
  * Sorted by start, trackId 'sdh'.
  */
 export function mergeSdh(captions: Cue[], reply: Array<Pick<ReplyCue, 'id' | 'start' | 'end' | 'text' | 'sound'>>, evidence: SdhEvidence): Cue[] {
@@ -284,19 +349,31 @@ export function mergeSdh(captions: Cue[], reply: Array<Pick<ReplyCue, 'id' | 'st
   const consistent = (id: string) => { const v = voice.get(id); return !v || (namesOf.get(v)!.size === 1 && voicesOf.get(tags.get(id)!)!.size === 1) }
   const out: Cue[] = captions.map((c) => ({ ...c, trackId: 'sdh', ...(tags.has(c.id) && consistent(c.id) ? { text: `[${tags.get(c.id)}] ${c.text}` } : {}) }))
   const ids = new Set(captions.map((c) => c.id))
-  const sounds: Cue[] = []
+  const sounds: Cue[] = [], proposed: Array<{ text: string; start: number; end: number }> = []
   for (const c of reply) {
     if (ids.has(c.id)) continue
     const bracketed = /^\[([^\]]+)\]$/.exec(c.text.trim())
     if (!bracketed && c.sound !== true) continue
     const inner = (bracketed ? bracketed[1]! : c.text).trim().toLowerCase()
     const ws = inner.split(/\s+/)
-    if (ws.length > 3 || !(c.start < c.end) || c.end - c.start > 2) continue
-    if ([...captions, ...sounds].some((k) => c.start < k.end && c.end > k.start)) continue // also drops duplicates and overlapping sounds (first wins)
-    if (!ws.some((w) => SOUND_WORDS.has(w.replace(/[^a-z]/g, '')))) continue
-    const grounded = evidence.descriptions.some((d) => c.start < d.end + SOUND_SLACK_S && c.end > d.start - SOUND_SLACK_S && groundsSound(inner, d.text))
-    if (!grounded || (evidence.audible && !evidence.audible(c.start, c.end))) continue
-    sounds.push({ trackId: 'sdh', id: '', start: c.start, end: c.end, text: `[${inner}]`, sound: true })
+    if (ws.length > 3 || c.end < c.start) continue
+    const bare = ws.map((w) => w.replace(/[^\p{L}]/gu, ''))
+    if (!bare.some((w) => SOUND_WORDS.has(w))) continue
+    if (!personSoundOk(bare)) continue
+    const span = { start: c.start, end: c.end > c.start ? c.end : c.start + ZERO_LENGTH_SOUND_S }
+    // A repeat of a kept sound over the same span is a duplicate, not a second sound.
+    if (proposed.some((k) => k.text === inner && span.start < k.end && span.end > k.start)) continue
+    const obstacles = [...captions, ...sounds]
+    const slot = evidence.descriptions
+      .filter((d) => span.start < d.end + SOUND_SLACK_S && span.end > d.start - SOUND_SLACK_S && groundsSound(inner, d.text))
+      .map((d) => soundSlot({
+        start: Math.max(0, span.start, d.start - SOUND_SLACK_S),
+        end: Math.min(evidence.duration ?? Infinity, span.end, d.end + SOUND_SLACK_S),
+      }, Math.min(MIN_SOUND_S, span.end - span.start), obstacles, evidence.audible))
+      .find((s) => s !== undefined)
+    if (!slot) continue
+    proposed.push({ text: inner, ...span })
+    sounds.push({ trackId: 'sdh', id: '', start: slot.start, end: slot.end, text: `[${inner}]`, sound: true })
   }
   sounds.sort((a, b) => a.start - b.start).forEach((s, i) => { s.id = `s${i + 1}` })
   return [...out, ...sounds].sort((a, b) => a.start - b.start)

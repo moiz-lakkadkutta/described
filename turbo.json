@@ -32,7 +32,9 @@
         "^build"
       ]
     },
-    "lint": {},
+    "lint": {
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/eslint.config.mjs"]
+    },
     "typecheck": {
       "dependsOn": [
         "^build"

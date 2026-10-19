@@ -12,7 +12,7 @@ import { editFallbackModelId, editModelId, narrativeRequest, shortenEditWithNova
 import { carriedLook, excusedByCarry, faithfulText, pronounProblems, unsourcedContinuity, type NarrativeView } from '../narrative'
 import { rateFactor } from '../voiceProfile'
 import { meter } from '../cost'
-import { allowedNames, EMPTY_GLOSSARY, glossaryFor, glossarySettingStems, isEmpty, isProperName, matchedCharacters, nameEvidence, nameRevealed, placeStems, shortOf, withoutName, withoutWithheldNames, type Glossary, type NameSource } from '../glossary'
+import { allowedNames, EMPTY_GLOSSARY, glossaryFor, glossarySettingStems, isEmpty, isProperName, matchedCharacters, nameEvidence, placeStems, shortOf, withoutName, withoutWithheldNames, type Glossary, type NameSource } from '../glossary'
 import { foreignPlaceStems, sceneStems, statesPlace } from '../sceneSetting'
 import { knownNames } from './04-describe'
 import { readScenes, sceneOf, type Scene } from './04c-scenes'
