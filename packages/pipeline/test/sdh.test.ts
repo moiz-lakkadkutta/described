@@ -40,6 +40,13 @@ describe('replyCues', () => {
     expect(replyCues('{"cues":[{"id":"c1","text":"no timing"}]}')).toBeUndefined()
   })
 
+  it('reads the object out of prose around it, fenced or not', () => {
+    const cue = '{"cues":[{"id":"s1","start":24,"end":25,"text":"[fire crackles]","sound":true}]}'
+    for (const reply of [`Here are the SDH cues:\n${cue}\nNothing else qualifies.`, `Here are the cues:\n\`\`\`json\n${cue}\n\`\`\`\nDone.`, `\`\`\`\n${cue}\n\`\`\``]) {
+      expect(replyCues(reply)).toEqual([{ id: 's1', start: 24, end: 25, text: '[fire crackles]', sound: true }])
+    }
+  })
+
   it('accepts a toolUse input object as the reply', () => {
     const out = merged({ cues: [{ id: 'c1', start: 16.92, end: 23.729, text: 'This blade has a dark past' }, { id: 's1', start: 24, end: 25, text: '[fire crackles]', sound: true }] })
     expect(out.map((c) => c.id)).toEqual(['c1', 's1', 'c2'])
@@ -118,9 +125,11 @@ const many = (n: number, pauseEvery = 0): Cue[] => {
 const fit = (startMs: number, text: string, endMs = startMs + 1500): FitCue => ({ startMs, endMs, text, extended: false, wordCount: text.split(' ').length, shotIndex: 0 })
 /** A description over the whole test timeline that names every sound the window tests use. */
 const everySound = [fit(0, 'A fire crackles, a door slams, wind howls, thunder rolls, footsteps.', 1_000_000)]
-/** A recorded-shape Nova Lite reply: the forced emit_sdh toolUse block. */
-const toolReply = (cues: unknown[], usage = { inputTokens: 2400, outputTokens: 60, totalTokens: 2460 }) => ({ output: { message: { role: 'assistant' as const, content: [{ toolUse: { toolUseId: 't1', name: 'emit_sdh', input: { cues } as never } }] } }, usage })
-const userJson = (i: ConverseCommandInput) => JSON.parse(/Input:\n([\s\S]*)\n\nUse the emit_sdh/.exec(i.messages![0]!.content![0]!.text!)![1]!) as { captions: Array<{ id: string }>; descriptions: Array<{ start: number; end: number; text: string }> }
+/** A text reply holding exactly `text`. */
+const textReply = (text: string, usage = { inputTokens: 2400, outputTokens: 60, totalTokens: 2460 }) => ({ output: { message: { role: 'assistant' as const, content: [{ text }] } }, usage })
+/** A plain-JSON text reply, as the SDH request asks for (no forced tool: Nova Lite answered that with ModelErrorException). */
+const jsonReply = (cues: unknown[], usage = { inputTokens: 2400, outputTokens: 60, totalTokens: 2460 }) => textReply(JSON.stringify({ cues }), usage)
+const userJson = (i: ConverseCommandInput) => JSON.parse(/Input:\n([\s\S]*)\n\nReply with/.exec(i.messages![0]!.content![0]!.text!)![1]!) as { captions: Array<{ id: string }>; descriptions: Array<{ start: number; end: number; text: string }> }
 
 describe('chunkCaptions', () => {
   it('chunkCaptions returns one window for ≤ 40 captions', () => {
@@ -144,7 +153,7 @@ describe('sdhWithNovaLite (chunked, additions only)', () => {
   it('sdhWithNovaLite makes one call per window with only that window\'s captions and nearby descriptions', async () => {
     const caps = many(60, 30) // windows: c1–c30 (0–74.5 s), c31–c60 (79.5–154 s)
     const descs = [fit(10_000, 'Snow falls.'), fit(77_000, 'Night. A rooftop.'), fit(140_000, 'A dragon lands.'), fit(400_000, 'Far away.')]
-    const send = vi.fn<SdhConverse>(async () => toolReply([]))
+    const send = vi.fn<SdhConverse>(async () => jsonReply([]))
     const out = await sdhWithNovaLite(caps, descs, 'en', send)
     expect(send).toHaveBeenCalledTimes(2)
     expect(out.calls).toBe(2)
@@ -157,25 +166,28 @@ describe('sdhWithNovaLite (chunked, additions only)', () => {
     const sys = send.mock.calls[0]![0].system![0]!.text!
     expect(sys).toContain('Return only (a) sound cues to add and (b) captions that need a speaker tag — omit every caption you leave unchanged')
     expect(sys).not.toContain('keep every input caption unchanged')
+    expect(sys).toContain('Reply with one JSON object only, no prose, no code fence: {"cues":[')
     expect(a!.descriptions[0]).toEqual({ start: 10, end: 11.5, text: 'Snow falls.' }) // with its end: a sound must sit inside it
     for (const [i] of send.mock.calls) {
       // Greedy decoding: temperature 0 alone gave different replies to the same request (Sintel, 2026-10-14).
       expect(i.inferenceConfig).toEqual({ maxTokens: 4000, temperature: 0 })
       expect(i.additionalModelRequestFields).toEqual({ inferenceConfig: { topK: 1 } })
-      expect(i.toolConfig?.toolChoice).toEqual({ tool: { name: 'emit_sdh' } })
+      // Plain JSON text, no forced tool: Nova Lite answered toolChoice { tool } with ModelErrorException (Tears of Steel, 4 captions).
+      expect(i.toolConfig).toBeUndefined()
+      expect(i.messages![0]!.content![0]!.text).toMatch(/\n\nReply with the JSON object only\.$/)
     }
   })
 
   it('a reply that omits unchanged captions keeps them from the input', async () => {
     const caps = many(5).map((c) => (c.id === 'c4' ? { ...c, text: 'Sintel, run', speaker: 'spk_1' } : c))
-    const send = vi.fn<SdhConverse>(async () => toolReply([{ id: 'c2', start: 2.5, end: 4.5, text: '[Sintel] Line 2' }]))
+    const send = vi.fn<SdhConverse>(async () => jsonReply([{ id: 'c2', start: 2.5, end: 4.5, text: '[Sintel] Line 2' }]))
     const out = await sdhWithNovaLite(caps, [], 'en', send)
     expect(out.degraded).toBe(false)
     expect(out.added).toBe(1)
     expect(out.cues.map((c) => c.text)).toEqual(['Line 1', '[Sintel] Line 2', 'Line 3', 'Sintel, run', 'Line 5'])
     expect(out.cues.every((c) => c.trackId === 'sdh')).toBe(true)
     // A window with nothing to add is a valid empty reply, not a failure.
-    expect(await sdhWithNovaLite(caps, [], 'en', async () => toolReply([]))).toEqual({ cues: caps.map((c) => ({ ...c, trackId: 'sdh' })), degraded: false, calls: 1, added: 0 })
+    expect(await sdhWithNovaLite(caps, [], 'en', async () => jsonReply([]))).toEqual({ cues: caps.map((c) => ({ ...c, trackId: 'sdh' })), degraded: false, calls: 1, added: 0 })
   })
 
   it('sound ids are numbered once across windows and overlaps at a window edge are dropped', async () => {
@@ -185,7 +197,7 @@ describe('sdhWithNovaLite (chunked, additions only)', () => {
       [{ id: 's1', start: 76, end: 77, text: '[wind howls]' }, { id: 's2', start: 77.5, end: 78.5, text: '[footsteps]' }, { id: 'c40', start: 101.5, end: 103.5, text: '[Sintel] Line 40' }],
     ]
     let k = 0
-    const out = await sdhWithNovaLite(caps, everySound, 'en', async () => toolReply(replies[k++]!))
+    const out = await sdhWithNovaLite(caps, everySound, 'en', async () => jsonReply(replies[k++]!))
     const sounds = out.cues.filter((c) => c.sound)
     expect(sounds.map((c) => [c.id, c.start, c.text])).toEqual([['s1', 2.1, '[door slams]'], ['s2', 75, '[thunder]'], ['s3', 77.5, '[footsteps]']])
     expect(out.cues.find((c) => c.id === 'c40')!.text).toBe('[Sintel] Line 40')
@@ -200,7 +212,7 @@ describe('sdhWithNovaLite (chunked, additions only)', () => {
     let k = 0
     // Window 2 echoes the request envelope (friction 2026-10-01 "nova-lite-json-echoes-input").
     const send = vi.fn<SdhConverse>(async () => (k++ === 0
-      ? toolReply([{ id: 's1', start: 2.1, end: 2.4, text: '[door slams]' }])
+      ? jsonReply([{ id: 's1', start: 2.1, end: 2.4, text: '[door slams]' }])
       : { output: { message: { role: 'assistant' as const, content: [{ text: JSON.stringify({ language: 'en', captions: [] }) }] } }, usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 } }))
     const out = await sdhWithNovaLite(caps, everySound, 'en', send)
     warn.mockRestore()
@@ -213,7 +225,7 @@ describe('sdhWithNovaLite (chunked, additions only)', () => {
 
   it('cost is metered per call', async () => {
     const usage = { inputTokens: 2400, outputTokens: 60, totalTokens: 2460 }
-    const { value, costUsd } = await metered(() => sdhWithNovaLite(many(100), [], 'en', async () => toolReply([], usage)))
+    const { value, costUsd } = await metered(() => sdhWithNovaLite(many(100), [], 'en', async () => jsonReply([], usage)))
     expect(value.calls).toBe(3)
     expect(costUsd).toBeCloseTo(3 * bedrockUsd('amazon.nova-lite-v1:0', usage), 12)
     expect(costUsd).toBeGreaterThan(0)
@@ -229,7 +241,7 @@ describe('08-text sdh step', () => {
     await writeFile(`${work}/words.json`, JSON.stringify(words))
     await writeFile(`${work}/cues.json`, JSON.stringify([fit(76_000, 'Night. Thunder over a rooftop.')]))
     let k = 0
-    const send = vi.fn<SdhConverse>(async () => toolReply(k++ === 0 ? [{ id: 's1', start: 75, end: 76.5, text: '[thunder]' }] : []))
+    const send = vi.fn<SdhConverse>(async () => jsonReply(k++ === 0 ? [{ id: 's1', start: 75, end: 76.5, text: '[thunder]' }] : []))
     await sdh({ slug: 't', source: 's', language: 'en', voice: 'Joanna', work }, send, () => true)
     expect(send).toHaveBeenCalledTimes(2)
     expect(JSON.parse(await readFile(`${work}/sdh.json`, 'utf8'))).toEqual({ degraded: false })
@@ -242,7 +254,7 @@ describe('08-text sdh step', () => {
     await writeFile(`${work}/words.json`, JSON.stringify([{ start: 0, end: 2, text: 'Hello.', speaker: 'spk_0' }, { start: 3, end: 5, text: 'Goodbye.', speaker: 'spk_0' }]))
     await writeFile(`${work}/cues.json`, JSON.stringify([]))
     // Valid replies that add nothing: an empty list, and a caption echoed without a speaker tag.
-    await sdh({ slug: 't', source: 's', language: 'en', voice: 'Joanna', work }, async () => toolReply([{ id: 'c1', start: 0, end: 2, text: 'Hello.' }]), () => true)
+    await sdh({ slug: 't', source: 's', language: 'en', voice: 'Joanna', work }, async () => jsonReply([{ id: 'c1', start: 0, end: 2, text: 'Hello.' }]), () => true)
     expect(JSON.parse(await readFile(`${work}/sdh.json`, 'utf8'))).toEqual({ degraded: true })
     // No dialogue at all: no call, not degraded (09-package advertises SDH only when there are captions).
     await writeFile(`${work}/words.json`, JSON.stringify([]))
@@ -259,7 +271,7 @@ describe('08-text sdh step', () => {
     await writeFile(`${work}/words.json`, JSON.stringify(words))
     await writeFile(`${work}/cues.json`, JSON.stringify([]))
     // the diarization rule still applies: "Proog" is said by spk_0, so it may name spk_1's caption
-    await sdh({ slug: 't', source: 's', language: 'en', voice: 'Joanna', work }, async () => toolReply([{ id: 'c2', start: 3, end: 6, text: '[Proog] I am here.' }]), () => true)
+    await sdh({ slug: 't', source: 's', language: 'en', voice: 'Joanna', work }, async () => jsonReply([{ id: 'c2', start: 3, end: 6, text: '[Proog] I am here.' }]), () => true)
     const captionsVtt = await readFile(`${work}/captions.vtt`, 'utf8'), sdhVtt = await readFile(`${work}/sdh.vtt`, 'utf8')
     for (const vtt of [captionsVtt, sdhVtt]) { expect(vtt).not.toMatch(/<\/?v[\s.>]/); expect(vtt).not.toContain('spk_') }
     expect(captionsVtt).toContain('00:00:03.000 --> 00:00:06.000\nI am here.\n')
@@ -272,7 +284,7 @@ describe('08-text sdh step', () => {
     const work = await mkdtemp(join(tmpdir(), 'sdh-'))
     await writeFile(`${work}/words.json`, JSON.stringify([{ start: 0, end: 2, text: 'Proog, wait.', speaker: 'spk_0' }, { start: 3, end: 6, text: 'I am here.', speaker: 'spk_0' }]))
     await writeFile(`${work}/cues.json`, JSON.stringify([]))
-    await sdh({ slug: 't', source: 's', language: 'en', voice: 'Joanna', work }, async () => toolReply([{ id: 'c2', start: 3, end: 6, text: '[Proog] I am here.' }]), () => true)
+    await sdh({ slug: 't', source: 's', language: 'en', voice: 'Joanna', work }, async () => jsonReply([{ id: 'c2', start: 3, end: 6, text: '[Proog] I am here.' }]), () => true)
     expect(await readFile(`${work}/sdh.vtt`, 'utf8')).not.toContain('[Proog]')
   })
 })
@@ -375,8 +387,8 @@ describe('SDH repeatability and model errors', () => {
 
   it('a re-run with the same input reads each window\'s reply from the cache: same SDH, no call, no cost', async () => {
     const cacheDir = join(await mkdtemp(join(tmpdir(), 'sdh-cache-')), 'cache/sdh')
-    const first = await sdhWithNovaLite(caps, everySound, 'en', async () => toolReply(reply), { cacheDir })
-    const send = vi.fn<SdhConverse>(async () => toolReply([]))
+    const first = await sdhWithNovaLite(caps, everySound, 'en', async () => jsonReply(reply), { cacheDir })
+    const send = vi.fn<SdhConverse>(async () => jsonReply([]))
     const { value, costUsd } = await metered(() => sdhWithNovaLite(caps, everySound, 'en', send, { cacheDir }))
     expect(send).not.toHaveBeenCalled()
     expect(costUsd).toBe(0)
@@ -391,7 +403,7 @@ describe('SDH repeatability and model errors', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     await sdhWithNovaLite(caps, everySound, 'en', async () => ({ output: { message: { role: 'assistant' as const, content: [{ text: 'no' }] } }, usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 } }), { cacheDir })
     warn.mockRestore()
-    const send = vi.fn<SdhConverse>(async () => toolReply(reply))
+    const send = vi.fn<SdhConverse>(async () => jsonReply(reply))
     expect((await sdhWithNovaLite(caps, everySound, 'en', send, { cacheDir })).added).toBe(1)
     expect(send).toHaveBeenCalledTimes(1)
   })
@@ -400,7 +412,7 @@ describe('SDH repeatability and model errors', () => {
   it('retries a ModelErrorException (424) once', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     let k = 0
-    const out = await sdhWithNovaLite(caps, everySound, 'en', async () => { if (k++ === 0) throw modelError(); return toolReply(reply) })
+    const out = await sdhWithNovaLite(caps, everySound, 'en', async () => { if (k++ === 0) throw modelError(); return jsonReply(reply) })
     warn.mockRestore()
     expect(k).toBe(2)
     expect(out).toMatchObject({ degraded: false, added: 1 })
@@ -412,6 +424,34 @@ describe('SDH repeatability and model errors', () => {
     warn.mockRestore()
     expect(send).toHaveBeenCalledTimes(2)
     expect(out).toEqual({ cues: caps.map((c) => ({ ...c, trackId: 'sdh' })), degraded: true, calls: 1, added: 0 })
+  })
+  it('retries an unreadable reply once and keeps the second, readable one', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const replies = [textReply('{"cues":[{"id":"s1","start":2.1,'), jsonReply(reply)]
+    const send = vi.fn<SdhConverse>(async () => replies.shift()!)
+    const { value, costUsd } = await metered(() => sdhWithNovaLite(caps, everySound, 'en', send))
+    warn.mockRestore()
+    expect(send).toHaveBeenCalledTimes(2)
+    expect(send.mock.calls[1]![0]).toEqual(send.mock.calls[0]![0]) // the same request again
+    expect(value).toMatchObject({ degraded: false, added: 1, calls: 1 })
+    expect(costUsd).toBeCloseTo(2 * bedrockUsd('amazon.nova-lite-v1:0', { inputTokens: 2400, outputTokens: 60 }), 12) // both calls metered
+  })
+  it('two unreadable replies leave the window plain and mark the title degraded (the existing fallback)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const send = vi.fn<SdhConverse>(async () => textReply('I cannot produce SDH for this.'))
+    const out = await sdhWithNovaLite(caps, everySound, 'en', send)
+    warn.mockRestore()
+    expect(send).toHaveBeenCalledTimes(2)
+    expect(out).toEqual({ cues: caps.map((c) => ({ ...c, trackId: 'sdh' })), degraded: true, calls: 1, added: 0 })
+  })
+  it('an unreadable reply then a ModelErrorException is two attempts: the window falls back', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    let k = 0
+    const send = vi.fn<SdhConverse>(async () => { if (k++ === 0) return textReply('no'); throw modelError() })
+    const out = await sdhWithNovaLite(caps, everySound, 'en', send)
+    warn.mockRestore()
+    expect(send).toHaveBeenCalledTimes(2)
+    expect(out).toMatchObject({ degraded: true, added: 0 })
   })
   it('other errors still fail the step', async () => {
     await expect(sdhWithNovaLite(caps, everySound, 'en', async () => { throw Object.assign(new Error('denied'), { name: 'AccessDeniedException' }) })).rejects.toThrow('denied')

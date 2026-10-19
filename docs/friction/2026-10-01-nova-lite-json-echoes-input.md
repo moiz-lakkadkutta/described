@@ -34,3 +34,11 @@ Forced tool verified: `toolConfig` with an `emit_sdh` tool plus `toolChoice: {to
 Shape is solved, quality is not: even under the schema the model duplicated a caption and emitted non-sounds
 (`[rock formation]`, `[words appear]`) next to real ones (`[fire crackles]`). A deterministic merge filter (captions taken
 from the input by id, sound cues kept only if short, non-overlapping and audible) is still needed.
+
+## Update 2026-10-19
+The forced tool is gone again. From 2026-10-15 Nova Lite answered the forced `emit_sdh` call with `ModelErrorException`
+("Model produced invalid sequence as part of ToolUse", 424) twice in a row on Tears of Steel (4 captions) and full-length Sintel,
+so their Rich captions were left out. The SDH request now asks for plain JSON text, as the narrative pass does: the data first and
+the task last (the echo above came from the request alone as user content), the reply shape as the last line of the system prompt,
+a Zod-validated read of the first `{` to the last `}`, and one more call when the reply is unreadable or the 424 comes back.
+A second failure leaves that window's captions plain, as before.

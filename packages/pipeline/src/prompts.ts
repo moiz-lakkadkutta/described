@@ -73,12 +73,6 @@ export async function shortenWithNovaLite(text: string, maxWords: number, langua
   return (r.output?.message?.content?.[0]?.text ?? text).trim()
 }
 
-/** JSON Schema for the forced emit_sdh tool's input. */
-export const SDH_TOOL_SCHEMA = {
-  type: 'object', required: ['cues'],
-  properties: { cues: { type: 'array', items: { type: 'object', required: ['id', 'start', 'end', 'text'], properties: { id: { type: 'string' }, start: { type: 'number' }, end: { type: 'number' }, text: { type: 'string' }, speaker: { type: 'string' }, sound: { type: 'boolean' } } } } },
-}
-
 /** Captions per SDH call (DESC-014): one Converse call with every caption of a full-length title overflowed maxTokens 4000. */
 export const SDH_CHUNK_CAPTIONS = 40
 /** Seconds of description context either side of a window. */
@@ -118,9 +112,18 @@ const toSdhDescriptions = (ds: readonly FitCue[]): SdhDescription[] => ds.map((d
 /**
  * One window's request: its captions and the descriptions overlapping [start − 5 s, end + 5 s], each with its start and end (the
  * first runs sent only the start, and Nova Lite answered with zero-length "sounds" at each description's start).
+ * Plain JSON text, no tool: the forced emit_sdh tool (toolConfig + toolChoice { tool }) made Nova Lite answer ModelErrorException
+ * ("Model produced invalid sequence as part of ToolUse", 424) twice on Tears of Steel (4 captions) and full-length Sintel, so Rich
+ * captions were left out. The narrative pass asks for plain JSON for the same reason (narrativeRequest). The reply is read by
+ * replyCues (Zod) and an unreadable one is asked again once (windowReply). The data goes first and the task last: with the request
+ * alone as user content Nova Lite echoed it back (docs/friction/2026-10-01-nova-lite-json-echoes-input.md).
+ * Converse API: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html
  * Greedy decoding: temperature 0 alone still gave different replies to the same request (2026-10-14, Sintel), so topK 1 is passed
  * through additionalModelRequestFields — https://docs.aws.amazon.com/nova/latest/userguide/using-converse-api.html
  */
+/** The reply shape, as the last line of the SDH system prompt (replyCues reads it; an unreadable reply is asked again once). */
+export const SDH_REPLY_FORMAT = 'Reply with one JSON object only, no prose, no code fence: {"cues":[{"id":"<id>","start":<seconds>,"end":<seconds>,"text":"<text>","sound":true}]} — "sound": true only on sound cues; {"cues":[]} when nothing qualifies.'
+
 export function sdhRequest(window: Cue[], descriptions: FitCue[], language: 'en' | 'de'): ConverseCommandInput {
   const from = window[0]!.start - SDH_CONTEXT_S, to = window.at(-1)!.end + SDH_CONTEXT_S
   const near = toSdhDescriptions(descriptions).filter((d) => d.start < to && d.end > from)
@@ -132,13 +135,10 @@ export function sdhRequest(window: Cue[], descriptions: FitCue[], language: 'en'
       'Return only (a) sound cues to add and (b) captions that need a speaker tag — omit every caption you leave unchanged. An empty cues list is a valid answer and the right one when nothing qualifies.',
       'Sound cues: only for a sound that one description\'s action clearly makes (e.g. "A fire burns" → [fire crackling], "She slams the door" → [door slams]). Write it as [lowercase brackets], at most 3 words: the sound\'s source, a word from that description, then the sound ("crackling", "slams", "footsteps"). Never a sight ("glows", "holds", "darkness"), an object, a person or on-screen text, and never a sound no description shows. Each sound cue has its own id starting with "s", sound: true, and a start/end 0.5–2 s long inside that description\'s start–end and not overlapping a caption.',
       'Speaker tags: "speaker" values like spk_0 are anonymous voice labels, never names. Tag a caption only when the speaker is off-screen or ambiguous and their name is spoken in the captions: return it with its id, start and end, and its text prefixed "[Name] " with that real name. Never use a voice label or a placeholder as the name.',
+      SDH_REPLY_FORMAT,
     ].join('\n') }],
     // The task goes after the data (with the request alone as user content Nova Lite echoed it back).
-    messages: [{ role: 'user', content: [{ text: `Input:\n${input}\n\nUse the emit_sdh tool to return the SDH cues.` }] }],
-    // A toolConfig makes Nova constrain its output to the tool's inputSchema, and toolChoice { tool } forces that one call:
-    // https://docs.aws.amazon.com/nova/latest/userguide/concept-chapter-servicename.html · https://docs.aws.amazon.com/bedrock/latest/userguide/structured-output.html
-    // Converse API: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html
-    toolConfig: { tools: [{ toolSpec: { name: 'emit_sdh', description: 'Return the SDH cues to add or tag', inputSchema: { json: SDH_TOOL_SCHEMA } } }], toolChoice: { tool: { name: 'emit_sdh' } } },
+    messages: [{ role: 'user', content: [{ text: `Input:\n${input}\n\nReply with the JSON object only.` }] }],
     inferenceConfig: { maxTokens: 4000, temperature: 0 },
     additionalModelRequestFields: { inferenceConfig: { topK: 1 } },
   }
@@ -149,9 +149,11 @@ export const sdhCacheKey = (input: ConverseCommandInput) => createHash('sha256')
 
 /**
  * One window's reply, from `{cacheDir}/{key}.json` when there is one (a `--from text` re-run then gives the same SDH: the first Tears
- * of Steel run degraded and its re-run added cues from identical input), else a Converse call whose reply is stored there.
- * Bedrock's ModelErrorException ("Model produced invalid sequence as part of ToolUse", 424) is retried once; a second failure returns
- * undefined, so the window stays plain instead of failing the step. Any other error is thrown.
+ * of Steel run degraded and its re-run added cues from identical input), else a Converse call whose readable reply is stored there.
+ * Two attempts: a reply replyCues cannot read (not {"cues":[…]}: prose, an echoed request, a cut-off object) or Bedrock's
+ * ModelErrorException (424) is asked again once with the same request. After a second failure the last unreadable reply is returned
+ * (the caller logs it), or undefined after a ModelErrorException, so the window stays plain instead of failing the step. Any other
+ * error is thrown. Every call is metered.
  */
 async function windowReply(input: ConverseCommandInput, send: SdhConverse, cacheDir: string | undefined): Promise<Pick<ConverseCommandOutput, 'output' | 'usage'> | undefined> {
   const file = cacheDir && `${cacheDir}/${sdhCacheKey(input)}.json`
@@ -159,21 +161,30 @@ async function windowReply(input: ConverseCommandInput, send: SdhConverse, cache
     const hit = await readFile(file, 'utf8').then((t) => JSON.parse(t) as Pick<ConverseCommandOutput, 'output'>, () => undefined)
     if (hit?.output) return { output: hit.output, usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } }
   }
+  const ATTEMPTS = 2
   for (let attempt = 1; ; attempt++) {
+    let r: Pick<ConverseCommandOutput, 'output' | 'usage'>
     try {
-      const r = await send(input)
-      meter()?.bedrock(LITE(), r.usage)
-      if (file && replyCues(replyOf(r)) !== undefined) {
-        await mkdir(cacheDir!, { recursive: true })
-        await writeFile(`${file}.tmp`, JSON.stringify({ output: r.output, usage: r.usage }))
-        await rename(`${file}.tmp`, file)
-      }
-      return r
+      r = await send(input)
     } catch (e) {
       if ((e as Error).name !== 'ModelErrorException') throw e
       console.warn(`SDH: ModelErrorException (attempt ${attempt}): ${(e as Error).message}`)
-      if (attempt >= 2) return undefined
+      if (attempt >= ATTEMPTS) return undefined
+      continue
     }
+    meter()?.bedrock(LITE(), r.usage)
+    const reply = replyOf(r)
+    if (replyCues(reply) === undefined) {
+      if (attempt >= ATTEMPTS) return r
+      console.warn(`SDH: reply is not {"cues":[…]} (attempt ${attempt}); asking again`, (typeof reply === 'string' ? reply : JSON.stringify(reply) ?? '').slice(0, 200))
+      continue
+    }
+    if (file) {
+      await mkdir(cacheDir!, { recursive: true })
+      await writeFile(`${file}.tmp`, JSON.stringify({ output: r.output, usage: r.usage }))
+      await rename(`${file}.tmp`, file)
+    }
+    return r
   }
 }
 const replyOf = (r: Pick<ConverseCommandOutput, 'output'>) => { const content = r.output?.message?.content ?? []; return content.find((c) => c.toolUse)?.toolUse?.input ?? content.find((c) => c.text)?.text ?? '' }
@@ -242,10 +253,17 @@ const SOUND_SLACK_S = 2
 const SdhReply = z.object({ cues: z.array(z.object({ id: z.string(), start: z.coerce.number(), end: z.coerce.number(), text: z.string(), speaker: z.string().optional(), sound: z.boolean().optional() }).passthrough()) })
 type ReplyCue = z.infer<typeof SdhReply>['cues'][number]
 
-/** The reply's cues (the toolUse input object, or text holding {"cues":[…]}, fenced or not); undefined when it is neither. An empty list is valid. */
+/**
+ * The reply's cues: text holding {"cues":[…]} — fenced or not, with prose around it (the first `{` to the last `}` is read, as the
+ * narrative pass's replyEdits does) — or such an object as a toolUse input (a cached reply from before the plain-JSON request).
+ * Zod-validated; undefined when it is neither. An empty list is valid.
+ */
 export function replyCues(reply: unknown): ReplyCue[] | undefined {
   let json: unknown = reply
-  if (typeof reply === 'string') try { json = JSON.parse(stripFence(reply)) } catch { json = undefined }
+  if (typeof reply === 'string') {
+    const t = stripFence(reply), a = t.indexOf('{'), b = t.lastIndexOf('}')
+    try { json = a >= 0 && b > a ? JSON.parse(t.slice(a, b + 1)) : undefined } catch { json = undefined }
+  }
   const parsed = SdhReply.safeParse(json)
   return parsed.success ? parsed.data.cues : undefined
 }
