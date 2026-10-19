@@ -1,6 +1,8 @@
 # Product feedback — Described
 
-Every number links to where it was measured; each item in §3 links its friction log ([docs/friction/](friction/), 19 logs).
+Every number links to where it was measured; each item in §3 links its friction log ([docs/friction/](friction/), 23 logs).
+The five required answers are §1 (which tools, and how the AWS services are used), §2 (what worked well), §3 (what needs
+improvement), §4 (onboarding) and §5 (would we build with them again). Refreshed 2026-10-19 (main `163eeed`).
 Device throughout: Fire TV Stick `AFTSS`, Fire OS 7.7.1.6 (Android 9, API 28), over adb.
 
 ## 1. Tools, APIs and SDKs used, and why
@@ -23,17 +25,21 @@ Also: expo-audio (per-cue clips in Extended mode, spoken prompts).
 installed (a multi-gigabyte SDK plus a day of setup) and the media kit's Vega
 adapter was not finished. `apps/vega` is a template; `packages/shared-ui` keeps the Vega-supported import rule.
 
-**AWS** (all through @aws-sdk v3 — client-bedrock-runtime, client-polly, client-transcribe, client-s3, lib-storage,
-client-cloudfront — plus AWS CLI 2)
+**AWS** (pipeline calls through @aws-sdk v3 — client-bedrock-runtime, client-polly, client-transcribe, client-s3, lib-storage,
+client-cloudfront — plus AWS CLI 2; the full list of calls, Regions and costs is [docs/aws.md](aws.md))
 
 | Service | Why | How we use it |
 |---|---|---|
-| Bedrock — **Qwen3-VL 235B** (Converse) | Won the Gate C bake-off | Per shot, 3–6 key frames ([0003](decisions/0003-gate-c.md)). Not shipped: Nova Pro, Nova 2 Lite, Pegasus 1.2 (InvokeModel) |
-| Bedrock — **Nova Lite** (Converse) | Cheap text model, forced tools | Shortening, rich captions, edit pass ([0006](decisions/0006-scene-edit-pass.md)) |
-| Amazon Polly (neural) | The narration voice | One clip per cue |
-| Amazon Transcribe | Word timings, speaker labels | Dialogue gaps; captions |
-| Amazon S3 + CloudFront | HLS delivery to the stick | Serves only `/published/*` |
-| AWS CDK (TypeScript) | Infra as code | `infra/`, two regions |
+| Bedrock — **Qwen3-VL 235B** (Converse) | Won the Gate C bake-off | **Describe**: one call per shot with 3–6 key frames ([0003](decisions/0003-gate-c.md)); **verify**: the same frames and the draft again, may only remove what the frames do not show ([0010](decisions/0010-verify-pass.md)). Not shipped: Nova Pro, Nova 2 Lite, Pegasus 1.2 (InvokeModel) |
+| Bedrock — **Amazon Nova Lite** (Converse) | Cheap, fast text model | **Scenes**: groups shots into places ([0012](decisions/0012-characters-and-scenes.md)); **fit**: shortens a description to its dialogue gap; the one over-budget shortening in the narrative pass; **rich captions** (SDH) |
+| Bedrock — **DeepSeek v3.2** (Converse, plain JSON reply) | Kept about half the cues it rewrote under our guards, where Nova Lite only removed repeats | **Narrative pass** (step 5b): one call per scene window joins the cues into one narration; deterministic guards keep facts, names and pronouns honest ([0017](decisions/0017-narrative-pass.md)) |
+| Bedrock — **Amazon Nova Pro** (Converse) | Fallback | Asked once when the DeepSeek call fails or its reply is unreadable ([0017](decisions/0017-narrative-pass.md)) |
+| Amazon Polly (**generative**, voice Ruth; neural also supported) | The narration voice | One clip per cue; the clip's measured length sets the cue end; app prompt clips ([0017](decisions/0017-narrative-pass.md) "Voice") |
+| Amazon Transcribe | Word timings, speaker labels | Dialogue gaps where narration may speak; the plain captions track |
+| Amazon S3 + CloudFront | HLS delivery to the stick | Sources, work files and the published HLS; CloudFront serves only `/published/*`; invalidation after a re-publish |
+| AWS Lambda (function URL) + Amazon RDS for PostgreSQL | A hosted API for judges, no developer machine | The release APK's API: Express in viewer mode behind an HTTPS function URL; RDS db.t4g.micro in isolated subnets, no NAT; ≈ $14.50 a month ([aws.md](aws.md#hosted-api-desc-034)) |
+| AWS Secrets Manager, CloudWatch, SNS, AWS Budgets | Safety for a public URL | Database password generated at deploy; low-storage alarm; USD 25 / month budget alert by email |
+| AWS CDK (TypeScript) | Infra as code | `infra/`: `described-media-<stage>` (eu-central-1) and `described-viewer-<stage>` (us-east-1) |
 
 **Media and backend:** Shaka Packager v3.9.3 (HLS master, two audio renditions, up to three text tracks), ffmpeg 8.0
 (scenes, key frames, ducking, loudness), Express 4 + Zod + Prisma 6 + pg-boss 10 on PostgreSQL, Socket.IO (pipeline
@@ -51,16 +57,24 @@ progress to the admin page).
 - **Bedrock made the model a parameter.** Nova Pro scored 41.4 % usable in the full pipeline (Gate C bar: 70 %). We ran
   the same 29 shots and prompt through four models in one evening for ≈ $0.15; on raw descriptions Qwen3-VL scored
   75.9 %, Nova Pro 17.2 % ([0003](decisions/0003-gate-c.md)). Converse made the swap two small commits (126d1e9,
-  ee9495d). Full pipeline with Qwen3-VL: 72.4 %, then 75.9 % after DESC-017.
-- **Forced tool use fixes the shape.** Nova Lite returned schema-shaped cues with no echoed input
+  ee9495d). Full pipeline with Qwen3-VL: 72.4 %, then 75.9 % after DESC-017. Adding DeepSeek v3.2 for the narrative pass was a
+  model ID and a plain-JSON prompt in the same Converse call; with it, Gate C run g13 passed both clips at the 70 % bar with
+  three blind raters: 82.8 % on Sintel and 77.4 % on the held-out Tears of Steel clip (it re-used g12's describe output;
+  [evaluation.md](evaluation.md#gate-c-results), [0017](decisions/0017-narrative-pass.md)).
+- **Forced tool use fixed the shape on short requests.** Nova Lite returned schema-shaped cues with no echoed input
   ([log update](friction/2026-10-01-nova-lite-json-echoes-input.md#update-2026-10-01)); Qwen3-VL honoured a forced tool over
   `bedrock-runtime` too, though its model card lists tools under `bedrock-mantle` only ([0006](decisions/0006-scene-edit-pass.md#model-choice-probes-on-r2-text-only-45-converse-calls--0013)).
+  On longer requests it broke down (§3 AWS 3), so the narrative pass asks for plain JSON instead.
 - **Costs are small and predictable.** Five 60 s titles went live for $0.293 in one batch, prompt clips included
-  ([titles.md](titles.md)); $0.051–0.059 per title, Transcribe's $0.024/min the floor ([aws.md](aws.md); CLI meter, list prices). ffmpeg ducked 9.03 dB against a 9.0 target
+  ([titles.md](titles.md)); $0.051–0.059 per title, Transcribe's $0.024/min the floor. The whole of Sintel (14:48) cost $1.10,
+  and re-voicing all six titles in Ruth with the narrative pass $0.36. End to end ≈ $0.086 per minute with the generative voice
+  ([aws.md](aws.md#cost-per-title); CLI meter, list prices). ffmpeg ducked 9.03 dB against a 9.0 target
   ([0001](decisions/0001-week0-gates.md#local-dry-runs-desc-001-part-1)).
-- **MediaSession works for voice.** "Alexa, pause / play" reached the Player on the stick (device run 2026-10-10,
-  788e973). The guide's voice-command → callback table and Fire TV's `whad-MediaSessionClient` log lines pinned down the
-  fast-forward bug (PR #31).
+- **The MediaSession guide and Fire TV's logs pinned down a bug fast.** In the device run of 2026-10-10, "Alexa, fast forward /
+  rewind" did nothing; the guide's voice-command → callback table and Fire TV's `whad` publisher log lines showed why (the
+  session went inactive under the Alexa UI), fixed in PR #31 ([fire-os-bindings §4](platform/fire-os-bindings.md#4-media-controls-and-alexa-transport)).
+  The voice re-check on 2026-10-14 was **inconclusive**: the session was published, but no voice command reached the app
+  ([RUN-2026-10](device-checks/RUN-2026-10.md) check 14). Remote media keys did pass (check 13).
 
 ## 3. What needs improvement
 
@@ -98,6 +112,12 @@ Most actionable first within each group.
    `adb screencap` is all black — [log](friction/2026-09-26-adb-screencap-black.md); Expo silently serves another
    project's bundle when port 8081 is taken — [log](friction/2026-09-26-expo-port-8081-wrong-bundle.md).
    *Ask:* these notes in the ADB docs and sample README; a supported screenshot path for dev builds.
+7. **Fire TV Recommendations was retired, and its docs just 404** — [log](friction/2026-10-15-fire-tv-recommendations-retired-may-2025-docs-404-only-on-wayback.md).
+   Impact: about an hour; no self-serve home-screen integration is left for a new app. *Ask:* keep retired doc URLs alive
+   with a notice and the replacement (or "none").
+8. **`CaptioningManager` gives no typeface name** — [log](friction/2026-10-15-captioningmanager-style-has-no-typeface-name-and-the-kit-draws-no-caption-edge.md).
+   Impact: about 30 minutes; captions follow the viewer's colours, size and family, not the exact typeface. *Ask:* a public
+   typeface name on the caption style.
 
 ### Vega OS
 
@@ -112,13 +132,24 @@ multi-gigabyte SDK plus a day of setup) decided us for Fire OS. *Ask:* a smaller
 2. **"JSON only" prompts are not constrained** — [log](friction/2026-10-01-nova-lite-json-echoes-input.md). Impact: Nova
    Lite echoed the request, crashing the SDH step. *Ask:* point to the forced-tool pattern on the Nova prompting pages; list
    Nova v1 support for `outputConfig.textFormat`.
-3. **Free plan error does not name the plan** — [log](friction/2026-10-01-transcribe-free-plan-subscription-required.md).
+3. **Forced tool use fails on longer Nova Lite requests.** Nova Lite answered our rich-captions request (37 captions, forced
+   tool) with `ModelErrorException` "Model produced invalid sequence as part of ToolUse", twice in a row, on full-length
+   Sintel and on Tears of Steel, so those titles shipped without Rich captions ([titles](titles.md)). Impact: an
+   accessibility track missing from every published title; a fix that drops the forced tool is in progress. *Ask:* document
+   the size limits of forced tool use on Nova v1 and return an error that says what to change.
+4. **Temperature 0 is not deterministic on Nova Lite** — [log](friction/2026-10-14-nova-lite-temperature-0-is-not-deterministic.md).
+   Impact: a re-run could add or drop a caption with nothing changed. *Ask:* say on the inference-parameters page whether
+   temperature 0 is greedy, and what to set if not (we pass `topK: 1` as well).
+5. **Free plan error does not name the plan** — [log](friction/2026-10-01-transcribe-free-plan-subscription-required.md).
    Impact: `SubscriptionRequiredException` read as an IAM problem; ~30 min, pipeline blocked. *Ask:* name the Free plan
    and link the upgrade.
-4. **Verification after the plan upgrade is invisible** — [log](friction/2026-10-01-bedrock-account-verification-after-upgrade.md).
+6. **Verification after the plan upgrade is invisible** — [log](friction/2026-10-01-bedrock-account-verification-after-upgrade.md).
    Impact: Bedrock 403 while Transcribe worked; ~10 min. *Ask:* show verification state in `get-account-plan-state` and
    the upgrade response.
-5. **`cdk diff` does not say a region is not bootstrapped** — [log](friction/2026-10-01-cdk-second-region-bootstrap.md).
+7. **Aurora Serverless v2 resumes too slowly for a TV app** — [log](friction/2026-10-15-aurora-serverless-v2-auto-pause-resume-outlasts-a-tv-app-fetch-timeout.md).
+   Impact: about 30 minutes; a ≈ 15 s resume outlasts the app's 10 s fetch timeout, so the hosted API uses RDS db.t4g.micro
+   instead. *Ask:* a documented resume bound under 10 s, or a "warm while used today" mode.
+8. **`cdk diff` does not say a region is not bootstrapped** — [log](friction/2026-10-01-cdk-second-region-bootstrap.md).
    Impact: a few minutes; the warning names only the lookup role. *Ask:* name the missing
    bootstrap and print the command.
 
@@ -130,7 +161,7 @@ multi-gigabyte SDK plus a day of setup) decided us for Fire OS. *Ask:* a smaller
   ([06240c1](https://github.com/moiz-lakkadkutta/vega-media-kit/commit/06240c1)).
 - **Our own app** ran end to end on the stick as a local release build on 2026-10-10 (PR #30); EAS cannot see a linked
   package ([RUN-2026-10 §0.8](device-checks/RUN-2026-10.md)).
-- **AWS:** account to first paid pipeline run cost ~40 min of plan and verification errors (§3 AWS 3–4). Claude on
+- **AWS:** account to first paid pipeline run cost ~40 min of plan and verification errors (§3 AWS 5–6). Claude on
   Bedrock was not tested because the use-case form had not been submitted ([0003](decisions/0003-gate-c.md)).
 
 ## 5. Would you build with these tools again?
@@ -138,6 +169,8 @@ multi-gigabyte SDK plus a day of setup) decided us for Fire OS. *Ask:* a smaller
 - **Fire OS — Yes.** Standard Android media (ExoPlayer, HLS, MediaSession, intents) did the core job on a low-cost stick;
   the costs were sample defaults, undocumented device limits and a partner-only catalog.
 - **Vega OS — Not yet known** (decision 0004); we would try with a lighter install and a finished media adapter.
-- **Amazon Bedrock — Yes.** Cents per title; we would keep checking newer vision models against the same 29 shots.
-- **Polly, Transcribe, S3, CloudFront, CDK — Yes.** The friction was account-level error messages, not the services.
+- **Amazon Bedrock — Yes.** Cents per title, and four model families (Qwen3-VL, Nova, DeepSeek, Pegasus) behind one Converse
+  API; we would keep checking newer models against the same Gate C clips, and drop forced tool use for long replies.
+- **Polly (generative), Transcribe, S3, CloudFront, CDK — Yes.** The friction was account-level error messages, not the services.
+- **Lambda function URL + RDS — Yes** for a small always-on API: one CDK stack, ≈ $14.50 a month, no NAT.
 - **The multi-TV sample as a starting point — Yes, with the fixes in §3.5 applied first.**

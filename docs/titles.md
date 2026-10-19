@@ -1,6 +1,7 @@
 # Catalogue titles (DESC-010)
 
-Five Blender open-movie segments, ≈ 60 s each, all five described end to end by the pipeline CLI with its defaults (Qwen3-VL 235B
+Six titles are published: five Blender open-movie segments and the whole of Sintel (DESC-036, below); "Published state" is
+current. The five segments, ≈ 60 s each, were all described end to end by the pipeline CLI with its defaults (Qwen3-VL 235B
 from key frames, Nova Lite edit pass on, extended cues for dropped plot events) and published on 2026-10-14 — Sintel re-run that
 day, because its rows from the 2026-10 device run had been written by hand and it had no DescriptionCue, Rendition or TextTrack
 rows. The rows live in `apps/api/prisma/titles.json` (`pnpm titles:seed` upserts them by slug; `prisma migrate reset`, and
@@ -57,7 +58,8 @@ AD, but had no Extended mode pauses, no sample cue and an empty `tracks` in `GET
 
 ## Published state, 2026-10-15
 
-What is live now for the six published titles. Checked read-only against the local API (`GET /catalog`, `GET /titles/<slug>`),
+What is live now for the six published titles. None of them carries Rich captions (the `sdh` track): see the notes below
+for each title; a fix (`fix/rich-captions-json`) and a `--from text` re-run are in progress on 2026-10-19. Checked read-only against the local API (`GET /catalog`, `GET /titles/<slug>`),
 the local database (Title, DescriptionCue and TextTrack rows), the run logs and the work dirs. The sections below this one are the
 history; where they disagree with this table, this table is current.
 
@@ -75,7 +77,8 @@ history; where they disagree with this table, this table is current.
 verify or Transcribe call; fit re-placed every cue at Ruth's slower rate, 0017 "Voice"). Each work dir and its database rows (Title,
 DescriptionCue, TextTrack, Rendition, Asset, Shot, Gap, Job) were backed up first to
 `described-backups/2026-10-15-pre-ruth/<slug>/` on the machine that ran it, with the run logs in `logs/`. `validate` reported no
-problems on all six. The hosted API is not re-seeded by this run.
+problems on all six. The hosted API was not re-seeded by this run; it was re-seeded afterwards (2026-10-16) with all six
+titles (166 description cues), and serves them now.
 
 | Title | Cost | Edits kept / rejected | Voice drops | App clips |
 |---|---|---|---|---|
@@ -209,8 +212,8 @@ download, upload and re-encode alone took 17 minutes. Approved spend was about $
 | sintel (full, 14:48, Joanna) | 189 | $0.3556 | $0.5977 | $0.0041 ($0.0006 + $0.0004 + $0.0031) | $0.1471 | **$1.1043** |
 
 The estimate ($0.8088) used per-minute rates measured before the verify pass. Describe plus verify cost $0.040 a minute, against
-the $0.019 a minute the estimator assumes. So `src/cost.ts` underestimates a run with verify on by about $0.02 a minute, as its
-own comment says.
+the $0.019 a minute the estimator assumed then. `src/cost.ts` underestimated a run with verify on by about $0.02 a minute; since
+#80 its estimate adds the verify pass (`VERIFY_PER_MIN`) and the narrative pass.
 
 Outcome: 189 shots → 129 cues from fit (15 extended) → 127 published (17 extended). Voice dropped 2 cues ("Sintel stares
 wide-eyed." at 9:00.1, 150 ms over its limit, and a pause at 5:43.9 that started 1.6 s after its shot), turned 3 credit cues into
