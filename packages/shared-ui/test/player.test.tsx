@@ -5,7 +5,8 @@ import TestRenderer, { act, type ReactTestInstance } from 'react-test-renderer'
 import { audioTracksFromHls, parseHlsMaster, textTracksFromHls } from '@moiz0309/vega-media-kit/core'
 import type { Prefs } from '@described/contracts'
 import { configureRemote } from '../src/focus/remote'
-import { BUFFERING_ANNOUNCE_MS, PENDING_SEEK_MS, Player, type PlayerProps } from '../src/screens/Player'
+import { BUFFERING_ANNOUNCE_MS, PENDING_SEEK_MS, Player, START_HOLD_MS, type PlayerProps } from '../src/screens/Player'
+import { EXTENDED_LEAD_S } from '../src/extended'
 import { SEEK_COMMIT_MS } from '../src/playback'
 import { configurePlatform, createNowPlayingSink, type SystemCaptions } from '../src/platform'
 import { strings } from '../src/strings'
@@ -477,7 +478,7 @@ describe('Extended mode (DESC-007)', () => {
     await atCue()
     tick(20.25, 21) // ticks that arrive around the pause
     await act(async () => { au.end() }); report('onState', 'playing')
-    tick(21.25, 39.75)
+    tick(21.25, 39.5)
     expect(au.speak).toHaveBeenCalledTimes(1)
     tick(40, 40)
     expect(au.speak).toHaveBeenLastCalledWith(clip('d3')); expect(au.speak).toHaveBeenCalledTimes(2)
@@ -509,7 +510,7 @@ describe('Extended mode (DESC-007)', () => {
     expect(au.speak).not.toHaveBeenCalled()
     press('right'); act(() => { vi.advanceTimersByTime(SEEK_COMMIT_MS) }); tick(46, 47)
     press('left'); press('left'); act(() => { vi.advanceTimersByTime(SEEK_COMMIT_MS) }) // 47 → 27; play over d3 again
-    tick(27, 39.75); expect(au.speak).not.toHaveBeenCalled()
+    tick(27, 39.5); expect(au.speak).not.toHaveBeenCalled()
     tick(40, 40); expect(au.speak).toHaveBeenCalledWith(clip('d3'))
   })
   it('seeking to exactly a cue start does not start it', async () => {
@@ -563,7 +564,7 @@ describe('Extended mode (DESC-007)', () => {
     }
   })
   it('a cue crossed just as the viewer paused (kit already says paused) stays paused after the clip', async () => {
-    await start(); tick(18, 19.75)
+    await start(); tick(18, 19.5)
     report('onState', 'paused'); tick(20, 20) // a last tick after the viewer's pause
     expect(au.speak).toHaveBeenCalledWith(clip('d2'))
     await act(async () => { au.end() })
@@ -655,13 +656,93 @@ describe('Extended mode (DESC-007)', () => {
     await start({}, at0); tick(0.25, 0.25)
     expect(au.speak).toHaveBeenCalledWith(clip('d2')) // its own id, though it now sorts first
   })
+  describe('pause early, never late (decision 0019; tears-of-steel-40-100 numbers)', () => {
+    // d10 at 43.226; the AD track's next description (not an extended cue) starts at 43.376, its voice at 43.589.
+    const tos = vtt.replace('00:00:40.000 --> 00:00:40.833', '00:00:43.226 --> 00:00:48.166')
+    // d1 at 0.000, the opening dialogue at 0.05.
+    const tos0 = vtt.replace('00:00:20.000 --> 00:00:20.833', '00:00:00.000 --> 00:00:06.530')
+    const autoplay = () => player().props.autoplay as boolean
+    /** Like start(), but the load reports `ready` (no autoplay) rather than `playing`. */
+    async function ready(over: Partial<PlayerProps> = {}, body: string | null = vtt) {
+      vi.stubGlobal('fetch', vi.fn((url: string) => (url !== descUrl ? new Promise(() => {}) : body === null ? Promise.resolve({ ok: false, status: 404, text: async () => '' })
+        : body === 'pending' ? new Promise(() => {}) : Promise.resolve({ ok: true, text: async () => body }))))
+      au = audio()
+      mount({ cueAudioUrl, descriptionsUrl: descUrl, speak: au.speak, stopSpeaking: au.stopSpeaking, prefetch: au.prefetch, ...over })
+      report('onTracks', tracks); await flush()
+      report('onState', 'ready'); await flush()
+    }
+
+    it('d10 at 43.226: the pause is requested at the tick within the lead window, before the cue start', async () => {
+      await start({}, tos); tick(42, 42.5)
+      expect(kit.ref.pause).not.toHaveBeenCalled()
+      report('onPosition', 42.9) // a 4 Hz tick of another phase: 42.9 + 0.35 ≥ 43.226
+      expect(kit.ref.pause).toHaveBeenCalledTimes(1); expect(au.speak).toHaveBeenCalledWith(clip('d3'))
+      tick(43, 43.5) // ticks that arrive around the pause
+      expect(au.speak).toHaveBeenCalledTimes(1)
+    })
+    it('between ticks, a timer requests the pause at exactly start − EXTENDED_LEAD_S', async () => {
+      await start({}, tos); tick(42, 42.75) // 42.75 + 0.35 < 43.226: the next tick (43.0) would be 0.124 s later than needed
+      expect(kit.ref.pause).not.toHaveBeenCalled()
+      act(() => { vi.advanceTimersByTime(Math.round((43.226 - EXTENDED_LEAD_S - 42.75) * 1000) - 1) })
+      expect(kit.ref.pause).not.toHaveBeenCalled()
+      act(() => { vi.advanceTimersByTime(1) })
+      expect(kit.ref.pause).toHaveBeenCalledTimes(1); expect(au.speak).toHaveBeenCalledWith(clip('d3'))
+      tick(43, 43.25)
+      expect(au.speak).toHaveBeenCalledTimes(1) // never twice
+      report('onState', 'paused'); await act(async () => { au.end() })
+      expect(kit.ref.play).toHaveBeenCalledTimes(1) // resumes from where it paused: nothing is sought
+      expect(kit.ref.seek).not.toHaveBeenCalled()
+    })
+    it('the timer does nothing once the film is not playing (viewer paused), or after a seek', async () => {
+      await start({}, tos); tick(42, 42.75)
+      report('onState', 'paused')
+      act(() => { vi.advanceTimersByTime(500) })
+      expect(au.speak).not.toHaveBeenCalled()
+      act(() => r.unmount())
+      const onNowPlaying = vi.fn()
+      await start({ onNowPlaying }, tos); tick(42, 42.75)
+      act(() => onNowPlaying.mock.lastCall![0].controls.seek(10))
+      act(() => { vi.advanceTimersByTime(500) })
+      expect(au.speak).not.toHaveBeenCalled()
+    })
+    it('d1 at 0.000: from 0:00 the load does not autoplay; the clip is spoken first and the film plays after it', async () => {
+      await ready({}, tos0)
+      expect(autoplay()).toBe(false)
+      expect(au.speak).toHaveBeenCalledWith(clip('d2'))
+      expect(kit.ref.play).not.toHaveBeenCalled()
+      await act(async () => { au.end() })
+      expect(kit.ref.play).toHaveBeenCalledTimes(1)
+      report('onState', 'playing'); tick(0.25, 1)
+      expect(au.speak).toHaveBeenCalledTimes(1)
+    })
+    it('from 0:00 with no cue near the start, the film plays as soon as the load is ready', async () => {
+      await ready({}, vtt)
+      expect(au.speak).not.toHaveBeenCalled(); expect(kit.ref.play).toHaveBeenCalledTimes(1)
+    })
+    it(`waits at most START_HOLD_MS (${START_HOLD_MS} ms) for the descriptions read; a 404 does not wait`, async () => {
+      await ready({}, 'pending')
+      expect(kit.ref.play).not.toHaveBeenCalled()
+      act(() => { vi.advanceTimersByTime(START_HOLD_MS) })
+      expect(kit.ref.play).toHaveBeenCalledTimes(1)
+      act(() => r.unmount()); kit.reset(); act(() => { r = TestRenderer.create(<></>) })
+      await ready({}, null)
+      expect(kit.ref.play).toHaveBeenCalledTimes(1)
+    })
+    it('autoplays as before when resuming mid-film, or with Extended mode off', async () => {
+      await ready({ startAtS: 30 }, tos0)
+      expect(autoplay()).toBe(true); expect(au.speak).not.toHaveBeenCalled()
+      act(() => r.unmount())
+      await ready({ prefs: { ...prefs, extendedMode: false } }, tos0)
+      expect(autoplay()).toBe(true)
+    })
+  })
   it('the crossing counts even if onState still says buffering (it lags the tick)', async () => {
-    await start(); tick(18, 19.75)
+    await start(); tick(18, 19.5)
     report('onState', 'buffering'); tick(20, 20)
     expect(au.speak).toHaveBeenCalledWith(clip('d2')); expect(kit.ref.pause).toHaveBeenCalled()
   })
   it('no trigger while ◄► is held (scrubbing away)', async () => {
-    await start(); tick(18, 19.75)
+    await start(); tick(18, 19.5)
     press('right') // scrub pending: the film still plays under it
     tick(20, 20.25)
     expect(au.speak).not.toHaveBeenCalled()

@@ -67,9 +67,12 @@ export function speak(url: string): Promise<void> {
     try {
       const p = pre?.player ?? createAudioPlayer({ uri: url })
       player = p
+      let started = false
       p.addListener('playbackStatusUpdate', (s: Status) => {
         if (player !== p) return
         if (s.playbackState === 'ready' || s.playing) loaded = true
+        // With Player's "pause requested" line this times the extended pause on the device (decision 0019).
+        if (s.playing && !started) { started = true; console.log(`[described] extended clip playing ${url}`) } // the device check greps logcat for this
         if (s.didJustFinish || s.playbackState === 'ended' || s.playbackState === 'idle' || s.playbackState === 'error') stopClip()
       })
       p.play()
