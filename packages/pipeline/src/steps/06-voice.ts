@@ -11,6 +11,8 @@ import { polishCue } from '../polishCue'
 import type { PollyEngine } from '../voiceProfile'
 import { textSpans, withoutSpans } from '../textClause'
 import { EVENT_SPACING_MS, eventSpaced, plotEvent } from '../plotEvent'
+import type { Segment } from '../voiceActivity'
+import type { Word } from './03-speech'
 
 /**
  * A clip FILE may run this far past its limit (its gap's end, or the next placed cue's start − NEXT_CUE_SPACING_MS) — never past the next
@@ -118,6 +120,8 @@ const words = (t: string) => t.trim().split(/\s+/).filter(Boolean).length
  * voiced; a cue that was only that clause is not voiced (sintel-90-150-r2: shots 0 and 1, the halves of one camera shot, both ended in
  * SINTEL). An extended cue never starts while a placed clip still speaks: fit's starts were estimates, so after the clips are
  * measured every extended cue moves to at least the measured end of every placed cue before it (afterClips; the event cap re-checked).
+ * A pause with less than PAUSE_CLEARANCE_MS before the next placed clip or detected speech moves earlier when its shot and the measured
+ * clips allow it, else voice warns (decision 0007 amendment, 2026-10-19).
  * (The time taken from the action by a clause fit kept beside it and voice then removes — r2 shot 1 lost "Logo fades." that way — is
  * fit's: it does not know yet which cue will be voiced before.)
  * Clips keep following cues.json indices: a kept cue after a dropped one moves down (cue_{i} → cue_{j}), and every
@@ -264,7 +268,7 @@ export async function voice(ctx: Ctx, deps: VoiceDeps = {}) {
     for (const f of [cueAudioFile, cueSidecarFile]) await rename(`${ctx.work}/${f(spare)}`, `${ctx.work}/${f(from)}`)
     return clip
   }
-  kept = await afterClips(ctx.work, kept, { start: shotStart, end: shotEnd }, reshorten, language)
+  kept = await afterClips(ctx.work, kept, { start: shotStart, end: shotEnd }, reshorten, language, await speechSpans(ctx.work))
   kept = await dropPastEnd(ctx.work, kept, filmMs)
   await removeCueFilesFrom(ctx.work, kept.length)
   warnOverlaps(kept)
@@ -317,8 +321,13 @@ export function withoutSaidText(text: string, said: readonly string[]): string {
  * never dropped (DESC-017: neither the text nor the action is dropped). The event cap holds after the moves: an event cue now within
  * EVENT_SPACING_MS of an earlier one (in start order) is dropped. Re-sorted (byStart) and the clips re-slotted. Pure apart from the clip
  * files (tested through voice).
+ * Decision 0007 amendment (2026-10-19, tears-of-steel-40-100 d10): after those moves a pause with less than PAUSE_CLEARANCE_MS before
+ * the next placed clip or detected speech moves EARLIER, to max(its shot's start, the measured end of every placed clip heard before it
+ * + NEXT_CUE_SPACING_MS, the start of the pause before it), when that start has the clearance (pauseStart). A pause that cannot is kept
+ * where it was, with a warning (the app's pause lands late; nothing here can fix a pause at 0:00).
+ * An event pause does not move to within EVENT_SPACING_MS of another event pause. The clips and texts do not change.
  */
-async function afterClips(work: string, cues: FitCue[], shots: { start: ReadonlyMap<number, number>; end: ReadonlyMap<number, number> } = { start: new Map(), end: new Map() }, reshorten?: (from: number, text: string) => Promise<Clip | undefined>, language: 'en' | 'de' = 'en'): Promise<FitCue[]> {
+async function afterClips(work: string, cues: FitCue[], shots: { start: ReadonlyMap<number, number>; end: ReadonlyMap<number, number> } = { start: new Map(), end: new Map() }, reshorten?: (from: number, text: string) => Promise<Clip | undefined>, language: 'en' | 'de' = 'en', speech: readonly Segment[] = []): Promise<FitCue[]> {
   const placed = cues.map((c, from) => ({ c, from })).filter((x) => !x.c.extended)
   /** The first start ≥ t at which no placed clip speaks. */
   /** The first start ≥ t at which no clip of an earlier shot than `shot` speaks. */
@@ -362,6 +371,23 @@ async function afterClips(work: string, cues: FitCue[], shots: { start: Readonly
     x.c = { ...c, startMs: s, endMs: s + (c.endMs - c.startMs) }
     changed = true
   }
+  // decision 0007 amendment: earlier when that keeps PAUSE_CLEARANCE_MS before what is heard next
+  const placedNow = placed.map(({ c }) => c)
+  let floor = -Infinity
+  for (const x of all) {
+    const c = x.c
+    if (!c.extended) continue
+    const r = pauseStart(c, c.startMs, { shotStart: shots.start.get(c.shotIndex), placed: placedNow, speech, floor })
+    const eventClash = c.event && all.some((y) => y !== x && y.c.event && Math.abs(y.c.startMs - r.startMs) < EVENT_SPACING_MS)
+    if (r.warning) console.warn(r.warning)
+    if (r.startMs !== c.startMs && eventClash) console.warn(`voice: event pause at ${c.startMs} ms lacks ${PAUSE_CLEARANCE_MS} ms before what is heard next, but ${r.startMs} ms is within ${EVENT_SPACING_MS} ms of another event pause; kept: ${JSON.stringify(c.text)}`)
+    if (r.startMs !== c.startMs && !eventClash) {
+      console.log(`voice: pause at ${c.startMs} ms moved earlier to ${r.startMs} ms (${c.startMs - r.startMs} ms; its shot and the clips before it allow it): ${JSON.stringify(c.text)}`)
+      x.c = { ...c, startMs: r.startMs, endMs: r.startMs + (c.endMs - c.startMs) }
+      changed = true
+    }
+    floor = Math.max(floor, x.c.startMs)
+  }
   all.sort((a, b) => byStart(a.c, b.c))
   let lastEvent = -Infinity
   const dropped: number[] = []
@@ -379,6 +405,36 @@ async function afterClips(work: string, cues: FitCue[], shots: { start: Readonly
   for (const { from } of moves) for (const f of [cueAudioFile, cueSidecarFile]) await rename(`${work}/${f(from)}`, `${work}/${MOVING}${f(from)}`)
   for (const { from, to } of moves) for (const f of [cueAudioFile, cueSidecarFile]) await rename(`${work}/${MOVING}${f(from)}`, `${work}/${f(to)}`)
   return out.map((x) => x.c)
+}
+/** A pause keeps at least this long before the next placed clip or detected speech: the app pauses on a ≤ 4 Hz tick plus the player's own latency (decision 0007 amendment, 2026-10-19). */
+export const PAUSE_CLEARANCE_MS = 500
+/**
+ * Where pause `c` (now at `current`) starts (decision 0007 amendment). The earliest start is max(its shot's start, the measured end
+ * of every placed clip heard before it (`before`) + NEXT_CUE_SPACING_MS, `floor` — the start of the pause before it). A start's
+ * clearance is the time to the next placed clip's start or detected speech; none when a placed clip or speech is heard at that very
+ * moment. A pause that has the clearance stays at `current` (fit's start: an event pause is where its action is; the golden lists
+ * hold). One that lacks it moves to the earliest start when that is earlier and has the clearance; else it stays at `current`, with
+ * a `warning`. Pure (tested).
+ */
+export function pauseStart(c: FitCue, current: number, o: { shotStart?: number; placed: readonly FitCue[]; speech: readonly Segment[]; floor: number }): { startMs: number; warning?: string } {
+  const placed = o.placed.filter((p) => !p.extended)
+  const clearance = (t: number) => {
+    if (placed.some((p) => p.startMs <= t && t < p.endMs) || o.speech.some((s) => s.startMs <= t && t < s.endMs)) return -Infinity
+    return Math.min(...placed.filter((p) => p.startMs >= t).map((p) => p.startMs), ...o.speech.filter((s) => s.startMs >= t).map((s) => s.startMs)) - t
+  }
+  const have = clearance(current)
+  if (have >= PAUSE_CLEARANCE_MS) return { startMs: current }
+  const earliest = Math.max(o.shotStart ?? current, o.floor, ...placed.filter((p) => before(p, c)).map((p) => p.endMs + NEXT_CUE_SPACING_MS))
+  if (earliest < current && clearance(earliest) >= PAUSE_CLEARANCE_MS) return { startMs: earliest }
+  const what = have === -Infinity ? 'starts while a clip or speech is heard' : `has only ${have} ms before the next clip or speech`
+  return { startMs: current, warning: `voice: pause at ${current} ms ${what} (< ${PAUSE_CLEARANCE_MS} ms) and cannot move earlier; the app may pause late over it: ${JSON.stringify(c.text)}` }
+}
+/** Detected speech for pauseStart: Transcribe's words (words.json) and the speech it gave no words for (gaps.vad.json, decision 0014); [] when missing. */
+async function speechSpans(work: string): Promise<Segment[]> {
+  const json = <T>(f: string): Promise<T | undefined> => readFile(`${work}/${f}`, 'utf8').then((t) => JSON.parse(t) as T, () => undefined)
+  const words = (await json<Word[]>('words.json')) ?? []
+  const vad = await json<{ unlabelledSpeech?: Segment[] }>('gaps.vad.json')
+  return [...words.map((w) => ({ startMs: Math.round(w.start * 1000), endMs: Math.round(w.end * 1000) })), ...(vad?.unlabelledSpeech ?? [])]
 }
 /**
  * Whether placed cue p is heard before pause e (decision 0009 review): by shot, then by start — a placed cue of an earlier shot comes
