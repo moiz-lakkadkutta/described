@@ -29,6 +29,15 @@ import expo.modules.kotlin.modules.ModuleDefinition
  * duration is said), computed from the position this session reports, and "restart" as `onSeekTo(0)`. Absolute time
  * ("go to 5 minutes") is not supported by Fire TV's mapping. onFastForward / onRewind stay mapped for other controllers.
  *
+ * Fire TV only targets this session when the manifest declares `com.amazon.permission.media.session.voicecommandcontrol`
+ * (app.json android.permissions; only Fire OS 14 and later do without it) and opts in with the meta-data
+ * `com.amazon.voice.supports_background_media_session` (plugins/withFireTvVoice.js). Without the permission, Fire OS 7
+ * (device run 2026-10-19, check 14) logs "No target session, trying button press" and injects keys instead: Pause and
+ * Resume both as 85 (PLAY_PAUSE, a toggle), fast forward as 87 (MEDIA_NEXT), rewind and restart both as 88
+ * (MEDIA_PREVIOUS). Those arrive here as control "button" and are not mapped to seeks: rewind and restart would be
+ * the same key, and the remote's next / previous keys would start seeking. The session path is the only fix.
+ * onSkipToNext / onSkipToPrevious are not advertised in ACTIONS; they only log, so a stray "Alexa, next" is visible.
+ *
  * Media buttons: Alexa may arrive as MEDIA_PLAY / MEDIA_PAUSE / MEDIA_STOP key events. Those go through the default
  * mapping (super → onPlay / onPause / onStop); while the session is active the JS key path skips those key codes
  * (apps/expo/src/platform/mediaSession.ts `ownsKey`), so the session is their one handler. PLAY_PAUSE, FAST_FORWARD
@@ -158,6 +167,9 @@ class DescribedMediaSessionModule : Module() {
       override fun onFastForward() { emit("fastForward") }
       override fun onRewind() { emit("rewind") }
       override fun onSeekTo(pos: Long) { emit("seekTo", positionS = pos / 1000.0) }
+      // Not advertised (ACTIONS has no SKIP_*): log only, emit nothing, so a stray "Alexa, next" shows in logcat.
+      override fun onSkipToNext() { Log.i(TAG, "skip to next: ignored (not advertised)") }
+      override fun onSkipToPrevious() { Log.i(TAG, "skip to previous: ignored (not advertised)") }
       override fun onMediaButtonEvent(mediaButtonIntent: Intent): Boolean {
         @Suppress("DEPRECATION")
         val key: KeyEvent? = mediaButtonIntent.getParcelableExtra(Intent.EXTRA_KEY_EVENT)

@@ -33,7 +33,7 @@ dialogue a voice tells you what is on screen: who is there, what they do, where 
 - **Fire TV's own track selector is the switch.** The narration is a second audio track in the stream, marked as
   description. Menu shows Audio — Original · Audio description, and Captions — Off · Captions · Rich captions ·
   Description text.
-- **Rich captions** add sounds and music in brackets for viewers who are deaf or hard of hearing.
+- **Rich captions** add sounds in brackets for viewers who are deaf or hard of hearing.
 - **Extended mode** pauses the film when there is more to describe than the gap allows, speaks, and carries on — the
   behaviour WCAG 1.2.7 (extended audio description) describes. It can be turned off.
 

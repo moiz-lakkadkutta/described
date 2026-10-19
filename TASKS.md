@@ -179,4 +179,5 @@ after the stick test, demo video and screenshots (DESC-011 / 012), DESC-035 devi
   - [x] done: Gate C re-run on both clips, 3 raters (g12 from describe, g13 from fit) (#63, #81)
 - [ ] DESC-034 · judges can try Described: a hosted copy of the API (stack `described-viewer-<stage>`, us-east-1: Lambda function URL + RDS PostgreSQL db.t4g.micro in isolated subnets, no NAT; ≈ $14.50 / month, docs/aws.md "Hosted API"); `API_MODE=viewer` leaves out `/admin`; `pnpm --filter @described/api export:catalogue` (published titles, catalogue tables only) and the function's `migrate` / `seed` operations by `aws lambda invoke`; `pnpm --filter @described/expo build:apk -- --hosted` (no device needed); README "Try it"
   - [x] done: stack, viewer mode, export / seed, APK build script, tests, docs
+  - [x] done: Rich captions VoiceView label says "with sounds", not "sounds and music" (music is not tagged), before the hosted APK build
   - [ ] pending (owner's go-ahead): `pnpm deploy:viewer`, seed invoke, `build:apk -- --hosted`, sideload check on the stick, `gh release create v0.1.0`

@@ -78,7 +78,7 @@ export const strings = {
     on: 'On', offState: 'Off',
     a11y: {
       original: 'Audio: Original, no description', ad: (voice: string) => `Audio: Audio description, voice ${voice}`,
-      off: 'Captions off', plain: 'Captions: Captions, dialogue only', rich: 'Captions: Rich captions, with sounds and music', descText: 'Captions: Description text',
+      off: 'Captions off', plain: 'Captions: Captions, dialogue only', rich: 'Captions: Rich captions, with sounds', descText: 'Captions: Description text',
       extendedOn: 'Extended mode is on. Press to turn it off', extendedOff: 'Extended mode is off. Press to turn it on',
     },
   },
