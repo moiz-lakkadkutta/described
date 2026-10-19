@@ -19,3 +19,5 @@ apps/api/dist-lambda
 apps/expo/dist
 infra/cdk-outputs-viewer.json
 apps/expo/modules/*/android/build
+.claude/
+.playwright-mcp/

@@ -19,7 +19,6 @@ export async function speechMap(ctx: Ctx) {
   if (await readFile(`${ctx.work}/transcript.src`, 'utf8').catch(() => '') === marker && await stat(`${ctx.work}/transcript.json`).then(() => true, () => false)) console.log('speech: transcript.json is for this mezzanine and language; Transcribe skipped')
   else { await transcribe(ctx, marker); await writeFile(`${ctx.work}/transcript.src`, marker) }
   const words = wordsFromTranscribe(JSON.parse(await readFile(`${ctx.work}/transcript.json`, 'utf8')))
-  const probe = JSON.parse(await readFile(`${ctx.work}/probe.json`, 'utf8')) as { format: { duration: string } }
   if (words.length === 0) console.warn('no speech in clip — the whole duration is one gap') // no dialogue (e.g. Sintel 0:00–1:00): words.json = [], gaps = whole clip
   await writeFile(`${ctx.work}/words.json`, JSON.stringify(words))
   await regap(ctx.work, { signal: ctx.signal })

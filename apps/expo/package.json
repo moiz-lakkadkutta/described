@@ -7,6 +7,7 @@
     "dev": "expo start",
     "android": "expo run:android",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint src App.tsx",
     "build:tv": "eas build -p android --profile preview",
     "test": "vitest run",
     "build:apk": "node scripts/build-apk.js"
