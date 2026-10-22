@@ -1,11 +1,16 @@
+import { existsSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import path from 'node:path'
 import { createKeyHub } from '../src/keys'
 
 const require = createRequire(import.meta.url)
 const keyEvent = require('../plugins/withKeyEvent.js') as { patch: (s: string) => string }
 type Manifest = { manifest: { application: { $: Record<string, string>; 'meta-data'?: { $: Record<string, string> }[] }[] } }
 const fireTvVoice = require('../plugins/withFireTvVoice.js') as { patch: (m: Manifest) => Manifest }
-const appJson = require('../app.json') as { expo: { plugins: (string | unknown[])[]; android: { permissions: string[] } } }
+const tvBanner = require('../plugins/withTvBanner.js') as { patch: (m: Manifest) => Manifest; SOURCE: string; RES_DIR: string }
+const appJson = require('../app.json') as {
+  expo: { icon: string; plugins: (string | unknown[])[]; android: { permissions: string[]; adaptiveIcon: { foregroundImage: string; backgroundColor: string } } }
+}
 const localApi = require('../plugins/withLocalApi.js') as { cleartextHost: (u?: string) => string | null; securityConfig: (h: string) => string; debugSecurityConfig: () => string }
 
 /**
@@ -242,6 +247,24 @@ describe('config plugins', () => {
     // https://developer.amazon.com/docs/fire-tv/mediasession-api-integration.html "Add the Media Session Permission"
     expect(appJson.expo.android.permissions).toContain('com.amazon.permission.media.session.voicecommandcontrol')
     expect(appJson.expo.plugins).toContain('./plugins/withFireTvVoice')
+  })
+  it('withTvBanner points <application android:banner> at the xhdpi 320 x 180 banner, idempotently', () => {
+    // https://developer.android.com/training/tv/get-started/create "Home screen banner"
+    const manifest: Manifest = { manifest: { application: [{ $: { 'android:name': '.MainApplication', 'android:icon': '@mipmap/ic_launcher' } }] } }
+    const once = tvBanner.patch(manifest)
+    const twice = tvBanner.patch(structuredClone(once))
+    for (const m of [once, twice]) {
+      expect(m.manifest.application[0]!.$).toEqual({ 'android:name': '.MainApplication', 'android:icon': '@mipmap/ic_launcher', 'android:banner': '@drawable/tv_banner' })
+    }
+    expect(tvBanner.RES_DIR).toBe('app/src/main/res/drawable-xhdpi')
+    const png = readFileSync(path.join(__dirname, '..', tvBanner.SOURCE))
+    expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([320, 180]) // PNG IHDR width, height
+  })
+  it('app.json sets the icon, the adaptive icon on the ground colour, and registers withTvBanner', () => {
+    expect(appJson.expo.icon).toBe('./assets/images/described-mark-1024.png')
+    expect(appJson.expo.android.adaptiveIcon).toEqual({ foregroundImage: './assets/images/adaptive-foreground.png', backgroundColor: '#0D1215' })
+    expect(appJson.expo.plugins).toContain('./plugins/withTvBanner')
+    for (const p of [appJson.expo.icon, appJson.expo.android.adaptiveIcon.foregroundImage]) expect(existsSync(path.join(__dirname, '..', p))).toBe(true)
   })
   it('debug builds keep cleartext open for the Metro dev server', () => {
     expect(localApi.debugSecurityConfig()).toContain('<base-config cleartextTrafficPermitted="true" />')
