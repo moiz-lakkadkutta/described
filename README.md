@@ -24,6 +24,10 @@ The release APK talks to a hosted copy of the API (AWS Lambda + Amazon RDS in us
 and streams from CloudFront, so it needs nothing on your network. Fire TV Stick, Fire OS 7 or later; a computer with
 Android platform tools (`adb`) on the same Wi-Fi.
 
+**Full manual: [docs/TESTING-ON-FIRE-TV.md](docs/TESTING-ON-FIRE-TV.md)** — which sticks can run it (Vega OS ones
+cannot), installing without a computer (Downloader), a 22-check test list with a results template, troubleshooting, and
+a runbook for AI agents driving the stick over `adb`.
+
 1. On the Fire TV: **Settings → My Fire TV → About**, select the device name seven times to show Developer options; then
    **Developer options → ADB debugging: On** (and **Apps from Unknown Sources: On** on older Fire OS). Note the IP address
    under **Settings → My Fire TV → About → Network**.
