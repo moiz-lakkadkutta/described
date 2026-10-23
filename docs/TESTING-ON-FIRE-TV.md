@@ -17,8 +17,8 @@ Remote buttons are written in bold: **Select** (the centre of the ring), **Back*
 
 ## 1. What you need
 
-- A Fire TV Stick, Stick 4K / 4K Max, Stick Lite or Fire TV Cube running **Fire OS 7 or 8**, or Fire OS 6 (should install: the APK needs API 24 and Fire OS 6 is API 25; not yet verified on a stick). Section 2 shows how to check,
-  its remote, and a TV.
+- A Fire TV Stick, Stick 4K / 4K Max, Stick Lite or Fire TV Cube running **Fire OS 7 or 8**, or Fire OS 6 (should install: the APK needs API 24 and Fire OS 6 is API 25; not yet verified on a stick),
+  its remote, and a TV. Section 2 shows how to check the OS.
 - Wi-Fi with internet. The app talks to a hosted copy of the Described API over HTTPS and streams from CloudFront, so
   nothing else on your network is needed. The hosted API stays up until 20 Nov 2026 (the end of judging).
 - Optional: a computer (macOS, Windows or Linux) on the **same Wi-Fi**, with Android platform tools (`adb`) installed —
