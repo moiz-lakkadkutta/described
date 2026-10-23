@@ -1,6 +1,7 @@
 # Catalogue titles (DESC-010)
 
-Five Blender open-movie segments, ≈ 60 s each, all five described end to end by the pipeline CLI with its defaults (Qwen3-VL 235B
+Six titles are published: five Blender open-movie segments and the whole of Sintel (DESC-036, below); "Published state" is
+current. The five segments, ≈ 60 s each, were all described end to end by the pipeline CLI with its defaults (Qwen3-VL 235B
 from key frames, Nova Lite edit pass on, extended cues for dropped plot events) and published on 2026-10-14 — Sintel re-run that
 day, because its rows from the 2026-10 device run had been written by hand and it had no DescriptionCue, Rendition or TextTrack
 rows. The rows live in `apps/api/prisma/titles.json` (`pnpm titles:seed` upserts them by slug; `prisma migrate reset`, and
@@ -55,27 +56,45 @@ master's CHARACTERISTICS for Rich captions), not from the API's Rendition and Te
 Title screen's sample cue and Extended badge come from those rows too. So Sintel without rows still played with captions and
 AD, but had no Extended mode pauses, no sample cue and an empty `tracks` in `GET /titles/:slug`.
 
-## Published state, 2026-10-15
+## Published state, 2026-10-19
 
-What is live now for the six published titles. Checked read-only against the local API (`GET /catalog`, `GET /titles/<slug>`),
+What is live now for the six published titles. Two carry Rich captions (the `sdh` track): full-length `sintel` and
+`sintel-90-150-r2`, since the `--from text` re-run of 2026-10-19 (below). Checked read-only against the local API (`GET /catalog`, `GET /titles/<slug>`),
 the local database (Title, DescriptionCue and TextTrack rows), the run logs and the work dirs. The sections below this one are the
 history; where they disagree with this table, this table is current.
 
 | Title | Version live | Voice | Description cues (extended) | Text tracks (cues) | Badges |
 |---|---|---|---|---|---|
-| sintel-90-150-r2 | 2026-10-16 `--from publish` of the 2026-10-15 `--from fit` run, narrative pass + Ruth | Ruth generative | 8 (1) | Captions 11, Description text 8 (Rich captions left out: no evidenced addition) | `ad extended` |
-| tears-of-steel-40-100 | 2026-10-16 `--from publish` of the 2026-10-15 `--from fit` run, narrative pass + Ruth | Ruth generative | 14 (5) | Captions 4, Description text 14 | `ad extended` |
-| big-buck-bunny-0-60 | 2026-10-15 `--from fit`, narrative pass + Ruth | Ruth generative | 9 (0) | Captions 1, Description text 9 | `ad` |
-| elephants-dream-0-60 | 2026-10-15 `--from fit`, narrative pass + Ruth | Ruth generative | 7 (1) | Captions 12, Description text 7 | `ad extended` |
+| sintel-90-150-r2 | 2026-10-16 `--from publish` of the 2026-10-15 `--from fit` run, narrative pass + Ruth; 2026-10-19 `--from text` | Ruth generative | 8 (1) | Captions 11, Rich captions (2 sound cues: [fire crackling] ≈ 0:11, [broth pours] ≈ 0:30), Description text 8 | `ad sdh extended` |
+| tears-of-steel-40-100 | 2026-10-16 `--from publish` of the 2026-10-15 `--from fit` run, narrative pass + Ruth; 2026-10-19 `--from text` | Ruth generative | 14 (5) | Captions 4, Description text 14 (no Rich captions: nothing qualified) | `ad extended` |
+| big-buck-bunny-0-60 | 2026-10-15 `--from fit`, narrative pass + Ruth; 2026-10-19 `--from text` | Ruth generative | 9 (0) | Captions 1, Description text 9 (no Rich captions: nothing qualified) | `ad` |
+| elephants-dream-0-60 | 2026-10-15 `--from fit`, narrative pass + Ruth; 2026-10-19 `--from text` | Ruth generative | 7 (1) | Captions 12, Description text 7 (no Rich captions: nothing qualified) | `ad extended` |
 | caminandes-35-95 | 2026-10-15 `--from fit`, narrative pass + Ruth | Ruth generative | 11 (1) | Description text 11 (no speech, so no Captions) | `ad extended` |
-| sintel (full length) | 2026-10-15 `--from fit`, narrative pass + Ruth | Ruth generative | 117 (18) | Captions 37, Description text 117 | `ad extended` |
+| sintel (full length) | 2026-10-15 `--from fit`, narrative pass + Ruth; 2026-10-19 `--from text` | Ruth generative | 117 (18) | Captions 37, Rich captions (2 sound cues: [creature roars] 3:23, [woman gasps] 5:33), Description text 117 | `ad sdh extended` |
+
+**The Rich-captions re-run (2026-10-19, after #82 and #85).** Until then no published title had Rich captions, for two reasons.
+Nova Lite answered the forced `emit_sdh` tool with `ModelErrorException` ("Model produced invalid sequence as part of ToolUse") on
+full-length Sintel and on Tears of Steel; #82 dropped the forced tool and asks for plain JSON. That was only part of it: where Nova
+Lite did answer, our own merge rule (`mergeSdh`) rejected every grounded sound cue that ran longer than 2 s or overlapped a
+caption, and Nova Lite gives a sound the whole description's span. #85 trims such a cue to a free, audible slot instead
+([0018](decisions/0018-sdh-trim.md)). The five titles with speech were then re-published `--from text` with
+`PUBLISH_INVALIDATE=1` for $0.0002 in all (cached replies replayed at $0), and the hosted API was re-seeded (6 titles,
+166 description cues, Rich-captions tracks for both Sintel titles).
+- `sintel`: `[creature roars]` at 3:23 and `[woman gasps]` at 5:33; ships Rich captions.
+- `sintel-90-150-r2`: `[fire crackling]` ≈ 0:11 and `[broth pours]` ≈ 0:30; ships Rich captions.
+- `tears-of-steel-40-100`, `big-buck-bunny-0-60`, `elephants-dream-0-60`: `sdh.json` is `{"degraded":false,"added":0}`, so no
+  Rich-captions track: nothing qualified under the evidence rules (Tears of Steel's `[console beeps]` beside "Lab man in glasses
+  gestures at glowing console." is not grounded). `caminandes-35-95` has no speech, so no captions of either kind.
+- Rich captions are sparse by design. Described has no audio-event detection, so a sound is tagged only where a description
+  names it (or a source that always makes it) and the soundtrack is audible there; music is not tagged.
 
 **The Ruth re-publish (2026-10-15 / 16, after #80 and Gate C g13).** All six titles are now on Ruth generative. Each was re-run
 `pnpm pipeline describe --title <slug> --voice Ruth --engine generative --from fit` with `PUBLISH_INVALIDATE=1` (no describe,
 verify or Transcribe call; fit re-placed every cue at Ruth's slower rate, 0017 "Voice"). Each work dir and its database rows (Title,
 DescriptionCue, TextTrack, Rendition, Asset, Shot, Gap, Job) were backed up first to
 `described-backups/2026-10-15-pre-ruth/<slug>/` on the machine that ran it, with the run logs in `logs/`. `validate` reported no
-problems on all six. The hosted API is not re-seeded by this run.
+problems on all six. The hosted API was not re-seeded by this run; it was re-seeded afterwards (2026-10-16) with all six
+titles (166 description cues), and serves them now.
 
 | Title | Cost | Edits kept / rejected | Voice drops | App clips |
 |---|---|---|---|---|
@@ -89,8 +108,9 @@ problems on all six. The hosted API is not re-seeded by this run.
 Total $0.3565 against the approved $0.50 cap. Notes:
 - **sintel-90-150-r2 and tears-of-steel-40-100** replace the 2026-10-14 versions the user had chosen, so they first ran `--to
   validate` only; the user approved them knowing the dropped lines, and they were published on 2026-10-16 with `--from publish`
-  ($0, `PUBLISH_INVALIDATE=1`). Their 2026-10-14 work dirs and rows are in the backup above. r2 also loses its Rich captions
-  (`sdh.vtt` added nothing to the captions, so the track is left out; it had 12 cues). At Ruth's rate r2 goes from 11 cues to 8 ("Fire burns.", "Tent glows." and "Faint red sparks drift downward." are
+  ($0, `PUBLISH_INVALIDATE=1`). Their 2026-10-14 work dirs and rows are in the backup above. r2 also lost its Rich captions
+  then (`sdh.vtt` added nothing to the captions, so the track was left out; it had 12 cues); the 2026-10-19 re-run (#85) gave
+  them back: r2 now has Rich captions with `[fire crackling]` ≈ 0:11 and `[broth pours]` ≈ 0:30 ("Published state"). At Ruth's rate r2 goes from 11 cues to 8 ("Fire burns.", "Tent glows." and "Faint red sparks drift downward." are
   gone; "Red-haired girl accepts bowl." becomes "Girl accepts bowl."; the "SINTEL" card joins the first cue); Tears of Steel goes from 15 cues to
   14 (the "SIMULATION READY... LOCKED." pause and "Two people at tables." become one extended cue; "Ship deck." is gone).
 - Full-length `sintel` went from 127 cues (17 extended) to 117 (18). In the edit output 26 cues use she / he and 16 still say
@@ -111,7 +131,7 @@ text, extended flag and clip key). Why they were restored:
   were gone (the bowl is now "A woman kneels with a bowl."). Tears of Steel went from 15 cues to 11: the bridge scene that opens the segment was gone, and the headline name read
   "Dr Amstelveldt".
 - The re-run lost Sintel's Rich captions. Nova Lite answered with sights tagged as sounds ("[fire pit] glows", "[staff] holds",
-  "[bowl] kneels"). The evidence rules rejected all five, so `sdh.json` was `{"degraded":true}` and the track was left out.
+  "[bowl] kneels"). The evidence rules rejected all five, so `sdh.json` was `{"degraded":true}` and the track was left out. (Superseded: since the 2026-10-19 re-run, r2 has Rich captions.)
 
 **big-buck-bunny-0-60 and elephants-dream-0-60: on the re-run.** Known issues:
 - Big Buck Bunny: three cues in a row open with "The meadow" (5.5 s, 10.9 s, 16.4 s). The last cue drops its articles: "Huge,
@@ -151,8 +171,10 @@ $0.0984 (edit $0.0030, Polly $0.0954). The work dir as it was before this re-run
   - 3:14.5 (extended): "A young woman kneels beside a bleeding small tan dragon." This brings in both again with "A …", after
     the cues before it have already shown them.
   - 11:20.3: "Dim rocky cave on the ledge, gnarled tree roots on the right." It still has no verb.
-- Rich captions are still left out. Nova Lite answered the single SDH window (c1–c37) with `ModelErrorException` ("Model
-  produced invalid sequence as part of ToolUse") twice again, so only plain Captions are offered.
+- On this run Rich captions were still left out: Nova Lite answered the single SDH window (c1–c37) with `ModelErrorException`
+  ("Model produced invalid sequence as part of ToolUse") twice again, so only plain Captions were offered then. **Now the
+  full Sintel has Rich captions**: the 2026-10-19 `--from text` re-run (#82 plain JSON, #85 trim) added `[creature roars]`
+  at 3:23 and `[woman gasps]` at 5:33 ("Published state").
 
 **Cost.** The 2026-10-15 re-run cost $0.3366 for the five titles (Big Buck Bunny $0.0760, Elephants Dream $0.0733, Sintel $0.0480,
 Tears of Steel $0.0543, Caminandes $0.0850). The Caminandes re-run after #68 cost $0.0582 more. That makes **$0.3948** against
@@ -209,14 +231,15 @@ download, upload and re-encode alone took 17 minutes. Approved spend was about $
 | sintel (full, 14:48, Joanna) | 189 | $0.3556 | $0.5977 | $0.0041 ($0.0006 + $0.0004 + $0.0031) | $0.1471 | **$1.1043** |
 
 The estimate ($0.8088) used per-minute rates measured before the verify pass. Describe plus verify cost $0.040 a minute, against
-the $0.019 a minute the estimator assumes. So `src/cost.ts` underestimates a run with verify on by about $0.02 a minute, as its
-own comment says.
+the $0.019 a minute the estimator assumed then. `src/cost.ts` underestimated a run with verify on by about $0.02 a minute; since
+#80 its estimate adds the verify pass (`VERIFY_PER_MIN`) and the narrative pass.
 
 Outcome: 189 shots → 129 cues from fit (15 extended) → 127 published (17 extended). Voice dropped 2 cues ("Sintel stares
 wide-eyed." at 9:00.1, 150 ms over its limit, and a pause at 5:43.9 that started 1.6 s after its shot), turned 3 credit cues into
 extended pauses, and shortened 1 cue. Verify changed 56 of 181 shots and kept 47 drafts by a guard. The edit pass revised 12
-of 129 cues and rejected 13 edits. Captions have 37 cues. Rich captions were **omitted**: Nova Lite answered the single SDH window
-(c1–c37) with `ModelErrorException` twice, so `sdh.json` is `{"degraded":true}`, as happened on Tears of Steel. The credit
+of 129 cues and rejected 13 edits. Captions have 37 cues. On this first run Rich captions were **omitted**: Nova Lite answered the single SDH window
+(c1–c37) with `ModelErrorException` twice, so `sdh.json` was `{"degraded":true}`, as happened on Tears of Steel. Since the
+2026-10-19 re-run (#82, #85) the full Sintel **has** Rich captions (`[creature roars]` 3:23, `[woman gasps]` 5:33). The credit
 roll's long text cards (more than 8 words) are dropped by describe, as designed.
 
 Checks: `validate` reported no problems (audio Original and Audio description; text Captions and Description text). The Title
@@ -362,7 +385,7 @@ Follow-ups from this batch (not fixed before the freeze):
   source or action and audible audio over its span (ffmpeg ebur128 momentary loudness ≥ −55 LUFS on mezz.mp4); a speaker tag needs a
   name spoken in the dialogue, one name per voice. With that, Sintel gets "[broth pours]" (33.2 s, "Old man pours broth.") and Rich
   captions; Big Buck Bunny, Elephants Dream and Tears of Steel have no description of anything that makes a sound and stay without
-  Rich captions — honest SDH for them needs audio-event data we do not have (feature-requests P1). Re-run `--from text` for
+  Rich captions — honest SDH for them needs audio-event data we do not have (feature-requests, Important). Re-run `--from text` for
   sintel-90-150-r2 (gains Rich captions) and tears-of-steel-40-100 (its published Rich captions hold the invented cues and lose them).
   The "sdh" badge now follows the TextTrack row (#35).
   Review of #38 tightened the evidence: the agent ("man", "robot") is not evidence of a sound, and the sound word itself must be in the

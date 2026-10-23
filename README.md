@@ -4,10 +4,11 @@
 
 - **Why:** most video has no audio description, so blind and low-vision viewers miss what is on screen between the lines.
 - **What:** press Play and narration is already on; Menu → Audio: Original to hear the difference; Extended mode pauses the film when there's more to say.
-- **For whom:** blind and low-vision viewers, and (with rich captions) deaf and hard-of-hearing viewers. Video: TODO(DESC-012) link · screenshots: [docs/screens](docs/screens/README.md).
+- **For whom:** blind and low-vision viewers, and (with rich captions) deaf and hard-of-hearing viewers. Video: TODO(human): YouTube URL (Public) · screenshots: [Screens](#screens) ([docs/screens](docs/screens/README.md)).
 
-Qwen3-VL on Amazon Bedrock describes each shot, Nova Lite fits the words into the gaps between dialogue, Polly speaks them,
-ffmpeg ducks the soundtrack, and the narration arrives through the player's own audio-track selection as a second audio
+Qwen3-VL on Amazon Bedrock describes each shot and checks its own draft against the frames, Nova Lite fits the words into the
+gaps between dialogue, DeepSeek v3.2 on Bedrock joins a scene's cues into one narration, Polly's generative voice Ruth speaks
+them, ffmpeg ducks the soundtrack, and the narration arrives through the player's own audio-track selection as a second audio
 rendition. Extended mode pauses the film when there's more to say than the gap allows (WCAG 1.2.7). Description is **on by default**.
 
 Built for the [Build, Ship, Shape: Amazon Developer Hackathon](https://amazonappdev2026.devpost.com/) — Fire TV track,
@@ -26,7 +27,8 @@ Android platform tools (`adb`) on the same Wi-Fi.
 1. On the Fire TV: **Settings → My Fire TV → About**, select the device name seven times to show Developer options; then
    **Developer options → ADB debugging: On** (and **Apps from Unknown Sources: On** on older Fire OS). Note the IP address
    under **Settings → My Fire TV → About → Network**.
-2. Download `described-0.1.0.apk` from the [latest GitHub release](https://github.com/moiz-lakkadkutta/described/releases/latest).
+2. Download `described-0.1.0.apk` from the [v0.1.0 release](https://github.com/moiz-lakkadkutta/described/releases/tag/v0.1.0)
+   (built from `d0608dc`; sha256 `b417fe075496802ae5ef4a2820321263713b07e01c0a1ff9ad6cfe54d281aaec`).
 3. Install and open it:
    ```sh
    adb connect <fire-tv-ip>:5555          # accept the "Allow USB debugging?" prompt on the TV
@@ -34,11 +36,16 @@ Android platform tools (`adb`) on the same Wi-Fi.
    adb shell monkey -p dev.moizp.described 1   # or open Described from Your Apps & Channels
    ```
 
-Five CC-BY titles are in the library; description is on by default. Prefs and My list are kept per device (Android ID), no sign-in.
+Six CC-BY titles are in the library, the whole of Sintel (14:48) among them; description is on by default. Prefs and My list
+are kept per device (Android ID), no sign-in. The hosted API stays up until 20 Nov 2026, the end of judging.
+
+No Fire TV? The APK installs the same way on an Android TV emulator (`adb install -r described-0.1.0.apk`): the
+[screenshots](#screens) were captured with this APK on one (API 31, arm64, 1920 × 1080). The APK also carries x86 and
+x86_64 libraries. An emulator is not a Fire TV: the Fire TV integrations below need the stick.
 
 <details><summary>Maintainers: host the API and publish the APK (DESC-034)</summary>
 
-Each step below is paid or public: run it only with the owner's go-ahead.
+Each step below is paid or public: run it only with the owner's go-ahead. Done for v0.1.0 (APK built from `d0608dc`).
 
 ```sh
 set -a; source .env; set +a                      # CLOUDFRONT_DOMAIN: the media stack's CdnDomain
@@ -63,18 +70,24 @@ Remove it with `cd infra && AWS_PROFILE=described-dev npx cdk destroy described-
 
 - **Home, Title, Described, My list, Settings** — the whole app works with the D-pad, **Select**, **Back** and **Menu**; every
   control has a VoiceView label; focus is an outline plus a 1.04 scale, never colour alone.
-- **Player** with a persistent status line ("Description on · Joanna · Rich captions") and a track sheet on **Menu**:
+- **Player** with a persistent status line ("Description on · Ruth · Captions") and a track sheet on **Menu**:
   Audio — Original / Audio description; Captions — Off / Captions / Rich captions / Description text; Extended mode.
+  The sheet always lists Rich captions; on a title without that track, choosing it plays plain Captions and the status line
+  says "Captions" (`captionTrackFor` in `packages/shared-ui/src/playback.ts`).
+- **Rich captions** add a bracketed sound, and a speaker's name when it is spoken, only where a description names the sound
+  and the soundtrack is audible there. Described has no audio-event detection, so sound cues are sparse and music is not
+  tagged. A title where nothing qualifies ships Captions without a Rich-captions track. Two titles have one: the whole of
+  Sintel (`[creature roars]` at 3:23, `[woman gasps]` at 5:33) and Sintel 1:30–2:30 ([docs/titles.md](docs/titles.md)).
 - **Audio switch** fades down, switches, holds silent for 150 ms across ExoPlayer's decoder reset, and fades up (≈ 450 ms,
   `crossfadeAudio` in `packages/shared-ui/src/playback.ts`).
 - **Extended mode**: at an extended cue the film pauses, an ochre bar reads "Describing…", the cue's clip plays, the film resumes.
 - **Fire TV bindings**: deep links `described://title/{slug}` and `described://play/{slug}?t=…`; remote media keys and Alexa
-  transport ("Alexa, pause / resume / fast forward / rewind / restart"; the voice re-check of fast forward, rewind and restart
-  is pending, TASKS.md DESC-008) through an Android MediaSession module; a draft Fire TV
+  transport ("Alexa, pause / resume / fast forward / rewind / restart"; on the 2026-10-19 device run voice did not reach the
+  session, fixed in #86 with Amazon's `voicecommandcontrol` permission; device re-check pending, TASKS.md DESC-008) through an Android MediaSession module; a draft Fire TV
   catalog feed at `GET /catalog/fire-tv.xml` (catalog integration is partner-only, [fire-os-bindings](docs/platform/fire-os-bindings.md)).
 - **Fire TV integrations** ([fire-os-bindings](docs/platform/fire-os-bindings.md)):
   1. Launch intents / deep links (`described://…`) — verified on the stick (device run 2026-10-10).
-  2. Android MediaSession — remote media keys verified (2026-10-10); Alexa voice transport re-check pending.
+  2. Android MediaSession — remote media keys verified (2026-10-10); Alexa voice transport: fix merged (#86), device re-check pending.
   3. **Fire TV caption settings** — captions follow Settings › Accessibility › Captions (colours, size, font) through
      Android's `CaptioningManager` (`apps/expo/modules/described-captioning`); Settings › Caption style "Match Fire TV"
      is the default, Box or Shadow chosen in the app wins, and colours are clamped to 4.5:1 contrast. **Pending** device
@@ -90,10 +103,10 @@ Remove it with `cd infra && AWS_PROFILE=described-dev npx cdk destroy described-
 
 ```
                  packages/pipeline (pg-boss jobs, or the CLI in-process)
-source mp4 (S3) ─▶ probe ─▶ shots ─▶ speech ─▶ describe ─▶ fit ─▶ edit ─▶ voice ─▶ mix ─▶ text ─▶ package ─▶ validate ─▶ publish
-                                     Transcribe  Qwen3-VL    Nova Lite      Polly    ffmpeg  Nova Lite  Shaka     kit parsers   S3
-                                                 (Bedrock)   (Bedrock)                       (SDH)      Packager
-                                                                                                                    │
+source mp4 (S3) ─▶ probe ─▶ shots ─▶ speech ─▶ describe+verify ─▶ scenes ─▶ fit ─▶ edit ─▶ voice ─▶ mix ─▶ text ─▶ package ─▶ validate ─▶ publish
+                                     Transcribe  Qwen3-VL         Nova Lite  Nova   DeepSeek Polly    ffmpeg  Nova Lite  Shaka     kit parsers   S3
+                                                 (Bedrock)        (Bedrock)  Lite   v3.2     Ruth             (SDH)      Packager
+                                                                                                                                       │
 apps/expo (Fire OS) ─▶ packages/shared-ui ─▶ @moiz0309/vega-media-kit (KitPlayer, CueOverlay) ◀── HLS over CloudFront ┘
         │                                                                   /published/{slug}/master.m3u8
         └── apps/api (Express, Prisma, pg-boss, Postgres): catalog, title detail, prefs, progress, My list, cue audio
@@ -105,18 +118,20 @@ apps/expo (Fire OS) ─▶ packages/shared-ui ─▶ @moiz0309/vega-media-kit (K
 | 2 | shots | `steps/02-shots.ts` | ffmpeg scene cuts; merge < 1.5 s, split > 8 s (a split shot's later parts are asked only for what is new) |
 | 3 | speech | `steps/03-speech.ts` | **Amazon Transcribe** word timings + speaker labels → dialogue spans → gaps ≥ 1.2 s; gaps split around speech Transcribe missed (local ffmpeg check, `gaps.vad.json`, off with `SPEECH_VAD=0`, [0014](docs/decisions/0014-unlabelled-speech.md)) |
 | 4 | describe | `steps/04-describe.ts` | **Qwen3-VL 235B on Bedrock** (Converse), one call per shot with 3–6 key frames; per-shot cache ([0003](docs/decisions/0003-gate-c.md), [0005](docs/decisions/0005-describe-direct-bedrock.md)) |
+| 4b | verify | `steps/04b-verify.ts` | **Qwen3-VL** again with the same frames and the draft: may only remove what the frames do not show ([0010](docs/decisions/0010-verify-pass.md)) |
+| 4c | scenes | `steps/04c-scenes.ts` | **Nova Lite** groups shots into scenes and names each place, grounded in the descriptions and the glossary ([0012](docs/decisions/0012-characters-and-scenes.md)) |
 | 5 | fit | `steps/05-fit.ts` | Place each description in a gap; **Nova Lite** shortens it, accepted only if it adds no content word; on-screen text is never shortened away; a dropped shot with a new plot event becomes an extended cue ([0007](docs/decisions/0007-dropped-events.md)) |
-| 5b | edit | `steps/05b-edit.ts` | **Nova Lite** scene-level edit pass: fold dropped facts into the next cue, remove repetition, no new facts ([0006](docs/decisions/0006-scene-edit-pass.md)) |
-| 6 | voice | `steps/06-voice.ts` | **Amazon Polly** neural, one MP3 per cue; the measured clip length sets the cue end; an overrun is shortened once, then becomes extended or is dropped |
+| 5b | edit | `steps/05b-edit.ts` | **Narrative pass**: **DeepSeek v3.2 on Bedrock** (Nova Pro fallback) rewrites a scene's cues into one connected narration; each rewrite passes deterministic guards (facts kept, names only once revealed, pronouns only with a clear referent) or the cue keeps fit's text ([0017](docs/decisions/0017-narrative-pass.md), upgrading [0006](docs/decisions/0006-scene-edit-pass.md)) |
+| 6 | voice | `steps/06-voice.ts` | **Amazon Polly**, generative voice Ruth for the catalogue (neural voices also supported), one MP3 per cue; the measured clip length sets the cue end; an overrun is shortened once, then becomes extended or is dropped |
 | 7 | mix | `steps/07-mix.ts` | ffmpeg: duck the original −9 dB under narration (attack 10 ms, release 300 ms), loudness −24 LUFS / −2 dBTP → AD audio |
-| 8 | text | `steps/08-text.ts` | `captions.vtt` (Transcribe), `sdh.vtt` (**Nova Lite** adds [sounds] and speaker tags, forced tool), `descriptions.vtt` (extended cues carry `{extended=1}`) |
+| 8 | text | `steps/08-text.ts` | `captions.vtt` (Transcribe), `sdh.vtt` (**Nova Lite** proposes [sounds] and speaker tags as plain JSON; only evidenced ones are kept, trimmed to a free slot, [0018](docs/decisions/0018-sdh-trim.md)), `descriptions.vtt` (extended cues carry `{extended=1}`) |
 | 9 | package | `steps/09-package.ts` | Shaka Packager → HLS master: two audio renditions (Original; Audio description with `CHARACTERISTICS="public.accessibility.describes-video"`) and up to three WebVTT tracks, aligned 4 s segments |
 | 10 | validate | `src/validate.ts` | The master and every VTT parsed with vega-media-kit's `parseHlsMaster` / `parseVtt` ([0004](docs/decisions/0004-vega-deferred.md)) |
 | 11 | publish | `steps/10-publish.ts` | Upload to S3 `published/{slug}/` (served by CloudFront); cue clips for Extended mode; optional CloudFront invalidation |
 
 Steps 1–5 each run as their own pg-boss job (`pipeline-probe` … `pipeline-fit`); `pipeline-finish` runs edit → publish in one job
 (`packages/pipeline/src/jobs.ts`). Each job records its cost (`Job.costUsd`). Services, Regions and cost per title: [docs/aws.md](docs/aws.md)
-(≈ $0.05 per minute of film, estimate).
+(≈ $0.086 per minute of film with the generative voice, estimate at list prices).
 
 **On the TV**, the Player plays the HLS master through vega-media-kit's `KitPlayer` (react-native-video / ExoPlayer on Fire OS)
 and draws captions with its `CueOverlay`. The AD rendition is just another audio track; extended cues come from
@@ -129,15 +144,19 @@ and draws captions with its `CueOverlay`. The AD rendition is just another audio
 
 | Title | Year | Published excerpt | Licence | Slug | Description cues |
 |---|---|---|---|---|---|
-| Sintel (© Blender Foundation) | 2010 | 1:30–2:30 (60 s) | CC-BY 3.0 | `sintel-90-150-r2` | 11, 2 extended |
+| Sintel (© Blender Foundation) | 2010 | whole film, 0:00–14:48 | CC-BY 3.0 | `sintel` | 117, 18 extended |
+| Sintel (© Blender Foundation) | 2010 | 1:30–2:30 (60 s) | CC-BY 3.0 | `sintel-90-150-r2` | 8, 1 extended |
 | Big Buck Bunny (© Blender Foundation) | 2008 | 0:00–1:00 (60 s) | CC-BY 3.0 | `big-buck-bunny-0-60` | 9, 0 extended |
 | Elephants Dream (© Blender Foundation / Netherlands Media Art Institute) | 2006 | 0:00–1:00 (60 s) | CC-BY 2.5 | `elephants-dream-0-60` | 7, 1 extended |
-| Caminandes: Gran Dillama (© Blender Foundation) | 2013 | 0:35–1:35 (60 s) | CC-BY 3.0 | `caminandes-35-95` | 13, 0 extended |
-| Tears of Steel (© Blender Foundation) | 2012 | 0:40–1:40 (60 s) | CC-BY 3.0 | `tears-of-steel-40-100` | 15, 3 extended |
+| Caminandes: Gran Dillama (© Blender Foundation) | 2013 | 0:35–1:35 (60 s) | CC-BY 3.0 | `caminandes-35-95` | 11, 1 extended |
+| Tears of Steel (© Blender Foundation) | 2012 | 0:40–1:40 (60 s) | CC-BY 3.0 | `tears-of-steel-40-100` | 14, 5 extended |
 
-All five described end to end by the pipeline on 2026-10-14, ≈ $0.05–0.06 each; sources, segments, costs and the faults found
-in the descriptions: [docs/titles.md](docs/titles.md). Rows: `apps/api/prisma/titles.json` (`pnpm titles:seed`). The Gate C
-evaluation also used Sintel 1:30–3:30 (`sintel-90-210`, 29 shots).
+All six were described end to end by the pipeline: the five segments for ≈ $0.05–0.06 each (2026-10-14), the whole of Sintel for
+$1.10 (2026-10-15), then all six re-voiced in Ruth (generative) from fit with the narrative pass for $0.36 (2026-10-15 / 16).
+Sources, segments, costs and the faults found in the descriptions: [docs/titles.md](docs/titles.md) ("Published state" is
+current). Rows: `apps/api/prisma/titles.json` (`pnpm titles:seed`). The Gate C evaluation used Sintel 1:30–3:30
+(`sintel-90-210`, 29 shots) and, held out, Tears of Steel 6:30–8:30 (`tos-390-510`, 31 shots); run g13 passed both (82.8 %
+and 77.4 %, [docs/evaluation.md](docs/evaluation.md#gate-c-results)).
 
 ## Describe your own video
 
@@ -148,7 +167,7 @@ in the app's catalogue. It prints an estimate and asks before it spends anything
    `set -a; source .env; set +a`. It needs `S3_BUCKET_MEDIA`, `CLOUDFRONT_DOMAIN`, `DATABASE_URL` and AWS credentials.
 2. Check the estimate, with nothing spent: `pnpm describe ./film.mp4 --title "My Film" --dry-run`.
 3. Optional: describe one part with `--start 1:30 --end 11:30`. Set the narration language and voice with
-   `--language de --voice Daniel` (default `en`, Joanna). Set the licence and the credit sentence shown in the app with `--license "CC-BY 4.0" --credit "My Film © 2026 Me, CC-BY 4.0."`
+   `--language de --voice Daniel` (default `en`, Joanna neural; the catalogue uses `--voice Ruth`, generative). Set the licence and the credit sentence shown in the app with `--license "CC-BY 4.0" --credit "My Film © 2026 Me, CC-BY 4.0."`
    (defaults: "All rights reserved", "My Film. Described by Described.").
 4. Run it: `pnpm describe ./film.mp4 --title "My Film"`, then answer `y` (or add `--yes`). It uploads the file (cut first when
    you give a span) to `sources/<slug>.mp4`, creates the Title row, runs every step from probe to publish, and writes the cue,
@@ -168,14 +187,15 @@ Three rules protect titles that already exist:
   `--replace` describes an existing title again. It sets the title back to draft while its files are rewritten, and keeps its
   licence and credit unless you pass `--license`/`--credit`. It needs `CLOUDFRONT_DISTRIBUTION_ID`, because segments are cached
   for a year and the old ones must be invalidated.
-- **Longer than 15 minutes.** Describing more than 15 minutes of film needs `--long` until DESC-024 re-checks the describe
-  prompt on a full-length title (TASKS.md).
+- **Longer than 15 minutes.** Describing more than 15 minutes of film needs `--long`. The CLI still asks for it although the
+  whole of Sintel (14:48) has since been described and published and Gate C g13 has passed; dropping the flag is an open
+  follow-up (TASKS.md DESC-024 / DESC-025).
 - **Inputs.** An `https://` input must be the video file itself; playlists (`.m3u8`, `.mpd`) are refused.
 
 ### Cost per hour of film
 
-**≈ $4.55 per hour of film ($4.36–4.79)** with Polly neural (Joanna), **≈ $5.14** with Polly generative (Ruth), list prices,
-from the CLI meter plus two estimated steps. This is not an AWS bill.
+**≈ $5.14 per hour of film** with Polly generative (Ruth, the catalogue voice), **≈ $4.55 ($4.36–4.79)** with Polly neural
+(Joanna), list prices, from the CLI meter plus two estimated steps. This is not an AWS bill.
 
 - Source: the five 60 s DESC-010 titles cost $0.0514–0.0586 each, $0.2731 for all five, so $0.0546 per minute on average
   ([docs/titles.md](docs/titles.md), "Measured cost per title"; the same rows are in `MEASURED_TITLES` in `packages/pipeline/src/cost.ts`).
@@ -195,7 +215,9 @@ Not everything scales with length:
 - **Polly** is paid per character spoken, so it grows with the silence there is to describe. A dialogue-heavy film costs less, and every extended cue adds a clip.
 - **Nova Lite** costs under $0.001 per minute.
 - **Not in the figure:** S3 storage, CloudFront delivery, and the machine that runs ffmpeg and Shaka Packager.
-- **Untested:** it is measured on 60 s open-movie segments only. No full-length film has been described yet, and the prices in `cost.ts` are still marked `TODO(price): verify`.
+- **Check against a full-length film:** the whole of Sintel (14:48, 189 shots) cost $1.10 on the meter (2026-10-15, verify on,
+  Joanna neural, before the narrative pass), ≈ $0.075 per minute, against ≈ $0.076 from the figures above. The per-hour figure
+  is still derived from the 60 s segments, and the prices in `cost.ts` are still marked `TODO(price): verify`.
 
 ## Run it locally (7 steps)
 
@@ -217,7 +239,8 @@ vega-media-kit comes from npm (`@moiz0309/vega-media-kit`), so `pnpm i` is all i
    $PG/createdb -h /tmp -U postgres described
    ```
    Then `pnpm db:migrate`. When it creates or resets the database it also runs the title seed (`apps/api/package.json`
-   `prisma.seed`), as `prisma migrate reset` always does: the five catalogue titles, drafts until the pipeline publishes them.
+   `prisma.seed`), as `prisma migrate reset` always does: the five 60 s catalogue titles, drafts until the pipeline publishes them
+   (the full-length `sintel` row is created by `pnpm describe`).
 3. **API** — `pnpm api` (Express + Prisma + pg-boss; `GET /health`). It listens on port 4000 (`PORT` in `.env`). If 4000 is taken,
    set PORT and use the same port in EXPO_PUBLIC_API_URL. The stick must reach this port over the LAN.
 4. **Pipeline worker** (optional) — `pnpm --filter @described/pipeline worker`. Create a title with `POST /admin/titles`
@@ -238,7 +261,8 @@ vega-media-kit comes from npm (`@moiz0309/vega-media-kit`), so `pnpm i` is all i
    and writes `apps/expo/dist/described-<version>.apk` for `adb install -r` (`-- --hosted` builds against the hosted API, "Try it").
    A new IP needs both commands again. After dependency changes, run `pnpm install` and
    `rm -rf android/app/build/generated/assets android/app/build/intermediates/assets` (Gradle can reuse a stale JS bundle).
-   `pnpm --filter @described/expo build:tv` (EAS) does not work while the kit is linked: EAS uploads only this repo.
+   `pnpm --filter @described/expo build:tv` (EAS) is not verified; the kit now comes from npm, so the old blocker (EAS uploads
+   only this repo, and the kit was linked) is gone.
    Full setup and checks: [docs/device-checks/RUN-2026-10.md](docs/device-checks/RUN-2026-10.md).
 6. **Infra** — `cd infra && pnpm synth`, then `pnpm run deploy:stack described-media-dev -c stage=dev --outputs-file cdk-outputs.json`
    (one stack in eu-central-1: S3 + CloudFront + the pipeline role; Bedrock is called in us-east-1 with no stack there). Copy the outputs into `.env`.
@@ -260,7 +284,7 @@ vega-media-kit comes from npm (`@moiz0309/vega-media-kit`), so `pnpm i` is all i
 
 ## Screens
 
-Release APK on an Android TV emulator (1920 × 1080), hosted API — [docs/screens/README.md](docs/screens/README.md):
+Release APK v0.1.0 on an Android TV emulator (API 31, arm64, 1920 × 1080), hosted API — [docs/screens/README.md](docs/screens/README.md):
 
 ![Home](docs/screens/home.png)
 
@@ -271,7 +295,7 @@ Release APK on an Android TV emulator (1920 × 1080), hosted API — [docs/scree
 - Code: MIT ([LICENSE](LICENSE)).
 - Font: Atkinson Hyperlegible (Braille Institute), SIL Open Font License 1.1, in `apps/expo/assets/fonts`.
 - Films (one attribution sentence per published title, as the app's About & licenses screen shows them, `GET /about`):
-  - Sintel © Blender Foundation, CC-BY 3.0. Described by Described.
+  - Sintel © Blender Foundation, CC-BY 3.0. Described by Described. (Both the whole film and the 1:30–2:30 segment.)
   - Big Buck Bunny © 2008 Blender Foundation, CC-BY 3.0. Described by Described.
   - Elephants Dream © 2006 Blender Foundation / Netherlands Media Art Institute, CC-BY 2.5. Described by Described.
   - Caminandes: Gran Dillama © 2013 Blender Foundation (a Blender Institute production, www.caminandes.org), CC-BY 3.0. Described by Described.

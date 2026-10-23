@@ -2,8 +2,8 @@
 
 Everything here that does not need the owner's Amazon Developer Console account is done; the console steps are listed
 in order, each field mapped to a file or value. Copy for every text field: [listing.md](listing.md). Privacy policy:
-[docs/privacy.md](../privacy.md). Prepared 2026-10-22 against the GitHub pre-release APK
-`v0.1.0-rc1/described-0.1.0.apk` (sha256 `b417fe075496802ae5ef4a2820321263713b07e01c0a1ff9ad6cfe54d281aaec`;
+[docs/privacy.md](../privacy.md). Prepared 2026-10-22 against the APK now published as the GitHub release
+[`v0.1.0/described-0.1.0.apk`](https://github.com/moiz-lakkadkutta/described/releases/tag/v0.1.0) (built from `d0608dc`; sha256 `b417fe075496802ae5ef4a2820321263713b07e01c0a1ff9ad6cfe54d281aaec`;
 package `dev.moizp.described`, versionName 0.1.0, versionCode 1).
 
 Amazon docs used (read 2026-10-22): [Submit your app](https://developer.amazon.com/docs/app-submission/submitting-apps-to-amazon-appstore.html) ·

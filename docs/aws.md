@@ -1,6 +1,6 @@
 # AWS usage — Described
 
-Every call, why it is load-bearing, and its approximate cost. Kept current (main 788e973, 2026-10-14); judges read this for
+Every call, why it is load-bearing, and its approximate cost. Kept current (main 9d7d7ac, 2026-10-23); judges read this for
 the AWS Builder mini-challenge. Prices live in one table, `packages/pipeline/src/cost.ts`; each is marked `TODO(price): verify`
 there until checked against the AWS pricing pages.
 
@@ -17,9 +17,11 @@ there until checked against the AWS pricing pages.
 | Service | Region | Used for | Approx. cost |
 |---|---|---|---|
 | Amazon Bedrock — Qwen3-VL 235B (`qwen.qwen3-vl-235b-a22b`, Converse via `bedrock:InvokeModel`) | us-east-1 | Step 4, describe: one call per shot with 3–6 JPEG key frames (no video upload); per-shot cache so a retry or re-run does not pay twice ([0005](decisions/0005-describe-direct-bedrock.md)). Won the Gate C bake-off ([0003](decisions/0003-gate-c.md)) | measured $0.034 per 29 shots / 2 min of Sintel (0003 bake-off table; 61,495 input tokens on the confirmation run) → ≈ $0.017 per minute of film; measured $0.017–0.022 per 60 s title (10–16 shots, the five DESC-010 titles, [titles](titles.md)); **verify pass** (DESC-027, [0010](decisions/0010-verify-pass.md)): one more call per shot, same frames + draft (≈ 2,430 input / 40 output tokens, estimated) ≈ $0.0014 per shot → ≈ **+$0.020 per minute** of film (describe + verify ≈ $0.037 / min); cached per shot in `cache/verify/`, off with `DESCRIBE_VERIFY=0` |
-| Amazon Bedrock — Nova Lite (`amazon.nova-lite-v1:0`, Converse) | us-east-1 | Step 5, fit: shorten a description to its dialogue gap (accepted only if it adds no content word and keeps the facts). Step 5b, edit: scene-level edit pass over the voiced cues, forced tool ([0006](decisions/0006-scene-edit-pass.md)). Step 8, text: rich captions (SDH) — sound cues and speaker tags, windows of ≤ 40 captions, forced tool, additions only (DESC-014) | ≈ $0.00016 per 30 cues for the edit pass (0006); fit and SDH calls are a few hundred tokens each: < $0.01 per title; measured $0.0002–0.0004 per 60 s title (edit + SDH, DESC-010) |
+| Amazon Bedrock — Nova Lite (`amazon.nova-lite-v1:0`, Converse) | us-east-1 | Step 4c, scenes: groups shots into scenes and names each place, grounded in the descriptions and the glossary ([0012](decisions/0012-characters-and-scenes.md)). Step 5, fit: shorten a description to its dialogue gap (accepted only if it adds no content word and keeps the facts). Step 5b: the one over-budget shortening of a narrative-pass rewrite (`EDIT_SHORTEN_MODEL_ID`). Step 8, text: rich captions (SDH) — sound cues and speaker tags, windows of ≤ 40 captions, additions only (DESC-014); plain JSON reply since #82 (the forced tool failed with `ModelErrorException` on Sintel). Since the 2026-10-19 re-run, full-length Sintel and Sintel 1:30–2:30 carry Rich captions; the other titles have nothing that qualifies ([titles](titles.md), [0018](decisions/0018-sdh-trim.md)) | a few hundred tokens per call: < $0.01 per title; measured $0.0002–0.0004 per 60 s title (edit + SDH, DESC-010, before the narrative pass); scenes + fit + edit $0.0041 on full-length Sintel |
+| Amazon Bedrock — DeepSeek v3.2 (`deepseek.v3.2`, Converse, on-demand, no inference profile) | us-east-1 | Step 5b, **narrative pass**: one call per scene window (≤ 30 cues) rewrites the cues into one connected narration; plain JSON reply, not a forced tool; every rewrite passes deterministic guards or keeps fit's text ([0017](decisions/0017-narrative-pass.md)) | $0.62 / $1.85 per 1M input / output tokens (AWS Price List API, 2026-10-15) → ≈ $0.0013 per minute of film (measured on full-length Sintel) |
+| Amazon Bedrock — Nova Pro (`amazon.nova-pro-v1:0`, Converse) | us-east-1 | Step 5b fallback: asked once when the DeepSeek call fails or its reply is unreadable (`EDIT_FALLBACK_MODEL_ID`; empty turns it off) | $0.80 / $3.20 per 1M tokens; only on a failed DeepSeek call |
 | Amazon Transcribe (`StartTranscriptionJob`, `GetTranscriptionJob`) | eu-central-1 | Step 3, speech map: word timings and speaker labels → dialogue spans → gaps where narration may speak; the plain captions track; known names for the describe prompt. A finished transcript is reused while the mezzanine is unchanged, and a started job is resumed on retry (`03-speech.ts`) | $0.024 / min (`cost.ts`, standard batch tier 1), billed per second with a 15 s minimum → $0.024 per 60 s title, also with no speech (Caminandes) |
-| Amazon Polly (neural `SynthesizeSpeech`, MP3, SSML) | eu-central-1 | Step 6, voice: one clip per cue; the clip's measured length sets the cue end (DESC-013). App-voice prompt clips for first run and Settings "Hear it" (`pnpm pipeline prompts --run`, DESC-010). Description voice per title (default Joanna en-US, Vicki de-DE: `POLLY_VOICE_EN` / `POLLY_VOICE_DE`); app voices Joanna, Matthew, Vicki, Daniel | $16 per 1M characters (`cost.ts`); ≈ 400 characters per minute of film (estimate, `docs/device-checks/DESC-003.md`) → ≈ $0.006 / min; measured $0.008–0.015 per 60 s title (DESC-010). All 16 prompt clips $0.02 (1,232 characters, 2026-10-14) |
+| Amazon Polly (`SynthesizeSpeech`, MP3, SSML; **generative** engine for Ruth, neural otherwise, [generative voices](https://docs.aws.amazon.com/polly/latest/dg/generative-voices.html)) | eu-central-1 | Step 6, voice: one clip per cue; the clip's measured length sets the cue end (DESC-013). All six published titles are voiced by **Ruth, generative** (`--voice Ruth --engine generative`, [0017](decisions/0017-narrative-pass.md) "Voice"). App-voice prompt clips for first run and Settings "Hear it" (`pnpm pipeline prompts --run`, DESC-010). CLI default when no voice is given: Joanna en-US, Vicki de-DE, neural (`POLLY_VOICE_EN` / `POLLY_VOICE_DE`); app voices Joanna, Matthew, Vicki, Daniel | generative $30, neural $16 per 1M characters (`cost.ts`); re-voicing all six titles in Ruth from fit cost $0.3565 in all (2026-10-15 / 16, [titles](titles.md)); neural: ≈ 400 characters per minute of film (estimate, `docs/device-checks/DESC-003.md`) → ≈ $0.006 / min; measured $0.008–0.015 per 60 s title (DESC-010). All 16 prompt clips $0.02 (1,232 characters, 2026-10-14) |
 | Amazon S3 | eu-central-1 | Sources, `work/<slug>/` (mezzanine, transcript, key frames, caches) and `published/<slug>/` (HLS, VTTs, cue clips, art). Playlists, VTTs and art `max-age=60`; segments, init files and MP3s a year + immutable (`src/s3.ts` `cacheControl`) | cents |
 | Amazon CloudFront | global (origin eu-central-1) | HLS delivery to the TV over HTTPS. Serves only `/published/*`: the default behaviour returns 403 from a CloudFront Function, and the bucket policy denies Origin Access Control reads outside `published/*`. CORS preflights cached with Origin / Access-Control-Request-* in the key ([doc](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/header-caching.html#header-caching-web-cors)) | cents |
 | Amazon CloudFront — CreateInvalidation | global | Invalidate `/published/<slug>/*` after a re-run republishes a title: by hand (`aws cloudfront create-invalidation`, `CLOUDFRONT_DISTRIBUTION_ID`), or by the pipeline when `PUBLISH_INVALIDATE=1` (PR #16). The pipeline role may invalidate this distribution only ([API](https://docs.aws.amazon.com/cloudfront/latest/APIReference/API_CreateInvalidation.html)) | first 1,000 paths a month free, then $0.005 each; one wildcard path per re-run |
@@ -58,7 +60,8 @@ AWS_PROFILE=<profile> pnpm run deploy:stack described-media-dev -c stage=dev --o
   esbuild bundle + Prisma's `linux-arm64-openssl-3.0.x` engine + `prisma/migrations`). `API_MODE=viewer`: `/admin` is not mounted.
   Function URL, auth type `NONE`: HTTPS, CORS from Express. Logs kept one week.
 - RDS PostgreSQL 17 db.t4g.micro, single-AZ, 20 GiB gp3, encrypted, not public; ingress 5432 from the function's security group
-  only. `DESTROY` on stack deletion outside `prod` (the catalogue is re-seeded; device prefs and lists are lost).
+  only. `DESTROY` on stack deletion outside `prod` (the catalogue is re-seeded; device prefs and lists are lost); in `prod`,
+  deletion protection is on and stack deletion keeps a final snapshot (`RemovalPolicy.SNAPSHOT`, `infra/lib/viewer-stack.ts`).
 - Guards (review of PR #66): `x-device-id` must match `^[A-Za-z0-9_-]{1,64}$` (else 400, in both modes) and only writes create
   a Profile row (GET `/me/prefs` answers the defaults, GET `/me/list` an empty list), so a public URL cannot be made to
   store arbitrary strings; CloudWatch alarm `DbFreeStorageLow` below 2 GiB free; viewer mode logs only 4xx (warn) and 5xx
@@ -72,6 +75,8 @@ AWS_PROFILE=<profile> pnpm run deploy:stack described-media-dev -c stage=dev --o
   run time instead would need a Secrets Manager VPC endpoint (≈ $7.30 a month per AZ) or a NAT gateway (≈ $33), double the
   stack's cost. Environment variables are encrypted at rest with the Lambda service key.
 - Outputs: `ViewerApiUrl` (the APK's API), `ApiFunctionName` (for `aws lambda invoke`), `DbEndpoint`.
+- **State (2026-10-19):** `described-viewer-dev` is deployed and seeded with the six published titles (166 description cues). It
+  stays up until 20 Nov 2026, the end of the judging period (user decision 2026-10-19).
 
 No pg-boss, worker, Socket.IO, Bedrock, Polly or Transcribe in the hosted copy: it serves what the TV app reads, and
 media stays on CloudFront. Seeding: `pnpm --filter @described/api export:catalogue` writes `{ "op": "seed", "catalogue": … }`
@@ -116,15 +121,18 @@ figures come from its printed totals.
 | Measured: describe on 29 shots / 2 min (0003) | $0.034 Qwen3-VL |
 | Per minute of film, from the prices in `cost.ts` | Transcribe $0.024 + describe ≈ $0.017 + Polly ≈ $0.006 + Nova Lite < $0.002 ≈ **$0.05** |
 | Per minute, measured mean (DESC-025: `estimateUsd` in `cost.ts`, from the five titles' rows; measured before the verify pass — describe figures measured after DESC-027 include the verify call) | Transcribe $0.024 + Qwen3-VL $0.0191 + Polly $0.0112 + Nova Lite $0.0003 = **$0.0546** ($0.0514–0.0586) |
-| Per minute with the verify pass (DESC-027, estimate) and the narrative pass (decision 0017, DeepSeek v3.2, measured on full-length Sintel); both in `estimateUsd` | $0.0546 + ≈ $0.020 + $0.0013 ≈ **$0.076** (generative voice: + $0.0098) |
-| 12-minute short | ≈ $0.91 |
-| One hour of film | ≈ $4.55 ($4.36–4.79); derivation in the README, "Cost per hour of film" |
-| 90-minute feature | ≈ $6.83 |
+| Per minute with the verify pass (DESC-027, estimate) and the narrative pass (decision 0017, DeepSeek v3.2, measured on full-length Sintel); both in `estimateUsd` | $0.0546 + ≈ $0.020 + $0.0013 ≈ **$0.076** with a neural voice; **≈ $0.086** with the generative voice (+ $0.0098), as published |
+| Measured (CLI meter): full-length `sintel`, 14:48, 189 shots, 2026-10-15 (verify on, Joanna neural, Nova Lite edit, before the narrative pass) | **$1.1043** (Transcribe $0.3556, describe + verify $0.5977, Nova Lite $0.0041, Polly $0.1471) ≈ $0.075 per minute ([titles](titles.md)) |
+| Measured (CLI meter): Ruth re-publish of all six titles `--from fit`, narrative pass on (2026-10-15 / 16) | $0.3565 in all; full-length `sintel` $0.2568 of it ([titles](titles.md)) |
+| 12-minute short | ≈ $0.91 neural; ≈ $1.03 generative |
+| One hour of film | ≈ $4.55 ($4.36–4.79) neural; ≈ $5.14 generative; derivation in the README, "Cost per hour of film" |
+| 90-minute feature | ≈ $6.83 neural; ≈ $7.71 generative |
 
 Extended cues add one Polly clip each (decision 0007: at most one added event cue per 30 s). Re-runs from a later step
 (`--from`) reuse the transcript and the describe cache, so they pay only for the steps they re-run.
 Measured end to end (2026-10-14, CLI meter): **$0.051–0.059 per 60 s title** across the five titles; Transcribe is the floor at
-$0.024, descriptions the next third. That agrees with the ≈ $0.05 per minute estimate above.
+$0.024, descriptions the next third. That agrees with the ≈ $0.05 per minute estimate above (before the verify and narrative passes); the full-length Sintel run
+with verify on, ≈ $0.075 per minute, agrees with the ≈ $0.076 line.
 
 Cost rule ([0005](decisions/0005-describe-direct-bedrock.md)): no paid Bedrock, Transcribe or Polly run without the human's
 go-ahead; tests use recorded fixtures and mocks.
