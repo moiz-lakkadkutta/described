@@ -3,18 +3,27 @@
     "name": "Described",
     "slug": "described",
     "scheme": "described",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "orientation": "landscape",
     "userInterfaceStyle": "dark",
     "icon": "./assets/images/described-mark-1024.png",
     "android": {
       "package": "dev.moizp.described",
+      "versionCode": 2,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-foreground.png",
         "backgroundColor": "#0D1215"
       },
       "permissions": [
         "com.amazon.permission.media.session.voicecommandcontrol"
+      ],
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.VIBRATE"
       ],
       "intentFilters": [
         {
@@ -31,10 +40,17 @@
       "./plugins/withLocalApi",
       "./plugins/withFireTvVoice",
       "./plugins/withTvBanner",
+      "./plugins/withTvFeatures",
       [
         "expo-font",
         {
           "fonts": []
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "recordAudioAndroid": false
         }
       ]
     ],
