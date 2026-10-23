@@ -118,7 +118,7 @@ and Amazon's ADB page; this path has not been walked end to end with Described (
 
    ```sh
    adb devices                         # the stick is listed as "device", not "unauthorized"
-   adb install -r described-0.1.1.apk  # prints: Performing Streamed Install / Success
+   adb install -r described.apk        # prints: Performing Streamed Install / Success
    adb shell monkey -p dev.moizp.described 1
    ```
 

@@ -47,12 +47,12 @@ Six CC-BY titles are in the library, the whole of Sintel (14:48) among them; des
 are kept per device (Android ID), no sign-in. The hosted API stays up until 20 Nov 2026, the end of judging.
 
 No Fire TV? The APK installs the same way on an Android TV emulator (`adb install -r described.apk`): the
-[screenshots](#screens) were captured with this APK on one (API 31, arm64, 1920 × 1080). The APK also carries x86 and
+[screenshots](#screens) were captured with the v0.1.0 APK on one (API 31, arm64, 1920 × 1080). The APK also carries x86 and
 x86_64 libraries. An emulator is not a Fire TV: the Fire TV integrations below need the stick.
 
 <details><summary>Maintainers: host the API and publish the APK (DESC-034)</summary>
 
-Each step below is paid or public: run it only with the owner's go-ahead. Done for v0.1.0 (APK built from `d0608dc`).
+Each step below is paid or public: run it only with the owner's go-ahead. Done for v0.1.0 (APK built from `d0608dc`) and v0.1.1.
 
 ```sh
 set -a; source .env; set +a                      # CLOUDFRONT_DOMAIN: the media stack's CdnDomain
@@ -64,9 +64,11 @@ AWS_PROFILE=described-dev aws lambda invoke --region us-east-1 --function-name "
   --payload fileb://apps/api/.hosted/seed-event.json /dev/stdout   # migrates, then imports; re-run after any re-publish
 API=$(node -p "require('./infra/cdk-outputs-viewer.json')['described-viewer-dev'].ViewerApiUrl.replace(/\/$/, '')")
 curl -s "$API/catalog" | node -e "process.stdin.on('data',d=>console.log(JSON.parse(d).data.all.map(t=>t.slug)))"
-pnpm --filter @described/expo build:apk -- --hosted   # → apps/expo/dist/described-0.1.0.apk (no device needed)
-gh release create v0.1.0 apps/expo/dist/described-0.1.0.apk --title "Described 0.1.0 — Fire TV APK" \
-  --notes "Sideload with adb (README, Try it). Uses the hosted API; media from CloudFront."
+pnpm --filter @described/expo build:apk -- --hosted   # → apps/expo/dist/described-0.1.1.apk (no device needed)
+cp apps/expo/dist/described-0.1.1.apk apps/expo/dist/described.apk   # identical copy: releases/latest/download/described.apk stays stable
+gh release create v0.1.1 apps/expo/dist/described-0.1.1.apk apps/expo/dist/described.apk --latest \
+  --title "Described 0.1.1 — Fire TV APK" \
+  --notes "Sideload with Downloader or adb (docs/TESTING-ON-FIRE-TV.md). Uses the hosted API; media from CloudFront."
 ```
 
 Remove it with `cd infra && AWS_PROFILE=described-dev npx cdk destroy described-viewer-dev -c viewer=1 -c stage=dev`

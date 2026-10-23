@@ -9,7 +9,7 @@ package `dev.moizp.described`, versionName 0.1.0, versionCode 1).
 **Update 2026-10-23 — B1 and D6 done (#92, `feat/appstore-b1-rebuild`).** The APK to upload is now
 `described-0.1.1.apk` (versionName 0.1.1, versionCode 2, same debug signing certificate as v0.1.0 so it installs over it;
 sha256 `ab73e20547fe809e5b0cdb24851033bc162c70006832f0f0ad66680e01f33f9d`, 59.9 MB). Rows A4, A5, A6, A7 and A13 below are
-re-checked on it. A GitHub release for it is not created yet. Manual test on a stick (including Amazon's Home-button
+re-checked on it. It is released as [v0.1.1](https://github.com/moiz-lakkadkutta/described/releases/tag/v0.1.1) (assets `described-0.1.1.apk` and the identical `described.apk`). Manual test on a stick (including Amazon's Home-button
 and microphone criteria, A15): [docs/TESTING-ON-FIRE-TV.md](../TESTING-ON-FIRE-TV.md).
 
 Amazon docs used (read 2026-10-22): [Submit your app](https://developer.amazon.com/docs/app-submission/submitting-apps-to-amazon-appstore.html) ·
