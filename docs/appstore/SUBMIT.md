@@ -6,7 +6,7 @@ in order, each field mapped to a file or value. Copy for every text field: [list
 [`v0.1.0/described-0.1.0.apk`](https://github.com/moiz-lakkadkutta/described/releases/tag/v0.1.0) (built from `d0608dc`; sha256 `b417fe075496802ae5ef4a2820321263713b07e01c0a1ff9ad6cfe54d281aaec`;
 package `dev.moizp.described`, versionName 0.1.0, versionCode 1).
 
-**Update 2026-10-23 — B1 and D6 done (this PR, `feat/appstore-b1-rebuild`).** The APK to upload is now
+**Update 2026-10-23 — B1 and D6 done (#92, `feat/appstore-b1-rebuild`).** The APK to upload is now
 `described-0.1.1.apk` (versionName 0.1.1, versionCode 2, same debug signing certificate as v0.1.0 so it installs over it;
 sha256 `ab73e20547fe809e5b0cdb24851033bc162c70006832f0f0ad66680e01f33f9d`, 59.9 MB). Rows A4, A5, A7 and A13 below are
 re-checked on it. A GitHub release for it is not created yet. Manual test on a stick (including Amazon's Home-button
@@ -67,7 +67,7 @@ Seen on the emulator, worth a look on the stick: right after the introduction's 
 
 ## 2. Blockers and decisions for the owner
 
-**B1 — manifest fix and rebuild — done (this PR, v0.1.1; versionCode 2 so it installs over the sideloaded v0.1.0).** Without
+**B1 — manifest fix and rebuild — done (#92, v0.1.1; versionCode 2 so it installs over the sideloaded v0.1.0).** Without
 `android.hardware.touchscreen required="false"` the Appstore is likely to list no Fire TV device as compatible, so the
 app cannot target Fire TV at all; the implied microphone requirement can filter more. Approved and done as below; built
 with `node scripts/build-apk.js --url <hosted API URL>` (the same URL `--hosted` resolves to; this checkout had no
@@ -125,7 +125,7 @@ Sintel (CC-BY 3.0, credited in the long description) exported at full width from
 privacy policy points to GitHub issues, not an email address; decide whether to put an email in the console field or
 leave only the website (`https://github.com/moiz-lakkadkutta/described/issues`).
 
-**D6 — privacy policy inside the app — done (this PR, v0.1.1).** Add a line under Settings › About & licenses: "Privacy policy:
+**D6 — privacy policy inside the app — done (#92, v0.1.1).** Add a line under Settings › About & licenses: "Privacy policy:
 github.com/moiz-lakkadkutta/described/blob/main/docs/privacy.md" (text, as the TV has no browser), in the same rebuild
 as B1.
 
