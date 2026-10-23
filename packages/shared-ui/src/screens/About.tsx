@@ -19,7 +19,8 @@ const padY = focusBleed(2 * tokens.type.body.line + 2 * gap)
  */
 const lead = padY + tokens.type.label.line + gap
 /**
- * About & licenses: each title's attribution sentence, then the font and code licenses. Every sentence is a focusable
+ * About & licenses: each title's attribution sentence, the font and code licenses, then where the privacy policy lives
+ * (Amazon wants it inside the app; the TV has no browser, so it is the address as text). Every sentence is a focusable
  * line, so ▲▼ walks the list and VoiceView reads each one; nothing happens on Select. Close (or Back) returns to Settings.
  * `about`: null while loading, 'offline' when the list could not be fetched (the licenses still show).
  */
@@ -45,6 +46,8 @@ export function About({ about, onClose }: { about: AboutData | null | 'offline';
             {films.map((f, i) => line(`film:${f.slug}`, f.attribution, i === 0))}
             <T variant="label" color={tokens.color.textSecondary} style={{ marginTop: px(24) }}>{A.software.toUpperCase()}</T>
             {A.licenses.map((l, i) => line(`license:${i}`, l, !films.length && i === 0))}
+            <T variant="label" color={tokens.color.textSecondary} style={{ marginTop: px(24) }}>{A.privacyHeading.toUpperCase()}</T>
+            {line('privacy', A.privacy)}
             <Focusable label={strings.a11y.closeAbout} role="button" onPress={onClose} style={{ alignSelf: 'flex-start', marginTop: px(24), backgroundColor: tokens.color.surface2, paddingHorizontal: px(28), paddingVertical: px(gap) }} focusedStyle={{ backgroundColor: tokens.color.surface3 }}>
               <T variant="body">{A.close}</T>
             </Focusable>

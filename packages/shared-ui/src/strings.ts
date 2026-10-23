@@ -62,7 +62,7 @@ export const strings = {
     hearVoice: (voice: string) => `Hear the voice ${voice}`,
     hearVoiceHint: 'Plays one sentence in this voice',
     resetIntroHint: 'Opens the three introduction screens now',
-    about: 'About and licenses: film credits and the licenses of the font and code',
+    about: 'About and licenses: film credits, the licenses of the font and code, and where to read the privacy policy',
     closeAbout: 'Close About and licenses',
   },
   player: {
@@ -95,6 +95,9 @@ export const strings = {
       'vega-media-kit © Moiz Lakkadkutta and contributors, used under the MIT License.',
       'Described © Moiz Lakkadkutta and contributors, open source under the MIT License.',
     ],
+    // Amazon: "Display a legally adequate privacy policy within the app" (docs/appstore/SUBMIT.md D6). Text, not a link:
+    // the TV has no browser. https://developer.amazon.com/docs/policy-center/privacy-security.html
+    privacyHeading: 'Privacy', privacy: 'Privacy policy: github.com/moiz-lakkadkutta/described/blob/main/docs/privacy.md',
   },
   offline: 'Can\u2019t reach the library. Check the network and press Select to retry.',
   retry: 'Try again',

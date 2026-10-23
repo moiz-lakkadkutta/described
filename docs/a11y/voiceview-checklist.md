@@ -74,9 +74,10 @@ Rail → "Go to Settings" → Select. Values change with ◄► (Select also ste
 - [ ] Holding ► changes a value once, not repeatedly.
 - [ ] ◄ on a value row changes the value; ◄ on "Hear the voice", "Show the introduction again" or "About and licenses" opens the rail.
 - [ ] "Show the introduction again. Opens the three introduction screens now" (covered in §1).
-- [ ] "About and licenses: film credits and the licenses of the font and code" → Select. Spoken: the first title's attribution sentence,
+- [ ] "About and licenses: film credits, the licenses of the font and code, and where to read the privacy policy" → Select. Spoken: the first title's attribution sentence,
       e.g. "Sintel © Blender Foundation, CC-BY 3.0. Described by Described." ▼ walks each title, then
-      "Atkinson Hyperlegible © Braille Institute of America, used under the SIL Open Font License 1.1.", the kit and app MIT lines, "Close About and licenses".
+      "Atkinson Hyperlegible © Braille Institute of America, used under the SIL Open Font License 1.1.", the kit and app MIT lines,
+      "Privacy policy: github.com/moiz-lakkadkutta/described/blob/main/docs/privacy.md" (from v0.1.1), "Close About and licenses".
       Back → Settings, focus on About.
 - [ ] Relaunch: every value you set is kept (saved to the profile).
 

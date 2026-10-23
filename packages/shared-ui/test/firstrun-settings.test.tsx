@@ -402,10 +402,10 @@ describe('settings in Root: saved and spoken', () => {
     expect(defaults(r)).toEqual(['Play Sintel without description'])
   })
 
-  it('About: attribution sentences then licenses; Back returns to Settings on the About row', async () => {
+  it('About: attribution sentences, licenses, then the privacy policy; Back returns to Settings on the About row', async () => {
     api(); const r = await mount()
     press(r, 'Go to Settings'); focus(r, strings.a11y.about); press(r, strings.a11y.about); await flush()
-    expect(labels(r).filter((l) => !l.startsWith('Go to'))).toEqual([title.attribution, ...strings.about.licenses, strings.a11y.closeAbout])
+    expect(labels(r).filter((l) => !l.startsWith('Go to'))).toEqual([title.attribution, ...strings.about.licenses, strings.about.privacy, strings.a11y.closeAbout])
     expect(defaults(r)).toEqual([title.attribution])
     act(() => { expect(back.press()).toBe(true) })
     expect(defaults(r)).toEqual([strings.a11y.about])
@@ -416,6 +416,10 @@ describe('settings in Root: saved and spoken', () => {
     press(r, 'Go to Settings'); press(r, strings.a11y.about); await flush()
     expect(text(r)).toContain('film credits are missing')
     expect(defaults(r)).toEqual([strings.about.licenses[0]])
+    expect(text(r)).toContain(strings.about.privacy) // the privacy policy shows offline too (it is not fetched)
+  })
+  it('About names the privacy policy address in full (Amazon: privacy policy inside the app)', () => {
+    expect(strings.about.privacy).toBe('Privacy policy: github.com/moiz-lakkadkutta/described/blob/main/docs/privacy.md')
   })
 })
 

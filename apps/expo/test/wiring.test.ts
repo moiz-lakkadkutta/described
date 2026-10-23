@@ -8,8 +8,10 @@ const keyEvent = require('../plugins/withKeyEvent.js') as { patch: (s: string) =
 type Manifest = { manifest: { application: { $: Record<string, string>; 'meta-data'?: { $: Record<string, string> }[] }[] } }
 const fireTvVoice = require('../plugins/withFireTvVoice.js') as { patch: (m: Manifest) => Manifest }
 const tvBanner = require('../plugins/withTvBanner.js') as { patch: (m: Manifest) => Manifest; SOURCE: string; RES_DIR: string }
+type FeatureManifest = { manifest: { $: Record<string, string>; 'uses-feature'?: { $: Record<string, string> }[] } }
+const tvFeatures = require('../plugins/withTvFeatures.js') as { patch: (m: FeatureManifest) => FeatureManifest; FEATURES: string[] }
 const appJson = require('../app.json') as {
-  expo: { icon: string; plugins: (string | unknown[])[]; android: { permissions: string[]; adaptiveIcon: { foregroundImage: string; backgroundColor: string } } }
+  expo: { icon: string; plugins: (string | unknown[])[]; android: { permissions: string[]; blockedPermissions: string[]; adaptiveIcon: { foregroundImage: string; backgroundColor: string } } }
 }
 const localApi = require('../plugins/withLocalApi.js') as { cleartextHost: (u?: string) => string | null; securityConfig: (h: string) => string; debugSecurityConfig: () => string }
 
@@ -265,6 +267,30 @@ describe('config plugins', () => {
     expect(appJson.expo.android.adaptiveIcon).toEqual({ foregroundImage: './assets/images/adaptive-foreground.png', backgroundColor: '#0D1215' })
     expect(appJson.expo.plugins).toContain('./plugins/withTvBanner')
     for (const p of [appJson.expo.icon, appJson.expo.android.adaptiveIcon.foregroundImage]) expect(existsSync(path.join(__dirname, '..', p))).toBe(true)
+  })
+  it('withTvFeatures declares touchscreen, faketouch, microphone and leanback as not required, once, idempotently', () => {
+    // https://developer.amazon.com/docs/app-submission/device-filtering-and-compatibility.html (Fire TV: touchscreen false)
+    const manifest: FeatureManifest = { manifest: { $: {}, 'uses-feature': [{ $: { 'android:name': 'android.hardware.touchscreen', 'android:required': 'true' } }, { $: { 'android:name': 'android.hardware.wifi' } }] } }
+    const once = tvFeatures.patch(manifest)
+    const twice = tvFeatures.patch(structuredClone(once))
+    const names = ['android.hardware.touchscreen', 'android.hardware.faketouch', 'android.hardware.microphone', 'android.software.leanback']
+    expect(tvFeatures.FEATURES).toEqual(names)
+    for (const m of [once, twice]) {
+      const f = m.manifest['uses-feature']!
+      for (const n of names) expect(f.filter((x) => x.$['android:name'] === n)).toEqual([{ $: { 'android:name': n, 'android:required': 'false' } }])
+      expect(f).toHaveLength(5) // the other entry is kept
+    }
+    const bare = tvFeatures.patch({ manifest: { $: {} } })
+    expect(bare.manifest['uses-feature']!.map((x) => x.$['android:required'])).toEqual(['false', 'false', 'false', 'false'])
+  })
+  it('app.json registers withTvFeatures, never records, and blocks the permissions the app does not use', () => {
+    expect(appJson.expo.plugins).toContain('./plugins/withTvFeatures')
+    expect(appJson.expo.plugins).toContainEqual(['expo-audio', { recordAudioAndroid: false }])
+    expect(appJson.expo.android.blockedPermissions).toEqual(expect.arrayContaining([
+      'android.permission.RECORD_AUDIO', 'android.permission.MODIFY_AUDIO_SETTINGS', 'android.permission.READ_EXTERNAL_STORAGE',
+      'android.permission.WRITE_EXTERNAL_STORAGE', 'android.permission.SYSTEM_ALERT_WINDOW', 'android.permission.VIBRATE',
+    ]))
+    for (const kept of appJson.expo.android.permissions) expect(appJson.expo.android.blockedPermissions).not.toContain(kept)
   })
   it('debug builds keep cleartext open for the Metro dev server', () => {
     expect(localApi.debugSecurityConfig()).toContain('<base-config cleartextTrafficPermitted="true" />')
