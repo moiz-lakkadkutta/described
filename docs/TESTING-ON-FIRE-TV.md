@@ -17,7 +17,7 @@ Remote buttons are written in bold: **Select** (the centre of the ring), **Back*
 
 ## 1. What you need
 
-- A Fire TV Stick, Stick 4K / 4K Max, Stick Lite or Fire TV Cube running **Fire OS 6, 7 or 8** (section 2 shows how to check),
+- A Fire TV Stick, Stick 4K / 4K Max, Stick Lite or Fire TV Cube running **Fire OS 7 or 8**, or Fire OS 6 (should install: the APK needs API 24 and Fire OS 6 is API 25; not yet verified on a stick). Section 2 shows how to check,
   its remote, and a TV.
 - Wi-Fi with internet. The app talks to a hosted copy of the Described API over HTTPS and streams from CloudFront, so
   nothing else on your network is needed. The hosted API stays up until 20 Nov 2026 (the end of judging).
@@ -47,7 +47,7 @@ Described is an Android app (an APK). Fire TV devices run either **Fire OS** (An
 | Fire TV Stick HD (2024), Fire TV Stick Lite (2020) | AFTSS | Fire OS 7 | **Yes — the stick this project tests on** |
 | Fire TV Stick 4K Max – 1st Gen (2021) | AFTKA | Fire OS 7 | Yes (not yet verified on a stick) |
 | Fire TV Stick – 3rd Gen (2020) | AFTSSS | Fire OS 7 | Yes (not yet verified on a stick) |
-| Fire TV Stick 4K – 1st Gen (2018) | AFTMM | Fire OS 6 | Yes (not yet verified on a stick) |
+| Fire TV Stick 4K – 1st Gen (2018) | AFTMM | Fire OS 6 | Should install: minSdk 24 ≤ API 25 (not yet verified on a stick) |
 
 Fire TV Cubes run Fire OS; they are on a separate Amazon page and have not been tried (not yet verified on a stick).
 Fire OS versions map to Android as: Fire OS 6 = Android 7.1 (API 25), Fire OS 7 = Android 9 (API 28), Fire OS 8 =
@@ -60,22 +60,22 @@ reporting). If you have a computer, `adb shell getprop ro.product.model` prints 
 
 ## 3. Install
 
-The release APK is on GitHub: <https://github.com/moiz-lakkadkutta/described/releases/latest>.
-Its file is named `described-<version>.apk`, so the direct download address of the newest release is
+The release APK is on GitHub: <https://github.com/moiz-lakkadkutta/described/releases/latest>. Each release from v0.1.1
+on carries the APK twice: as `described.apk` and as `described-<version>.apk` (the same file). The download address that
+always gives the newest release is
 
 ```
-https://github.com/moiz-lakkadkutta/described/releases/latest/download/described-<version>.apk
+https://github.com/moiz-lakkadkutta/described/releases/latest/download/described.apk
 ```
 
-with `<version>` replaced by the version shown on the release page (for example `0.1.1`). That address only works for
-the version that is currently the latest. A fixed version always works, for example v0.1.0 (checked 2026-10-23: GitHub
-redirects it to the 59.9 MB file):
+To pin one version, use its versioned file. v0.1.1 (sha256 `ab73e20547fe809e5b0cdb24851033bc162c70006832f0f0ad66680e01f33f9d`):
 
 ```
-https://github.com/moiz-lakkadkutta/described/releases/download/v0.1.0/described-0.1.0.apk
+https://github.com/moiz-lakkadkutta/described/releases/download/v0.1.1/described-0.1.1.apk
 ```
 
-The release notes list each APK's sha256 if you want to check the file on a computer (`shasum -a 256 <file>`).
+v0.1.0 (`releases/download/v0.1.0/described-0.1.0.apk`) is older and has no privacy line in About & licenses.
+To check a file on a computer: `shasum -a 256 <file>` and compare with the sha256 above or in the release notes.
 
 ### Path A — without a computer (Downloader)
 
@@ -95,7 +95,7 @@ and Amazon's ADB page; this path has not been walked end to end with Described (
    reports a Fire OS bug where the list renders before it has loaded
    ([AFTVnews](https://www.aftvnews.com/fire-tv-bug-is-preventing-downloader-and-other-apps-from-appearing-in-the-install-unknown-apps-list/)).
 4. Open **Downloader**. Allow it to access files if it asks. In the address box type the full download address from
-   above (for example `https://github.com/moiz-lakkadkutta/described/releases/download/v0.1.0/described-0.1.0.apk`),
+   above (`https://github.com/moiz-lakkadkutta/described/releases/latest/download/described.apk`),
    then **Go**.
 5. When the download finishes, Android's installer opens: **Install**. Then **Done** (or **Open**).
 6. Downloader offers to delete the APK file: **Delete** frees about 60 MB; the app stays installed.
@@ -136,8 +136,12 @@ with the Described logo. Highlight it and press **Menu** → **Move** if you wan
 Install the newer APK the same way (Downloader, or `adb install -r`). v0.1.0 and v0.1.1 are signed with the same key,
 so v0.1.1 installs over v0.1.0 and keeps your settings, My list and resume points (checked on the emulator, 2026-10-23).
 If Android says **App not installed**, the two files were signed with different keys: uninstall first (below), then
-install. Uninstalling deletes the app's local data; your settings and My list are kept on the server per device and come
-back after the reinstall (they are keyed to the device's Android ID).
+install. Your settings, My list and resume points live on the server under the device's Android ID, and from Android 8
+(API 26, so every Fire OS 7 and 8 device) that ID depends on the key the app is signed with
+([apps/expo/src/deviceId.ts](../apps/expo/src/deviceId.ts)). An uninstall and reinstall of a copy signed with the **same**
+key keeps the same ID, so they come back. A copy signed with a **different** key (the Amazon Appstore copy, or a local
+debug build made with another keystore) gets a new ID and starts with a fresh profile: settings, My list and resume points
+do not carry over.
 
 ### Uninstalling
 
@@ -318,8 +322,9 @@ If `ro.product.model` is AFTCA002, AFTCL001 or AFTCR001 (Vega OS), stop: the APK
 ### 8.3 Install and verify
 
 ```sh
-curl -sL -o described.apk https://github.com/moiz-lakkadkutta/described/releases/download/v<version>/described-<version>.apk
-shasum -a 256 described.apk                         # compare with the release notes
+curl -sL -o described.apk https://github.com/moiz-lakkadkutta/described/releases/latest/download/described.apk
+#   pinned alternative: https://github.com/moiz-lakkadkutta/described/releases/download/v0.1.1/described-0.1.1.apk
+shasum -a 256 described.apk   # v0.1.1: ab73e20547fe809e5b0cdb24851033bc162c70006832f0f0ad66680e01f33f9d
 adb -s $FTV install -r described.apk
 ```
 

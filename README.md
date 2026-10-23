@@ -21,7 +21,8 @@ with [Lingo](https://github.com/moiz-lakkadkutta/lingo). MIT.
 ## Try it
 
 The release APK talks to a hosted copy of the API (AWS Lambda + Amazon RDS in us-east-1, [docs/aws.md](docs/aws.md#hosted-api-desc-034))
-and streams from CloudFront, so it needs nothing on your network. Fire TV Stick, Fire OS 7 or later; a computer with
+and streams from CloudFront, so it needs nothing on your network. Fire TV Stick or Cube on Fire OS 7 or 8 (Fire OS 6 should
+install too, as the APK needs API 24 and Fire OS 6 is API 25 — not yet verified on a stick; Vega OS sticks cannot run it); a computer with
 Android platform tools (`adb`) on the same Wi-Fi.
 
 **Full manual: [docs/TESTING-ON-FIRE-TV.md](docs/TESTING-ON-FIRE-TV.md)** — which sticks can run it (Vega OS ones
@@ -31,19 +32,21 @@ a runbook for AI agents driving the stick over `adb`.
 1. On the Fire TV: **Settings → My Fire TV → About**, select the device name seven times to show Developer options; then
    **Developer options → ADB debugging: On** (and **Apps from Unknown Sources: On** on older Fire OS). Note the IP address
    under **Settings → My Fire TV → About → Network**.
-2. Download `described-0.1.0.apk` from the [v0.1.0 release](https://github.com/moiz-lakkadkutta/described/releases/tag/v0.1.0)
-   (built from `d0608dc`; sha256 `b417fe075496802ae5ef4a2820321263713b07e01c0a1ff9ad6cfe54d281aaec`).
+2. Download the newest APK: <https://github.com/moiz-lakkadkutta/described/releases/latest/download/described.apk>.
+   Pinned: [`v0.1.1/described-0.1.1.apk`](https://github.com/moiz-lakkadkutta/described/releases/download/v0.1.1/described-0.1.1.apk)
+   (sha256 `ab73e20547fe809e5b0cdb24851033bc162c70006832f0f0ad66680e01f33f9d`). v0.1.0 is older and has no privacy line
+   in About & licenses.
 3. Install and open it:
    ```sh
    adb connect <fire-tv-ip>:5555          # accept the "Allow USB debugging?" prompt on the TV
-   adb install -r described-0.1.0.apk
+   adb install -r described.apk
    adb shell monkey -p dev.moizp.described 1   # or open Described from Your Apps & Channels
    ```
 
 Six CC-BY titles are in the library, the whole of Sintel (14:48) among them; description is on by default. Prefs and My list
 are kept per device (Android ID), no sign-in. The hosted API stays up until 20 Nov 2026, the end of judging.
 
-No Fire TV? The APK installs the same way on an Android TV emulator (`adb install -r described-0.1.0.apk`): the
+No Fire TV? The APK installs the same way on an Android TV emulator (`adb install -r described.apk`): the
 [screenshots](#screens) were captured with this APK on one (API 31, arm64, 1920 × 1080). The APK also carries x86 and
 x86_64 libraries. An emulator is not a Fire TV: the Fire TV integrations below need the stick.
 
