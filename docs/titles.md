@@ -108,8 +108,9 @@ titles (166 description cues), and serves them now.
 Total $0.3565 against the approved $0.50 cap. Notes:
 - **sintel-90-150-r2 and tears-of-steel-40-100** replace the 2026-10-14 versions the user had chosen, so they first ran `--to
   validate` only; the user approved them knowing the dropped lines, and they were published on 2026-10-16 with `--from publish`
-  ($0, `PUBLISH_INVALIDATE=1`). Their 2026-10-14 work dirs and rows are in the backup above. r2 also loses its Rich captions
-  (`sdh.vtt` added nothing to the captions, so the track is left out; it had 12 cues). At Ruth's rate r2 goes from 11 cues to 8 ("Fire burns.", "Tent glows." and "Faint red sparks drift downward." are
+  ($0, `PUBLISH_INVALIDATE=1`). Their 2026-10-14 work dirs and rows are in the backup above. r2 also lost its Rich captions
+  then (`sdh.vtt` added nothing to the captions, so the track was left out; it had 12 cues); the 2026-10-19 re-run (#85) gave
+  them back: r2 now has Rich captions with `[fire crackling]` ≈ 0:11 and `[broth pours]` ≈ 0:30 ("Published state"). At Ruth's rate r2 goes from 11 cues to 8 ("Fire burns.", "Tent glows." and "Faint red sparks drift downward." are
   gone; "Red-haired girl accepts bowl." becomes "Girl accepts bowl."; the "SINTEL" card joins the first cue); Tears of Steel goes from 15 cues to
   14 (the "SIMULATION READY... LOCKED." pause and "Two people at tables." become one extended cue; "Ship deck." is gone).
 - Full-length `sintel` went from 127 cues (17 extended) to 117 (18). In the edit output 26 cues use she / he and 16 still say
@@ -130,7 +131,7 @@ text, extended flag and clip key). Why they were restored:
   were gone (the bowl is now "A woman kneels with a bowl."). Tears of Steel went from 15 cues to 11: the bridge scene that opens the segment was gone, and the headline name read
   "Dr Amstelveldt".
 - The re-run lost Sintel's Rich captions. Nova Lite answered with sights tagged as sounds ("[fire pit] glows", "[staff] holds",
-  "[bowl] kneels"). The evidence rules rejected all five, so `sdh.json` was `{"degraded":true}` and the track was left out.
+  "[bowl] kneels"). The evidence rules rejected all five, so `sdh.json` was `{"degraded":true}` and the track was left out. (Superseded: since the 2026-10-19 re-run, r2 has Rich captions.)
 
 **big-buck-bunny-0-60 and elephants-dream-0-60: on the re-run.** Known issues:
 - Big Buck Bunny: three cues in a row open with "The meadow" (5.5 s, 10.9 s, 16.4 s). The last cue drops its articles: "Huge,
@@ -170,8 +171,10 @@ $0.0984 (edit $0.0030, Polly $0.0954). The work dir as it was before this re-run
   - 3:14.5 (extended): "A young woman kneels beside a bleeding small tan dragon." This brings in both again with "A …", after
     the cues before it have already shown them.
   - 11:20.3: "Dim rocky cave on the ledge, gnarled tree roots on the right." It still has no verb.
-- Rich captions are still left out. Nova Lite answered the single SDH window (c1–c37) with `ModelErrorException` ("Model
-  produced invalid sequence as part of ToolUse") twice again, so only plain Captions are offered. (Since the 2026-10-19 re-run above it has Rich captions.)
+- On this run Rich captions were still left out: Nova Lite answered the single SDH window (c1–c37) with `ModelErrorException`
+  ("Model produced invalid sequence as part of ToolUse") twice again, so only plain Captions were offered then. **Now the
+  full Sintel has Rich captions**: the 2026-10-19 `--from text` re-run (#82 plain JSON, #85 trim) added `[creature roars]`
+  at 3:23 and `[woman gasps]` at 5:33 ("Published state").
 
 **Cost.** The 2026-10-15 re-run cost $0.3366 for the five titles (Big Buck Bunny $0.0760, Elephants Dream $0.0733, Sintel $0.0480,
 Tears of Steel $0.0543, Caminandes $0.0850). The Caminandes re-run after #68 cost $0.0582 more. That makes **$0.3948** against
@@ -234,8 +237,9 @@ the $0.019 a minute the estimator assumed then. `src/cost.ts` underestimated a r
 Outcome: 189 shots → 129 cues from fit (15 extended) → 127 published (17 extended). Voice dropped 2 cues ("Sintel stares
 wide-eyed." at 9:00.1, 150 ms over its limit, and a pause at 5:43.9 that started 1.6 s after its shot), turned 3 credit cues into
 extended pauses, and shortened 1 cue. Verify changed 56 of 181 shots and kept 47 drafts by a guard. The edit pass revised 12
-of 129 cues and rejected 13 edits. Captions have 37 cues. Rich captions were **omitted**: Nova Lite answered the single SDH window
-(c1–c37) with `ModelErrorException` twice, so `sdh.json` is `{"degraded":true}`, as happened on Tears of Steel. The credit
+of 129 cues and rejected 13 edits. Captions have 37 cues. On this first run Rich captions were **omitted**: Nova Lite answered the single SDH window
+(c1–c37) with `ModelErrorException` twice, so `sdh.json` was `{"degraded":true}`, as happened on Tears of Steel. Since the
+2026-10-19 re-run (#82, #85) the full Sintel **has** Rich captions (`[creature roars]` 3:23, `[woman gasps]` 5:33). The credit
 roll's long text cards (more than 8 words) are dropped by describe, as designed.
 
 Checks: `validate` reported no problems (audio Original and Audio description; text Captions and Description text). The Title

@@ -3,15 +3,18 @@
 Platform: Fire OS only; Vega deferred (decision 0004). Freeze Oct 15, submit Oct 22.
 - Vega: `apps/vega/App.template.tsx` wires Vega's `TVEventHandler` through `configureRemote` (#10); still a template, not built.
 
-**Status 2026-10-19 (main e46e1c7).** Merged: #1–#85 except #83 (#34, #38, #78 closed unmerged); last in: #85, Rich captions
-trim a grounded sound instead of rejecting it (decision 0018), after #82 (plain JSON) and #84 (housekeeping). Open: #83 (docs
-refresh). Six titles live on Ruth generative (docs/titles.md "Published state"); after the 2026-10-19 `--from text` re-run
+**Status 2026-10-23 (main 9d7d7ac).** Merged: #1–#90 except #83 (#34, #38, #78 closed unmerged); since 2026-10-19: #86 Fire TV
+voice targets the MediaSession (`voicecommandcontrol` permission; device re-check pending), #87 / #88 Extended pause timing
+(decision 0019), #89 logo, #90 Appstore kit (docs/appstore, docs/privacy.md, docs/screens). Open: #83 (docs refresh).
+GitHub release [v0.1.0](https://github.com/moiz-lakkadkutta/described/releases/tag/v0.1.0) is out (`described-0.1.0.apk`
+built from d0608dc); the Devpost project is submitted. Amazon Appstore: kit ready, not submitted; the APK needs the manifest
+fix first (docs/appstore/SUBMIT.md B1: `uses-feature` touchscreen / microphone `required="false"`, no `RECORD_AUDIO`). Six titles live on Ruth generative (docs/titles.md "Published state"); after the 2026-10-19 `--from text` re-run
 ($0.0002) full-length `sintel` and `sintel-90-150-r2` carry Rich captions, the other titles have nothing that qualifies; the
 hosted API is re-seeded. Gate C g13 passes both clips (decision 0017, #80 / #81); kit from npm (`@moiz0309/vega-media-kit`
 0.2.0, #79); hosted API code in (#66, #73–#75). Device re-checks 6, 11, 14–17, DESC-007 Extended and DESC-035 are still to
 run; the results table in RUN-2026-10.md is not filled in yet.
-**Next (submit Oct 22):** `gh release create v0.1.0` after the stick test, demo video and screenshots (DESC-011 / 012),
-DESC-035 device check.
+**Next:** sideload check of v0.1.0 on the stick with the voice re-check (check 14), DESC-035 and DESC-007 device checks;
+Appstore manifest fix (B1) before any Appstore submission.
 
 - [x] DESC-001 · week 0 · Three narrated shots end to end (Sintel 0:00–1:00; run on 1:30–2:30 and 1:30–3:30, see 0003) → decides Gate A
   - part 2: deployed, paid run published, Gate A passed on Fire OS (Vega deferred), Gate C passed with Qwen3-VL 235B (72.4 %, decision 0003)
@@ -50,6 +53,8 @@ DESC-035 device check.
   - research + decisions: docs/platform/fire-os-bindings.md; device check: docs/device-checks/DESC-008.md
   - [x] deep links `described://title/{slug}`, `described://play/{slug}?t=…` (scheme intent filter, Root routing); device run check 12 passed
   - [x] Alexa transport via a local MediaSession module (`apps/expo/modules/described-media-session`); compiles in the release build (device run 2026-10-10)
+  - [x] `com.amazon.permission.media.session.voicecommandcontrol` + background media-session opt-in, after the 2026-10-19 run logged
+    "No target session, trying button press" for every directive (#86); device re-check pending
   - [x] session visibility follows activity start/stop, not onPause, so "Alexa, fast forward / rewind / restart" (sent as `onSeekTo`) reach the
     Player; native logs at `Log.i` (#31). "Alexa, go to N seconds" is absolute time, which Fire TV's mapping does not support: not a failure
   - [x] draft catalog feed `GET /catalog/fire-tv.xml` (CDF shape, unverified against the XSD)
@@ -101,9 +106,10 @@ DESC-035 device check.
 - [ ] DESC-011 · week 4 · Polish, docs/screens, README, docs/aws.md, feedback, feature requests, ≥ 8 friction logs · freeze Oct 15 (needs: screenshots)
   - [x] rail: Described (described titles grid) and My list screens + `GET/PUT/DELETE /me/list` (#12); device run checks 9–11 passed
   - [x] README, docs/aws.md, docs/feedback.md, docs/feature-requests.md, friction index (19 logs in `docs/friction/`)
-  - [ ] screenshots in `docs/screens/` (list and capture recipe: `docs/screens/README.md`)
+  - [x] screenshots in `docs/screens/`: 9 of 11 on an Android TV emulator (API 31, arm64) with the v0.1.0 APK, 2026-10-22 (#90); README "Screens"
+  - [ ] screenshots 9 `described` and 10 `my-list` (`docs/screens/README.md`)
   - [x] README title list and credits: the five DESC-010 titles (#33)
-- [ ] DESC-012 · week 5 · Video + submission (Oct 22)
+- [ ] DESC-012 · week 5 · Video + submission (Oct 22) — Devpost project submitted
   - [x] drafts: `docs/video-script.md`, `docs/submission.md` (#11); TODO(human) marks footage, Devpost fields and measured costs
 - [x] DESC-013 · follow-up · Narration end measured from Polly MP3 duration (cue overrun into dialogue) (#15)
 - [x] DESC-014 · follow-up · SDH for full-length titles: windows of ≤ 40 captions, additions-only Nova Lite replies (#14)

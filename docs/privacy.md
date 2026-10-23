@@ -48,7 +48,9 @@ delete. Afterwards the app starts with default settings and an empty My list.
 
 You can also remove titles from My list in the app at any time, and uninstalling the app stops it sending anything.
 
-When the hosted service is shut down, its database, backups and logs are deleted with it.
+When the hosted service is shut down, its database, backups and logs are deleted with it. The judging copy runs as the
+`dev` stage, where that is the whole story. A `prod`-stage deploy is different: it keeps a final snapshot of the database
+when the stack is removed (`infra/lib/viewer-stack.ts`), and that snapshot has to be deleted by hand.
 
 ## Children
 

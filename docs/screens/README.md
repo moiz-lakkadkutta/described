@@ -43,7 +43,7 @@ After capture: list the files in README "Screens", and tick the screenshot item 
 
 ## Captured 2026-10-22 (Android TV emulator)
 
-Release APK `v0.1.0-rc1` (sha256 `b417fe07…aaec`) against the hosted API, on an Android TV emulator: system image `android-31;android-tv;arm64-v8a`, AVD `tv_1080p` (1920 × 1080, 320 dpi, the stick's density). Captured with `adb exec-out screencap -p`; the only processing was dropping the all-opaque alpha channel (24-bit PNG for the Appstore). Video decoded on the emulator, so shots 5–7 are real frames, not photos. Not a Fire TV: re-shoot on the stick if the UI differs.
+Release APK [`v0.1.0`](https://github.com/moiz-lakkadkutta/described/releases/tag/v0.1.0) (`described-0.1.0.apk`, built from `d0608dc`, sha256 `b417fe07…aaec`) against the hosted API, on an Android TV emulator: system image `android-31;android-tv;arm64-v8a`, AVD `tv_1080p` (1920 × 1080, 320 dpi, the stick's density). Captured with `adb exec-out screencap -p`; the only processing was dropping the all-opaque alpha channel (24-bit PNG for the Appstore). Video decoded on the emulator, so shots 5–7 are real frames, not photos. Not a Fire TV: re-shoot on the stick if the UI differs.
 
 | # | File | State |
 |---|---|---|

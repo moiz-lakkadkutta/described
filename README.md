@@ -4,7 +4,7 @@
 
 - **Why:** most video has no audio description, so blind and low-vision viewers miss what is on screen between the lines.
 - **What:** press Play and narration is already on; Menu → Audio: Original to hear the difference; Extended mode pauses the film when there's more to say.
-- **For whom:** blind and low-vision viewers, and (with rich captions) deaf and hard-of-hearing viewers. Video: TODO(human): YouTube URL (Public) · screenshots: [docs/screens](docs/screens/README.md).
+- **For whom:** blind and low-vision viewers, and (with rich captions) deaf and hard-of-hearing viewers. Video: TODO(human): YouTube URL (Public) · screenshots: [Screens](#screens) ([docs/screens](docs/screens/README.md)).
 
 Qwen3-VL on Amazon Bedrock describes each shot and checks its own draft against the frames, Nova Lite fits the words into the
 gaps between dialogue, DeepSeek v3.2 on Bedrock joins a scene's cues into one narration, Polly's generative voice Ruth speaks
@@ -27,7 +27,8 @@ Android platform tools (`adb`) on the same Wi-Fi.
 1. On the Fire TV: **Settings → My Fire TV → About**, select the device name seven times to show Developer options; then
    **Developer options → ADB debugging: On** (and **Apps from Unknown Sources: On** on older Fire OS). Note the IP address
    under **Settings → My Fire TV → About → Network**.
-2. Download `described-0.1.0.apk` from the [v0.1.0 release](https://github.com/moiz-lakkadkutta/described/releases/tag/v0.1.0).
+2. Download `described-0.1.0.apk` from the [v0.1.0 release](https://github.com/moiz-lakkadkutta/described/releases/tag/v0.1.0)
+   (built from `d0608dc`; sha256 `b417fe075496802ae5ef4a2820321263713b07e01c0a1ff9ad6cfe54d281aaec`).
 3. Install and open it:
    ```sh
    adb connect <fire-tv-ip>:5555          # accept the "Allow USB debugging?" prompt on the TV
@@ -38,12 +39,13 @@ Android platform tools (`adb`) on the same Wi-Fi.
 Six CC-BY titles are in the library, the whole of Sintel (14:48) among them; description is on by default. Prefs and My list
 are kept per device (Android ID), no sign-in. The hosted API stays up until 20 Nov 2026, the end of judging.
 
-No Fire TV? The APK also carries x86 and x86_64 libraries, so it should install the same way on an Android TV emulator
-(`adb install -r described-0.1.0.apk`); we have not tried one yet.
+No Fire TV? The APK installs the same way on an Android TV emulator (`adb install -r described-0.1.0.apk`): the
+[screenshots](#screens) were captured with this APK on one (API 31, arm64, 1920 × 1080). The APK also carries x86 and
+x86_64 libraries. An emulator is not a Fire TV: the Fire TV integrations below need the stick.
 
 <details><summary>Maintainers: host the API and publish the APK (DESC-034)</summary>
 
-Each step below is paid or public: run it only with the owner's go-ahead.
+Each step below is paid or public: run it only with the owner's go-ahead. Done for v0.1.0 (APK built from `d0608dc`).
 
 ```sh
 set -a; source .env; set +a                      # CLOUDFRONT_DOMAIN: the media stack's CdnDomain
@@ -80,12 +82,12 @@ Remove it with `cd infra && AWS_PROFILE=described-dev npx cdk destroy described-
   `crossfadeAudio` in `packages/shared-ui/src/playback.ts`).
 - **Extended mode**: at an extended cue the film pauses, an ochre bar reads "Describing…", the cue's clip plays, the film resumes.
 - **Fire TV bindings**: deep links `described://title/{slug}` and `described://play/{slug}?t=…`; remote media keys and Alexa
-  transport ("Alexa, pause / resume / fast forward / rewind / restart"; the voice re-check of fast forward, rewind and restart
-  is pending, TASKS.md DESC-008) through an Android MediaSession module; a draft Fire TV
+  transport ("Alexa, pause / resume / fast forward / rewind / restart"; on the 2026-10-19 device run voice did not reach the
+  session, fixed in #86 with Amazon's `voicecommandcontrol` permission; device re-check pending, TASKS.md DESC-008) through an Android MediaSession module; a draft Fire TV
   catalog feed at `GET /catalog/fire-tv.xml` (catalog integration is partner-only, [fire-os-bindings](docs/platform/fire-os-bindings.md)).
 - **Fire TV integrations** ([fire-os-bindings](docs/platform/fire-os-bindings.md)):
   1. Launch intents / deep links (`described://…`) — verified on the stick (device run 2026-10-10).
-  2. Android MediaSession — remote media keys verified (2026-10-10); Alexa voice transport re-check pending.
+  2. Android MediaSession — remote media keys verified (2026-10-10); Alexa voice transport: fix merged (#86), device re-check pending.
   3. **Fire TV caption settings** — captions follow Settings › Accessibility › Captions (colours, size, font) through
      Android's `CaptioningManager` (`apps/expo/modules/described-captioning`); Settings › Caption style "Match Fire TV"
      is the default, Box or Shadow chosen in the app wins, and colours are clamped to 4.5:1 contrast. **Pending** device

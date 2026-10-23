@@ -3,7 +3,7 @@
 Draft for DESC-012 (W1-G). Structure from the hackathon runbook §10 (video script template, 2:45) and §9 (definition of
 done: < 3:00, public on YouTube or Vimeo, shows the app working on the device). Recording, cut and upload are the
 human's. Upload to YouTube as **Public**: the hackathon rules require the video to be publicly visible, so Unlisted is not
-enough (deadline Fri 23 Oct 2026, 12:00 PDT). Refreshed 2026-10-19 (main `e46e1c7`). Every number in the voice-over is sourced in the
+enough (deadline Fri 23 Oct 2026, 12:00 PDT). Refreshed 2026-10-23 (main `9d7d7ac`). Every number in the voice-over is sourced in the
 right-hand column or in [Sources](#sources); change a number only together with its source.
 
 **Rules for the cut**
@@ -78,7 +78,7 @@ around it in a way that hides it.
 
 - [ ] Confirm Lingo is being submitted; if not, cut "shared with our second entry, Lingo" from beat 5.
 - [ ] Person on camera for shot C and their consent; who records the voice-over.
-- [ ] Optional device shots: VoiceView reading a focused title; "Alexa, pause" only if RUN-2026-10 check 14 passes.
+- [ ] Optional device shots: VoiceView reading a focused title; "Alexa, pause" only if RUN-2026-10 check 14 passes (voice fix merged in #86; device re-check pending).
 - [ ] Final cut length 2:40–2:55 (hard limit < 3:00); burned captions checked against the voice-over text above; CC-BY
       credits on screen.
 - [ ] Upload to YouTube as **Public** (not Unlisted); paste the URL into [submission.md](submission.md) and the README.

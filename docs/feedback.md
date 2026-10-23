@@ -1,8 +1,8 @@
 # Product feedback — Described
 
-Every number links to where it was measured; each item in §3 links its friction log ([docs/friction/](friction/), 28 logs).
+Every number links to where it was measured; each item in §3 links its friction log ([docs/friction/](friction/), 29 logs).
 The five required answers are §1 (which tools, and how the AWS services are used), §2 (what worked well), §3 (what needs
-improvement), §4 (onboarding) and §5 (would we build with them again). Refreshed 2026-10-19 (main `e46e1c7`).
+improvement), §4 (onboarding) and §5 (would we build with them again). Refreshed 2026-10-23 (main `9d7d7ac`).
 Device throughout: Fire TV Stick `AFTSS`, Fire OS 7.7.1.6 (Android 9, API 28), over adb.
 
 ## 1. Tools, APIs and SDKs used, and why
@@ -75,7 +75,9 @@ progress to the admin page).
   rewind" did nothing; the guide's voice-command → callback table and Fire TV's `whad` publisher log lines showed why (the
   session went inactive under the Alexa UI), fixed in PR #31 ([fire-os-bindings §4](platform/fire-os-bindings.md#4-media-controls-and-alexa-transport)).
   The voice re-check on 2026-10-14 was **inconclusive**: the session was published, but no voice command reached the app
-  ([RUN-2026-10](device-checks/RUN-2026-10.md) check 14). Remote media keys did pass (check 13).
+  ([RUN-2026-10](device-checks/RUN-2026-10.md) check 14). On 2026-10-19 the logs named the cause, "No target session, trying
+  button press": the manifest lacked `com.amazon.permission.media.session.voicecommandcontrol`. The fix is merged (#86,
+  [log](friction/2026-10-19-fire-tv-voice-falls-back-to-key-injection-without-voicecommandcontrol-permission.md)); the device re-check is pending. Remote media keys did pass (check 13).
 
 ## 3. What needs improvement
 
@@ -91,9 +93,10 @@ Most actionable first within each group.
    *Ask:* state the maximum frame size on the device-specs page; expose decoder fallback to apps.
 3. **Alexa transport needs native code in a React Native app** — [log](friction/2026-10-01-alexa-transport-needs-a-native-media-session.md).
    Impact: ~half a day and a Kotlin module. On device, fast forward / rewind then did nothing: the Alexa UI pauses the
-   activity, our session went inactive, and Fire TV unpublishes inactive sessions (fixed in 788e973; the voice re-check of
-   fast forward / rewind is still pending). *Ask:* an Amazon RN package or sample for MediaSession that reports to JS;
-   document that the session must stay active while the activity is paused for voice.
+   activity, our session went inactive, and Fire TV unpublishes inactive sessions (fixed in 788e973). Voice still did not reach the session until we added Amazon's `voicecommandcontrol` permission
+   ([log](friction/2026-10-19-fire-tv-voice-falls-back-to-key-injection-without-voicecommandcontrol-permission.md); fix merged in #86, device re-check pending). *Ask:* an Amazon RN package or sample for MediaSession that reports to JS;
+   document that the session must stay active while the activity is paused for voice, and put the permission in the
+   React Native samples.
 4. **Fire OS user builds drop `Log.d`** — [log](friction/2026-10-10-fire-os-drops-log-d.md). Impact: an evening lost
    diagnosing the session bug above. *Ask:* one line in the logcat / ADB docs, "user builds show I and above only", or
    document a `setprop log.tag.<TAG> DEBUG` path if Fire OS has one.
@@ -167,6 +170,10 @@ multi-gigabyte SDK plus a day of setup) decided us for Fire OS. *Ask:* a smaller
   package ([RUN-2026-10 §0.8](device-checks/RUN-2026-10.md)).
 - **AWS:** account to first paid pipeline run cost ~40 min of plan and verification errors (§3 AWS 5–6). Claude on
   Bedrock was not tested because the use-case form had not been submitted ([0003](decisions/0003-gate-c.md)).
+- **Amazon Appstore:** the submission kit is ready ([appstore/SUBMIT.md](appstore/SUBMIT.md)) but not submitted. Our APK
+  needs a manifest fix first: an Expo build declares no `uses-feature` for touchscreen or microphone with
+  `required="false"`, and expo-audio's default adds `RECORD_AUDIO` (an implied required microphone), so Fire TV device
+  filtering would likely list no device. Nothing in the Expo or React Native TV path warned us; we found it with `aapt`.
 
 ## 5. Would you build with these tools again?
 

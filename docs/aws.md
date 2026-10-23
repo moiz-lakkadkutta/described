@@ -1,6 +1,6 @@
 # AWS usage — Described
 
-Every call, why it is load-bearing, and its approximate cost. Kept current (main e46e1c7, 2026-10-19); judges read this for
+Every call, why it is load-bearing, and its approximate cost. Kept current (main 9d7d7ac, 2026-10-23); judges read this for
 the AWS Builder mini-challenge. Prices live in one table, `packages/pipeline/src/cost.ts`; each is marked `TODO(price): verify`
 there until checked against the AWS pricing pages.
 
@@ -60,7 +60,8 @@ AWS_PROFILE=<profile> pnpm run deploy:stack described-media-dev -c stage=dev --o
   esbuild bundle + Prisma's `linux-arm64-openssl-3.0.x` engine + `prisma/migrations`). `API_MODE=viewer`: `/admin` is not mounted.
   Function URL, auth type `NONE`: HTTPS, CORS from Express. Logs kept one week.
 - RDS PostgreSQL 17 db.t4g.micro, single-AZ, 20 GiB gp3, encrypted, not public; ingress 5432 from the function's security group
-  only. `DESTROY` on stack deletion outside `prod` (the catalogue is re-seeded; device prefs and lists are lost).
+  only. `DESTROY` on stack deletion outside `prod` (the catalogue is re-seeded; device prefs and lists are lost); in `prod`,
+  deletion protection is on and stack deletion keeps a final snapshot (`RemovalPolicy.SNAPSHOT`, `infra/lib/viewer-stack.ts`).
 - Guards (review of PR #66): `x-device-id` must match `^[A-Za-z0-9_-]{1,64}$` (else 400, in both modes) and only writes create
   a Profile row (GET `/me/prefs` answers the defaults, GET `/me/list` an empty list), so a public URL cannot be made to
   store arbitrary strings; CloudWatch alarm `DbFreeStorageLow` below 2 GiB free; viewer mode logs only 4xx (warn) and 5xx

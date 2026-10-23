@@ -1,8 +1,8 @@
-# Described — Devpost submission text (draft)
+# Described — Devpost submission text
 
 Draft for DESC-012 (W1-G). Hackathon: Build, Ship, Shape: Amazon Developer Hackathon (Devpost). Paste section by section
-into the Devpost form; submit Oct 22 evening Berlin (team schedule). Deadline: **Fri 23 Oct 2026, 12:00 PDT** (21:00 Berlin).
-Refreshed 2026-10-19 against main `e46e1c7`. Checked against the runbook §9 definition of done. Every number carries its
+into the Devpost form. The project is submitted on Devpost. Deadline: **Fri 23 Oct 2026, 12:00 PDT** (21:00 Berlin).
+Refreshed 2026-10-23 against main `9d7d7ac`. Checked against the runbook §9 definition of done. Every number carries its
 source; anything that needs a person is marked **TODO(human)**. Sources are listed at the end.
 
 ---
@@ -19,7 +19,7 @@ source; anything that needs a person is marked **TODO(human)**. Sources are list
 | Demo video | **Public** on YouTube (the rules ask for a publicly visible video; not Unlisted), < 3:00. TODO(human): what is the video's URL? |
 | Team members | Moiz — solo entry (GitHub `moiz-lakkadkutta`). TODO(human): what is Moiz's Devpost handle? |
 | Built with | Amazon Bedrock (Qwen3-VL 235B, DeepSeek v3.2, Amazon Nova Lite, Amazon Nova Pro as fallback), Amazon Polly (generative voice Ruth), Amazon Transcribe, Amazon S3, Amazon CloudFront, AWS Lambda, Amazon RDS for PostgreSQL, AWS Secrets Manager, AWS CDK, React Native, Expo, react-native-video, Shaka Packager, ffmpeg, Express, Prisma, PostgreSQL, pg-boss, TypeScript |
-| Try it | Sideload the release APK onto a Fire TV: `adb connect <fire-tv-ip>:5555`, `adb install -r described-0.1.0.apk` (README, "Try it"). The APK talks to a hosted copy of the API over HTTPS (AWS Lambda function URL + Amazon RDS, us-east-1, DESC-034) and streams from CloudFront, so it needs nothing on the judge's network. The hosted API is live with all six titles seeded, and it stays up until 20 Nov 2026, the end of judging (user decision 2026-10-19). Release with the APK: https://github.com/moiz-lakkadkutta/described/releases/tag/v0.1.0. No Fire TV: the APK also carries x86 and x86_64 libraries for an Android TV emulator (not yet tried on one). Or watch the demo video. |
+| Try it | Sideload the release APK onto a Fire TV: `adb connect <fire-tv-ip>:5555`, `adb install -r described-0.1.0.apk` (README, "Try it"). The APK talks to a hosted copy of the API over HTTPS (AWS Lambda function URL + Amazon RDS, us-east-1, DESC-034) and streams from CloudFront, so it needs nothing on the judge's network. The hosted API is live with all six titles seeded, and it stays up until 20 Nov 2026, the end of judging (user decision 2026-10-19). Release with the APK: https://github.com/moiz-lakkadkutta/described/releases/tag/v0.1.0 (`described-0.1.0.apk`, built from `d0608dc`, sha256 `b417fe075496802ae5ef4a2820321263713b07e01c0a1ff9ad6cfe54d281aaec`). No Fire TV: the same APK installs on an Android TV emulator; the [screenshots](screens/README.md) were captured with it on one (API 31, arm64). Or watch the demo video. |
 
 ---
 
@@ -78,8 +78,9 @@ Alexa transport, captions that follow the viewer's Fire TV caption settings (And
 device check — [DESC-035](device-checks/DESC-035.md)), and a draft Fire TV catalog feed in case Amazon accepts us for catalog
 integration ([fire-os-bindings](platform/fire-os-bindings.md)). On the stick (device run 2026-10-10, release build): deep
 links and the remote's media keys passed, and the MediaSession module compiles in the release build; Alexa voice transport
-was inconclusive on 2026-10-14 — the session stayed up but no voice command reached the app (TASKS.md DESC-008, commit
-`169df23`). TODO(human): did "Alexa, pause" reach the app in a re-run of RUN-2026-10 check 14? Infrastructure is AWS CDK
+did not reach the app: inconclusive on 2026-10-14, and on 2026-10-19 Fire TV's logs said "No target session" for every
+voice directive. The cause was a missing permission (`com.amazon.permission.media.session.voicecommandcontrol`); the fix is
+merged (#86) and in the v0.1.0 APK, and the device re-check is pending, so we do not claim voice works yet. Infrastructure is AWS CDK
 (`infra/`); the hosted API the release APK talks to is an AWS Lambda function URL with Amazon RDS for PostgreSQL. Every AWS call, its purpose and its cost is in [docs/aws.md](aws.md).
 
 **Choosing the model was measured, not assumed.** Our quality gate (Gate C, [decision 0001](decisions/0001-week0-gates.md),
@@ -157,10 +158,15 @@ describer — and delivers description through the TV's own audio-track selector
   ([0001](decisions/0001-week0-gates.md)).
 - **Device checks partly done.** On the stick (device run 2026-10-10, recorded in TASKS.md; checklist
   [RUN-2026-10](device-checks/RUN-2026-10.md)) the Player checks 5–8 passed (DESC-006), deep links (check 12) and media
-  keys (check 13) passed (DESC-008). Still open on 2026-10-19: the by-ear re-check of the faded audio switch
-  (check 6, build 788e973), Alexa voice transport (check 14, inconclusive on 2026-10-14), Extended mode (DESC-007,
-  [device check](device-checks/DESC-007.md) not run; titles with extended cues now exist), and Fire TV caption settings and
-  VoiceView ([DESC-035](device-checks/DESC-035.md) §1, §2). TODO(human): which of check 6, check 14, DESC-007 and DESC-035 §1 / §2 have passed on the stick?
+  keys (check 13) passed (DESC-008). Still open on 2026-10-23: the by-ear re-check of the faded audio switch
+  (check 6, build 788e973), Alexa voice transport (check 14: fix merged in #86, device re-check pending), Extended mode (DESC-007,
+  [device check](device-checks/DESC-007.md) not run; pause timing fixed after the last stick run: a pause keeps 500 ms
+  before the next clip or speech, #87, and starts early, never late, #88 / [0019](decisions/0019-extended-lead.md)), and Fire TV caption settings and
+  VoiceView ([DESC-035](device-checks/DESC-035.md) §1, §2). TODO(human): which of check 6, DESC-007 and DESC-035 §1 / §2 have passed on the stick?
+- **Not in the Amazon Appstore yet.** The submission kit is ready ([docs/appstore](appstore/SUBMIT.md): listing, privacy
+  policy, screenshots), but it is not submitted. The APK needs a manifest fix first: it declares no `uses-feature` for
+  touchscreen or microphone with `required="false"`, and expo-audio adds `RECORD_AUDIO`, which implies a required
+  microphone. Until then, the v0.1.0 APK is sideloaded with `adb`.
 - **English only** in the demo titles: all six are `en`, voiced by Polly Ruth (generative) ([titles](titles.md), "Published
   state"). German (`de`, Polly Vicki and Daniel) is wired but not shown.
 - All demo content is CC-BY (Blender open movies) with attribution in the app (Title screen, Settings → About & licenses). The six
@@ -219,7 +225,7 @@ Dev tooling listed in [docs/aws.md](aws.md): Claude Code.
 
 - Product feedback (five required answers): [docs/feedback.md](feedback.md) (PR #36).
 - Feature requests with priorities: [docs/feature-requests.md](feature-requests.md).
-- Friction logs: [docs/friction/](friction/) — 28 on 2026-10-19, not counting its README (runbook target 8–12; §9 requires ≥ 8).
+- Friction logs: [docs/friction/](friction/) — 29 on 2026-10-23, not counting its README (runbook target 8–12; §9 requires ≥ 8).
 
 ## Definition-of-done check (runbook §9)
 
@@ -227,14 +233,14 @@ Dev tooling listed in [docs/aws.md](aws.md): Claude Code.
 |---|---|
 | Public repo, MIT at root, README ≤ 10 steps, architecture, "what's new since Aug 31" | README has all three; repo is public |
 | Runs on Fire OS; Vega documented as experimental | Fire OS; Vega in [0004](decisions/0004-vega-deferred.md) |
-| ≥ 3 Fire TV platform integrations, each with a screenshot or log in the README | **At risk — 4 implemented, 2 verified** (1 launch intents / deep links; 2 MediaSession; 3 Fire TV caption settings via CaptioningManager — **pending** device check; 4 VoiceView — **pending** device check, [DESC-035](device-checks/DESC-035.md)). Fire TV Recommendations was retired by Amazon in May 2025 (docs 404). Deep links and media keys passed on the stick (device run 2026-10-10, checks 12–13); Alexa voice transport inconclusive (2026-10-14); catalog integration is partner-only (draft feed only); Personalization is not feasible on Fire OS before the freeze ([fire-os-bindings](platform/fire-os-bindings.md)). The audio-track selector is not counted: it is HLS playback, not a platform integration. The README has no evidence section yet. TODO(human): which photos or logcat lines from the device runs go in the README as evidence? |
+| ≥ 3 Fire TV platform integrations, each with a screenshot or log in the README | **At risk — 4 implemented, 2 verified** (1 launch intents / deep links; 2 MediaSession; 3 Fire TV caption settings via CaptioningManager — **pending** device check; 4 VoiceView — **pending** device check, [DESC-035](device-checks/DESC-035.md)). Fire TV Recommendations was retired by Amazon in May 2025 (docs 404). Deep links and media keys passed on the stick (device run 2026-10-10, checks 12–13); Alexa voice transport: fix merged (#86), device re-check pending; catalog integration is partner-only (draft feed only); Personalization is not feasible on Fire OS before the freeze ([fire-os-bindings](platform/fire-os-bindings.md)). The audio-track selector is not counted: it is HLS playback, not a platform integration. The README's [Screens](../README.md#screens) are emulator screenshots of the UI, not device evidence for the integrations. TODO(human): which photos or logcat lines from the device runs go in the README as evidence? |
 | Video < 3:00, public, on the device; Vega moment | [video-script.md](video-script.md); upload **Public** on YouTube (the rules require a publicly visible video); no Vega moment, by decision 0004 |
 | Text: what, how, who, impact with a cited number | This file |
 | Hosted stack stays up for judges until the judging period ends (20 Nov) | Kept up until 20 Nov 2026 (user decision 2026-10-19); ≈ $14.50 a month ([aws.md](aws.md#hosted-api-desc-034)) |
 | Tracks declared; Open Source section with repo, tag, handle, upstream PR | Above; tag `v0.2.0`, npm `@moiz0309/vega-media-kit@0.2.0` and upstream PR #136 done |
 | `docs/aws.md` lists every call, purpose, cost | [docs/aws.md](aws.md) |
-| Feedback (5 answers), feature requests with priorities, ≥ 8 friction logs | ✓ — friction 28, [feedback.md](feedback.md), [feature-requests.md](feature-requests.md) |
-| Tests pass in CI on the default branch; `pnpm i && pnpm dev` shows something | CI green on main at `e46e1c7` (2026-10-19, `gh run list --branch main`); `pnpm dev` runs `turbo run dev --parallel` (API `tsx watch`, Expo `expo start`; PR #10, merged 2026-10-04). Re-check CI on the final submission commit before submitting. |
+| Feedback (5 answers), feature requests with priorities, ≥ 8 friction logs | ✓ — friction 29, [feedback.md](feedback.md), [feature-requests.md](feature-requests.md) |
+| Tests pass in CI on the default branch; `pnpm i && pnpm dev` shows something | CI green on main at `9d7d7ac` (2026-10-22, `gh run list --branch main`); `pnpm dev` runs `turbo run dev --parallel` (API `tsx watch`, Expo `expo start`; PR #10, merged 2026-10-04). |
 | All materials in English | ✓ |
 
 ## Sources
