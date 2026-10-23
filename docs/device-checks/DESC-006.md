@@ -109,7 +109,7 @@ Turn on: Settings → Accessibility → VoiceView → On.
 - [ ] A stall longer than 2 s is announced once: "Loading…" (a short one says nothing; a long one, or loading → buffering, is not repeated).
 - [ ] The end is announced ("The end. Press Select to watch again, Back for the title.").
 - [ ] Opening the track sheet says "Audio & captions"; items name their section and purpose: "Audio: Original, no description",
-      "Audio: Audio description, voice Joanna", "Captions off", "Captions: Captions, dialogue only", "Captions: Rich captions, with sounds and music",
+      "Audio: Audio description, voice Joanna", "Captions off", "Captions: Captions, dialogue only", "Captions: Rich captions, with sounds",
       "Captions: Description text", "Extended mode is on. Press to turn it off". Selected items are also read as selected; each ✓ shows once.
 - [ ] Focusing the player reads the status line with it (e.g. "Play or pause Sintel. Description on · Joanna · Rich captions. Left and right …").
 - [ ] Switching audio announces **"Description off"** / **"Description on"** (never "disabled"/"enabled").

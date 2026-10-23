@@ -113,3 +113,35 @@ replays fit and voice from the run's recorded descriptions, gaps, shots, Nova Li
 - The pause lands at the cue's start: for a voice drop that is fit's placement, up to 1 s after the shot (LATE_MS), as for every cue.
 - Voice's cap is first-come, fit's is best-first; a title where voice drops two events within 30 s keeps the earlier one.
 - Cost: none in fit; in voice at most one extra Polly clip per event cue.
+
+## Amendment 2026-10-19 — A pause keeps 500 ms before what is heard next
+
+**Problem** (tears-of-steel-40-100, Extended mode on the device). The text pause d10 ("Words appear: "Dr Amstelwijk …"", shot 10,
+39 375–42 125 ms) sat at 43 226 ms: the end fit *estimated* for cue 8. Voice measured cue 8 ending at 41 825 ms, but follow-up (a) only
+ever moves a pause *later*, so the 1.4 s that opened up stayed unused. The next placed cue, d11, starts 150 ms after the pause (its
+voice 363 ms after). The app sees a pause on a position tick (up to 250 ms late) and pauses through the player (another ~100–250 ms),
+so the start of d11 was heard, then d10 over it in the same voice.
+
+**Decision.** After afterClips' existing moves and the on-time rule, a pause that has less than `PAUSE_CLEARANCE_MS` = 500 ms before
+the next **placed clip's start** or the next **detected speech** (Transcribe's words, `words.json`, plus the speech it gave no words for,
+`gaps.vad.json`; a clip or speech heard at the pause's own start counts as none) moves **earlier**, to
+
+  max(its shot's start, the measured end of every placed clip heard before it (`before`) + 150 ms, the start of the pause before it)
+
+when that start has the 500 ms (`pauseStart`, 06-voice). Otherwise the pause stays where it was and voice logs a warning. A pause
+that already has the 500 ms is not moved: fit's start is where its action is (an event pause is not moved before its action), and the
+golden lists (`sintel-90-210` A2, the DESC-020 and DESC-017 voice tests) are unchanged. An event pause does not move to within
+`EVENT_SPACING_MS` of another event pause (warning instead), so the cap holds. Texts, SSML and clips do not change: a `--from voice`
+re-run reuses every `cue_N.mp3` (no Polly call).
+
+**Effect on the shipped titles** (offline replay of 06-voice on copies of the work dirs, Polly replaced by a function that throws):
+
+| title | pause | before | after |
+|---|---|---|---|
+| tears-of-steel-40-100 | d10 "Words appear: "Dr Amstelwijk …"" | 43 226 | **41 975** (inside shot 10, 1 401 ms before d11) |
+| tears-of-steel-40-100 | d1, d3, d5, d14 | 0, 8 018, 17 272, 59 573 | unchanged; d1 warns (dialogue at 50 ms, nothing earlier than 0:00) |
+| sintel (full) | all 17 pauses | — | unchanged; two warn (182 042 ms, 752 080 ms: speech detected right after or at the shot start) |
+
+**Limits.** A pause at 0:00 or at its shot's start with speech right after it cannot move; that needs the app to pause early (the
+extended scheduler, shared-ui, a separate change). The clearance counts from the placed clip's file start, not its voice onset
+(~210 ms later), so it errs on the safe side.

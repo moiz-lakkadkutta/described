@@ -6,9 +6,16 @@
     "version": "0.1.0",
     "orientation": "landscape",
     "userInterfaceStyle": "dark",
+    "icon": "./assets/images/described-mark-1024.png",
     "android": {
       "package": "dev.moizp.described",
-      "permissions": [],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-foreground.png",
+        "backgroundColor": "#0D1215"
+      },
+      "permissions": [
+        "com.amazon.permission.media.session.voicecommandcontrol"
+      ],
       "intentFilters": [
         {
           "action": "MAIN",
@@ -22,6 +29,8 @@
     "plugins": [
       "./plugins/withKeyEvent",
       "./plugins/withLocalApi",
+      "./plugins/withFireTvVoice",
+      "./plugins/withTvBanner",
       [
         "expo-font",
         {

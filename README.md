@@ -282,7 +282,11 @@ vega-media-kit comes from npm (`@moiz0309/vega-media-kit`), so `pnpm i` is all i
 
 ## Screens
 
-TODO(human): screenshots and evidence photos from the stick (DESC-011) — list and capture recipe in [docs/screens/README.md](docs/screens/README.md).
+Release APK v0.1.0 on an Android TV emulator (API 31, arm64, 1920 × 1080), hosted API — [docs/screens/README.md](docs/screens/README.md):
+
+![Home](docs/screens/home.png)
+
+[first run](docs/screens/first-run.png) · [home](docs/screens/home.png) · [home, rail open](docs/screens/home-rail.png) · [title](docs/screens/title.png) · [player, rich captions](docs/screens/player-captions.png) · [player, Extended mode pause](docs/screens/player-extended.png) · [Audio & captions sheet](docs/screens/track-sheet.png) · [settings](docs/screens/settings.png) · [about](docs/screens/about.png). Not yet: `described` grid, `my-list` (DESC-011).
 
 ## Licences and credits
 
